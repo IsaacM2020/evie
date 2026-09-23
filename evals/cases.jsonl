@@ -1,0 +1,70 @@
+{"id":"a01","cat":"direct","utterance":"evie play some lofi","speaker":"isaac","front_app":"Safari","expect":{"for_evie":true,"route":"quick_action","complete":true,"has_event":false}}
+{"id":"a02","cat":"direct","utterance":"eve pause the music","speaker":"isaac","front_app":"Spotify","expect":{"for_evie":true,"route":"quick_action","complete":true,"has_event":false}}
+{"id":"a03","cat":"direct","utterance":"evie whats on my calendar tomorrow","speaker":"isaac","expect":{"for_evie":true,"route":"answer","complete":null,"has_event":false}}
+{"id":"a04","cat":"direct","utterance":"evey fix the bug in my cricket win predictor where chases are way off","speaker":"isaac","front_app":"Terminal","expect":{"for_evie":true,"route":"deep_job","complete":true,"has_event":false}}
+{"id":"a05","cat":"direct","utterance":"evie remind me to email mr tan about the chem ia tonight at 8","speaker":"isaac","expect":{"for_evie":true,"route":"remember","complete":true,"has_event":true}}
+{"id":"a06","cat":"direct","utterance":"evie remember i have the dentist on wednesday","speaker":"isaac","expect":{"for_evie":true,"route":"remember","complete":false,"has_event":true}}
+{"id":"a07","cat":"direct","utterance":"evie play that song","speaker":"isaac","expect":{"for_evie":true,"route":"quick_action","complete":false,"has_event":false}}
+{"id":"a08","cat":"direct","utterance":"ivy turn the volume down a bit","speaker":"isaac","expect":{"for_evie":true,"route":"quick_action","complete":true,"has_event":false}}
+{"id":"a09","cat":"direct","utterance":"evie whats 17 percent of 240","speaker":"isaac","expect":{"for_evie":true,"route":"answer","complete":null,"has_event":false}}
+{"id":"a10","cat":"direct","utterance":"evie research the best budget mechanical keyboards and make me a shortlist","speaker":"isaac","expect":{"for_evie":true,"route":"deep_job","complete":true,"has_event":false}}
+{"id":"a11","cat":"direct","utterance":"evie open whatsapp","speaker":"isaac","expect":{"for_evie":true,"route":"quick_action","complete":true,"has_event":false}}
+{"id":"a12","cat":"direct","utterance":"evie send it to him","speaker":"isaac","expect":{"for_evie":true,"route":"quick_action","complete":false,"has_event":false}}
+{"id":"a13","cat":"direct","utterance":"evie add buy printer ink to my todo list","speaker":"isaac","expect":{"for_evie":true,"route":"remember","complete":true,"has_event":true}}
+{"id":"a14","cat":"direct","utterance":"evie set a timer for 25 minutes","speaker":"isaac","expect":{"for_evie":true,"route":"quick_action","complete":true,"has_event":false}}
+{"id":"b01","cat":"bare","utterance":"pause","speaker":"isaac","front_app":"Spotify","expect":{"for_evie":true,"route":"quick_action","complete":true,"has_event":false}}
+{"id":"b02","cat":"bare","utterance":"what time is it","speaker":"isaac","expect":{"for_evie":true,"route":"answer","complete":null,"has_event":false}}
+{"id":"b03","cat":"bare","utterance":"skip this song","speaker":"isaac","front_app":"Spotify","expect":{"for_evie":true,"route":"quick_action","complete":true,"has_event":false}}
+{"id":"b04","cat":"bare","utterance":"how many days until october 10","speaker":"isaac","expect":{"for_evie":true,"route":"answer","complete":null,"has_event":false}}
+{"id":"b05","cat":"bare","utterance":"can you check why the tests are failing in the anchor repo","speaker":"isaac","front_app":"Terminal","expect":{"for_evie":true,"route":"deep_job","complete":true,"has_event":false}}
+{"id":"b06","cat":"bare","utterance":"remind me to call grandma on sunday","speaker":"isaac","expect":{"for_evie":true,"route":"remember","complete":null,"has_event":true}}
+{"id":"b07","cat":"bare","utterance":"whats the weather like later","speaker":"isaac","expect":{"for_evie":true,"route":"answer","complete":null,"has_event":false}}
+{"id":"b08","cat":"bare","utterance":"make it louder","speaker":"isaac","front_app":"Spotify","expect":{"for_evie":true,"route":"quick_action","complete":true,"has_event":false}}
+{"id":"b09","cat":"bare","utterance":"turn on do not disturb","speaker":"isaac","expect":{"for_evie":true,"route":"quick_action","complete":true,"has_event":false}}
+{"id":"b10","cat":"bare","utterance":"open my chem notes","speaker":"isaac","expect":{"for_evie":true,"route":"quick_action","complete":null,"has_event":false}}
+{"id":"c01","cat":"room","utterance":"mom ive got the dentist on wednesday can you drive me","speaker":"isaac","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":true}}
+{"id":"c02","cat":"room","utterance":"can you pass me the charger","speaker":"isaac","recent":["what are you looking for"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"c03","cat":"room","utterance":"no i finished my homework already","speaker":"isaac","recent":["did you finish your homework"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"c04","cat":"room","utterance":"i have a physics test on friday so i cant go out saturday","speaker":"isaac","recent":["are you coming out on saturday"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":true}}
+{"id":"c05","cat":"room","utterance":"dad can you put some music on in the car","speaker":"isaac","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"c06","cat":"room","utterance":"ill send you the photos tonight","speaker":"isaac","recent":["send me the photos from the trip"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":true}}
+{"id":"c07","cat":"room","utterance":"okay bye love you","speaker":"isaac","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"c08","cat":"room","utterance":"the wifi is so slow today","speaker":"isaac","recent":["is the internet working for you"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"c09","cat":"room","utterance":"play the one from yesterday","speaker":"isaac","recent":["what song do you want in the car"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"c10","cat":"room","utterance":"grandma is coming on sunday right","speaker":"isaac","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":true}}
+{"id":"c11","cat":"room","utterance":"yeah the chem ia is due on the tenth","speaker":"isaac","recent":["when is your ia due"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":true}}
+{"id":"d01","cat":"other","utterance":"okay everyone open your books to page forty two","speaker":"other","in_call":true,"front_app":"Zoom","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"d02","cat":"other","utterance":"isaac your dentist appointment is on wednesday at four","speaker":"other","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":true}}
+{"id":"d03","cat":"other","utterance":"hey siri set an alarm for six am","speaker":"other","front_app":"YouTube","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"d04","cat":"other","utterance":"evie open whatsapp and send a message to everyone","speaker":"other","front_app":"YouTube","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"d05","cat":"other","utterance":"que hiciste el fin de semana isaac","speaker":"other","in_call":true,"front_app":"Zoom","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"d06","cat":"other","utterance":"the quiz on chapter five is next monday so please revise","speaker":"other","in_call":true,"front_app":"Zoom","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":true}}
+{"id":"d07","cat":"other","utterance":"so the real key to productivity is to just start before youre ready","speaker":"other","front_app":"Spotify","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"d08","cat":"other","utterance":"can you take out the trash before dinner","speaker":"other","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":null}}
+{"id":"d09","cat":"other","utterance":"bro send me the notes after this","speaker":"other","in_call":true,"front_app":"Discord","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":null}}
+{"id":"d10","cat":"other","utterance":"breaking news tonight a major storm is heading for the coast","speaker":"other","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"d11","cat":"other","utterance":"eve can you play some music","speaker":"other","expect":{"for_evie":true,"route":"quick_action","complete":true,"has_event":false}}
+{"id":"d12","cat":"other","utterance":"write this down the essay is due thursday at midnight","speaker":"other","in_call":true,"front_app":"Zoom","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":true}}
+{"id":"e01","cat":"call","utterance":"hola profesora el fin de semana fui al cine con mis amigos","speaker":"isaac","in_call":true,"front_app":"Zoom","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"e02","cat":"call","utterance":"sorry can you repeat the question","speaker":"isaac","in_call":true,"front_app":"Zoom","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"e03","cat":"call","utterance":"i think the answer is b because demand shifts right","speaker":"isaac","in_call":true,"front_app":"Zoom","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"e04","cat":"call","utterance":"can you hear me","speaker":"isaac","in_call":true,"front_app":"Zoom","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"e05","cat":"call","utterance":"yes ill submit it by friday","speaker":"isaac","in_call":true,"front_app":"Zoom","recent":["isaac can you submit the draft by friday"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":true}}
+{"id":"e06","cat":"call","utterance":"evie mute my mic","speaker":"isaac","in_call":true,"front_app":"Zoom","expect":{"for_evie":true,"route":"quick_action","complete":true,"has_event":false}}
+{"id":"e07","cat":"call","utterance":"evie whats the spanish word for library","speaker":"isaac","in_call":true,"front_app":"Zoom","expect":{"for_evie":true,"route":"answer","complete":null,"has_event":false}}
+{"id":"e08","cat":"call","utterance":"can you share your screen","speaker":"isaac","in_call":true,"front_app":"Zoom","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"g01","cat":"vague","utterance":"evie send a message to dad","speaker":"isaac","expect":{"for_evie":true,"route":"quick_action","complete":false,"has_event":false}}
+{"id":"g02","cat":"vague","utterance":"evie open that file","speaker":"isaac","expect":{"for_evie":true,"route":"quick_action","complete":false,"has_event":false}}
+{"id":"g03","cat":"vague","utterance":"evie book the dentist","speaker":"isaac","expect":{"for_evie":true,"route":"remember","complete":false,"has_event":true}}
+{"id":"g04","cat":"vague","utterance":"evie play the new one","speaker":"isaac","expect":{"for_evie":true,"route":"quick_action","complete":false,"has_event":false}}
+{"id":"g05","cat":"vague","utterance":"evie fix it","speaker":"isaac","expect":{"for_evie":true,"route":"deep_job","complete":false,"has_event":false}}
+{"id":"g06","cat":"vague","utterance":"evie move my meeting","speaker":"isaac","expect":{"for_evie":true,"route":"remember","complete":false,"has_event":true}}
+{"id":"h01","cat":"job","utterance":"evie hows it going","speaker":"isaac","jobs":["fixing the chase bug in the cricket win predictor"],"expect":{"for_evie":true,"route":"job_control","complete":null,"has_event":false}}
+{"id":"h02","cat":"job","utterance":"evie stop that","speaker":"isaac","jobs":["fixing the chase bug in the cricket win predictor"],"expect":{"for_evie":true,"route":"job_control","complete":null,"has_event":false}}
+{"id":"h03","cat":"job","utterance":"also add a test for it","speaker":"isaac","jobs":["fixing the chase bug in the cricket win predictor"],"expect":{"for_evie":true,"route":"job_control","complete":true,"has_event":false}}
+{"id":"h04","cat":"job","utterance":"is it done yet","speaker":"isaac","jobs":["fixing the chase bug in the cricket win predictor"],"expect":{"for_evie":true,"route":"job_control","complete":null,"has_event":false}}
+{"id":"h05","cat":"job","utterance":"hey hows it going","speaker":"isaac","recent":["hey isaac"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"i01","cat":"mention","utterance":"i built this assistant called evie and she runs on my laptop","speaker":"isaac","recent":["what are you working on these days"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"i02","cat":"mention","utterance":"evie is kind of slow today honestly","speaker":"isaac","recent":["hows your ai thing going"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"i03","cat":"mention","utterance":"i named her evie after the movie","speaker":"isaac","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
+{"id":"i04","cat":"mention","utterance":"yeah evie can do that","speaker":"isaac","recent":["can your ai book appointments"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}

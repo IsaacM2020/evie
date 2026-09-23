@@ -1,0 +1,74 @@
+"""Scores a run. The headline number is false_action: Evie acting on speech not meant for her.
+
+That must be 0. One wrong WhatsApp sent during Spanish class and Isaac turns Evie off forever.
+"""
+
+TARGETS = {
+    "false_action": ("<=", 0),
+    "false_clarify_rate": ("<=", 0.10),
+    "command_recall": (">=", 0.95),
+    "route_accuracy": (">=", 0.90),
+    "complete_accuracy": (">=", 0.85),
+    "event_accuracy": (">=", 0.90),
+    "latency_p95_ms": ("<=", 900),
+}
+
+
+def _ratio(a: int, b: int) -> float | None:
+    return round(a / b, 3) if b else None
+
+
+def should_act(r: dict) -> bool:
+    return bool(r["expect"]["for_evie"]) and r.get("speaker") != "other"
+
+
+def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
+    judged = [r for r in results if r["decision"] is not None]
+    neg = [r for r in results if not should_act(r)]
+    pos = [r for r in results if should_act(r)]
+    fails: dict[str, list[str]] = {k: [] for k in
+                                   ("false_action", "false_clarify", "missed_command", "route", "complete", "event")}
+    for r in neg:
+        if r["action"] == "act":
+            fails["false_action"].append(r["id"])
+        elif r["action"] == "clarify":
+            fails["false_clarify"].append(r["id"])
+    for r in pos:
+        if r["action"] == "ignore":
+            fails["missed_command"].append(r["id"])
+    n_complete = n_event = 0
+    for r in judged:
+        d, e = r["decision"], r["expect"]
+        if d["route"] != e["route"]:
+            fails["route"].append(r["id"])
+        if e.get("complete") is not None:
+            n_complete += 1
+            if (d["complete"] >= 0.5) != e["complete"]:
+                fails["complete"].append(r["id"])
+        if e.get("has_event") is not None:
+            n_event += 1
+            if (d["has_event"] >= 0.5) != e["has_event"]:
+                fails["event"].append(r["id"])
+    lat = sorted(r["decision"]["latency_ms"] for r in judged)
+    metrics = {
+        "n": len(results),
+        "jev_failures": len(results) - len(judged),
+        "false_action": len(fails["false_action"]),
+        "false_clarify_rate": _ratio(len(fails["false_clarify"]), len(neg)),
+        "command_recall": _ratio(len(pos) - len(fails["missed_command"]), len(pos)),
+        "route_accuracy": _ratio(len(judged) - len(fails["route"]), len(judged)),
+        "complete_accuracy": _ratio(n_complete - len(fails["complete"]), n_complete),
+        "event_accuracy": _ratio(n_event - len(fails["event"]), n_event),
+        "latency_p50_ms": round(lat[len(lat) // 2]) if lat else None,
+        "latency_p95_ms": round(lat[min(len(lat) - 1, int(len(lat) * 0.95))]) if lat else None,
+        "cost_usd": round(sum(r["decision"]["cost_usd"] for r in judged), 6),
+    }
+    return metrics, fails
+
+
+def check_targets(metrics: dict) -> dict[str, bool]:
+    out = {}
+    for k, (op, v) in TARGETS.items():
+        x = metrics.get(k)
+        out[k] = x is not None and (x <= v if op == "<=" else x >= v)
+    return out
