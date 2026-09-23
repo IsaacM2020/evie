@@ -1,9 +1,7 @@
 import numpy as np
 import pytest
 
-from evie.ears import FRAME as _F, End, Peek, Segmenter  # noqa: F401
-
-FRAME = 512  # 32 ms at 16 kHz
+from evie.ears import FRAME, End, Peek, Segmenter  # FRAME = 512 samples, 32 ms at 16 kHz
 
 
 def frames(pattern: str):
