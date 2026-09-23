@@ -352,6 +352,7 @@ def build_deps(s: Settings) -> Deps:
     runner = JobRunner(narrator.on_event, narrator.on_done)
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev)
     stt = Transcriber(s, backend=s.stt_backend)
+    open_mic, voiceid = build_ears(stt, brain, mouth, bus)
 
     async def warm() -> dict:
         t0 = time.perf_counter()
@@ -366,7 +367,22 @@ def build_deps(s: Settings) -> Deps:
         await stt.aclose()
 
     return Deps(sb=sb, calendar=cal, bus=bus, brain=brain, mouth=mouth, stt=stt, runner=runner,
-                warm=warm, close=close, pings=[jev.warm, groq.warm])
+                warm=warm, close=close, pings=[jev.warm, groq.warm], open_mic=open_mic, voiceid=voiceid)
+
+
+def build_ears(stt, brain, mouth, bus):
+    """Open mic + voice ID. Without the models (ops/get-ears-models.sh) Evie still works,
+    push-to-talk only."""
+    from evie.ears import MODELS, Segmenter, Vad
+    from evie.open_mic import ModeStore, OpenMic
+    from evie.voiceid import SpeakerEmbedder, VoiceId, VoicePrint
+    if not (MODELS / "silero_vad.onnx").exists() or not (MODELS / "speaker.onnx").exists():
+        log.warning("ears models missing: run ops/get-ears-models.sh. Push-to-talk only.")
+        return None, None
+    voiceid = VoiceId(SpeakerEmbedder(), VoicePrint())
+    open_mic = OpenMic(Segmenter(), Vad().is_speech, voiceid, stt, brain, mouth, bus, ModeStore())
+    brain.scene = lambda: open_mic.context
+    return open_mic, voiceid
 
 
 def main() -> None:

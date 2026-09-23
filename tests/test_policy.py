@@ -88,3 +88,18 @@ def test_addressed_still_needs_detail():
 def test_addressed_never_overrides_another_speaker():
     v = decide(Dp(0.9, {"deep_job": 1.0}), "other", addressed=True)
     assert v.action is Action.IGNORE
+
+
+def test_open_mic_unknown_voice_can_ask_but_not_act():
+    for route in ("quick_action", "remember", "deep_job", "job_control"):
+        v = decide(D(for_evie=0.99, route=route), "unknown")
+        assert v.action is Action.CLARIFY and v.reason == "unsure it was for me", route
+
+
+def test_open_mic_unknown_voice_still_gets_answers():
+    v = decide(D(for_evie=0.95, route="answer"), "unknown")
+    assert v.action is Action.ACT and v.reason == "answer"
+
+
+def test_unknown_voice_on_the_talk_key_is_fine():
+    assert decide(D(route="quick_action"), "unknown", addressed=True).action is Action.ACT

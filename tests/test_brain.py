@@ -180,7 +180,7 @@ async def test_deep_job_while_busy_refuses():
 
 async def test_job_control_with_no_job():
     b, p = brain(FakeSwitchboard("act", "job_control", "job_control"))
-    await b.hear("evie stop")
+    await b.hear("evie hows the job going")
     assert p["mouth"].said == ["Nothing running right now."] and p["jev"].calls == 0
 
 
@@ -221,13 +221,13 @@ async def test_quick_action_and_remember_are_not_yet():
 
 
 async def test_recent_keeps_last_three_turns_and_passes_jobs():
-    sb = FakeSwitchboard("clarify", "missing detail", "quick_action")
+    sb = FakeSwitchboard("act", "answer", "answer")
     b, p = brain(sb, runner=FakeRunner(running="fix the chase bug"))
     for i in range(5):
         await b.hear(f"line {i}")
     last = sb.contexts[-1]
     assert len(last.recent) == 3 and 'Isaac: "line 3"' in last.recent[-1]
-    assert 'Evie: "Which song?"' in last.recent[-1]
+    assert 'Evie: "It\'s 4pm."' in last.recent[-1]
     assert last.active_jobs == ("fix the chase bug",)
 
 
@@ -350,3 +350,170 @@ async def test_answer_facts_include_the_rest_of_the_week():
     await b.hear("what's on friday")
     week = p["talker"].calls[0][2]["calendar_week"]
     assert f"{day4:%A}: 11:00 Physics" in week
+
+
+class Clock:
+    def __init__(self):
+        self.t = 500.0
+
+    def __call__(self):
+        return self.t
+
+
+class SeqSwitchboard(FakeSwitchboard):
+    """Answers each call from a script of (action, reason, route)."""
+
+    def __init__(self, *script):
+        super().__init__()
+        self.script = list(script)
+
+    async def handle(self, ctx):
+        self.contexts.append(ctx)
+        action, reason, route = self.script.pop(0) if self.script else ("act", "answer", "answer")
+        return outcome(ctx, action, reason, route)
+
+
+def brain_c(sb, clock=None, **kw):
+    b, p = brain(sb, **kw)
+    b._clock = clock or Clock()
+    return b, p
+
+
+class StopMouth(FakeMouth):
+    def __init__(self):
+        super().__init__()
+        self.stops = 0
+
+    def stop(self):
+        self.stops += 1
+
+
+async def test_yes_after_was_that_for_me_runs_the_original():
+    sb = SeqSwitchboard(("clarify", "unsure it was for me", "quick_action"), ("act", "answer", "answer"))
+    b, p = brain_c(sb)
+    await b.hear("whats the time", "isaac", addressed=False)
+    out = await b.hear("yeah", "unknown", addressed=False)
+    assert sb.contexts[1].utterance == "whats the time" and sb.contexts[1].addressed is True
+    assert out["said"] == "It's 4pm."
+
+
+async def test_no_after_was_that_for_me_stays_quiet():
+    sb = SeqSwitchboard(("clarify", "unsure it was for me", "quick_action"))
+    b, p = brain_c(sb)
+    await b.hear("pause it", "isaac", addressed=False)
+    out = await b.hear("no", "isaac", addressed=False)
+    assert out["said"] is None and len(sb.contexts) == 1 and p["mouth"].said == []
+
+
+async def test_answer_to_a_missing_detail_question_is_merged():
+    sb = SeqSwitchboard(("clarify", "missing detail", "quick_action"), ("act", "answer", "answer"))
+    b, p = brain_c(sb)
+    await b.hear("evie play that song")
+    await b.hear("espresso", "unknown", addressed=False)
+    assert sb.contexts[1].utterance == "evie play that song. espresso" and sb.contexts[1].addressed
+
+
+async def test_pending_question_expires():
+    clock = Clock()
+    sb = SeqSwitchboard(("clarify", "missing detail", "quick_action"), ("ignore", "not for Evie", "not_for_evie"))
+    b, p = brain_c(sb, clock)
+    await b.hear("evie play that song")
+    clock.t += 16
+    await b.hear("espresso", "isaac", addressed=False)
+    assert sb.contexts[1].utterance == "espresso" and not sb.contexts[1].addressed
+
+
+async def test_someone_else_cant_answer_her_question():
+    sb = SeqSwitchboard(("clarify", "unsure it was for me", "quick_action"), ("ignore", "not Isaac's voice", "x"))
+    b, p = brain_c(sb)
+    await b.hear("pause it", "isaac", addressed=False)
+    await b.hear("yes", "other", addressed=False)
+    assert sb.contexts[1].utterance == "yes"
+
+
+async def test_starting_with_her_name_is_a_new_request_not_an_answer():
+    sb = SeqSwitchboard(("clarify", "missing detail", "quick_action"), ("act", "answer", "answer"))
+    b, p = brain_c(sb)
+    await b.hear("evie play that song")
+    await b.hear("evie what time is it")
+    assert sb.contexts[1].utterance == "evie what time is it"
+
+
+async def test_stop_is_instant_and_skips_jev():
+    sb = SeqSwitchboard()
+    b, p = brain_c(sb)
+    p["mouth"] = b._mouth = StopMouth()
+    out = await b.hear("Evie, stop.", "isaac", addressed=False)
+    assert b._mouth.stops == 1 and sb.contexts == [] and out["reason"] == "stop"
+
+
+async def test_stop_while_a_job_runs_and_she_is_quiet_goes_to_job_control():
+    sb = SeqSwitchboard(("act", "job_control", "job_control"))
+    b, p = brain_c(sb, runner=FakeRunner(running="x"), jev=FakeJev("stop"))
+    await b.hear("evie stop")
+    assert p["runner"].stopped == 1
+
+
+async def test_stop_while_she_talks_during_a_job_just_quiets_her():
+    sb = SeqSwitchboard()
+    b, p = brain_c(sb, runner=FakeRunner(running="x"))
+    b._mouth = StopMouth()
+    b._mouth.speaking = True
+    await b.hear("evie stop")
+    assert b._mouth.stops == 1 and p["runner"].stopped == 0 and sb.contexts == []
+
+
+async def test_stop_from_someone_else_is_ignored():
+    sb = SeqSwitchboard(("ignore", "not Isaac's voice", "not_for_evie"))
+    b, p = brain_c(sb)
+    b._mouth = StopMouth()
+    await b.hear("stop", "other", addressed=False)
+    assert b._mouth.stops == 0
+
+
+async def test_followup_window_goes_into_the_context():
+    clock = Clock()
+    sb = SeqSwitchboard(("act", "answer", "answer"), ("act", "answer", "answer"), ("act", "answer", "answer"))
+    b, p = brain_c(sb, clock)
+    await b.hear("evie whats on tomorrow")
+    clock.t += 4
+    await b.hear("and friday", "isaac", addressed=False)
+    clock.t += 30
+    await b.hear("and saturday", "isaac", addressed=False)
+    assert sb.contexts[1].followup_s == pytest.approx(4) and sb.contexts[2].followup_s is None
+
+
+async def test_shadow_decides_but_does_nothing():
+    sb = SeqSwitchboard(("act", "quick_action", "quick_action"))
+    b, p = brain_c(sb)
+    q = p["bus"].subscribe()
+    out = await b.hear("play some lofi", "isaac", addressed=False, shadow=True)
+    assert out["shadow"] is True and out["action"] == "act" and out["said"] is None
+    assert p["mouth"].said == [] and p["mouth"].clips == [] and p["talker"].calls == []
+    evs = [q.get_nowait() for _ in range(q.qsize())]
+    assert [e["kind"] for e in evs] == ["shadow"] and evs[0]["would"] == "act · quick_action"
+
+
+async def test_shadow_never_leaves_a_pending_question():
+    sb = SeqSwitchboard(("clarify", "missing detail", "quick_action"), ("act", "answer", "answer"))
+    b, p = brain_c(sb)
+    await b.hear("play that song", "isaac", addressed=False, shadow=True)
+    await b.hear("espresso", "isaac", addressed=False, shadow=True)
+    assert sb.contexts[1].utterance == "espresso"
+
+
+async def test_overheard_speech_that_isnt_for_her_stays_off_the_panel():
+    sb = SeqSwitchboard(("ignore", "not for Evie", "not_for_evie"))
+    b, p = brain_c(sb)
+    q = p["bus"].subscribe()
+    await b.hear("mom can you drive me", "isaac", addressed=False)
+    kinds = [q.get_nowait()["kind"] for _ in range(q.qsize())]
+    assert "heard" not in kinds and "overheard" in kinds
+
+
+async def test_what_the_mac_is_doing_goes_into_the_context():
+    sb = SeqSwitchboard()
+    b, p = brain_c(sb)
+    b.scene = lambda: {"front_app": "zoom.us", "in_call": True}
+    await b.hear("so the answer is four", "isaac", addressed=False)
+    assert sb.contexts[0].in_call is True and sb.contexts[0].front_app == "zoom.us"

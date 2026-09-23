@@ -34,6 +34,9 @@ class Verdict:
 
 
 NEEDS_DETAIL = {"quick_action", "deep_job", "remember"}
+# On the open mic, a voice that isn't clearly Isaac's may get an answer, but never makes Evie
+# DO something: she asks "Was that for me?" and only Isaac's yes goes ahead.
+UNKNOWN_CANT_DO = {"quick_action", "deep_job", "remember", "job_control"}
 
 
 def decide(d: Decision, speaker: str, t: Thresholds = Thresholds(), addressed: bool = False) -> Verdict:
@@ -48,6 +51,8 @@ def decide(d: Decision, speaker: str, t: Thresholds = Thresholds(), addressed: b
     if speaker == "unknown":
         bar += t.unknown_speaker_penalty
     if d.for_evie < bar or d.route_confidence < t.route_conf_min:
+        return Verdict(Action.CLARIFY, "unsure it was for me")
+    if speaker == "unknown" and d.route in UNKNOWN_CANT_DO:
         return Verdict(Action.CLARIFY, "unsure it was for me")
     if d.route in NEEDS_DETAIL and d.complete < t.incomplete_below:
         return Verdict(Action.CLARIFY, "missing detail")

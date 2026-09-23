@@ -58,3 +58,11 @@ def test_active_jobs_clipped_and_capped():
 def test_addressed_is_told_to_jev():
     assert "held Evie's talk key" in render_state(Context(utterance="edit the cricket files", addressed=True))
     assert "talk key" not in render_state(Context(utterance="edit the cricket files"))
+
+
+def test_followup_window_is_rendered_only_on_the_open_mic():
+    from evie.switchboard.context import Context, render_state
+    s = render_state(Context(utterance="and friday?", speaker="isaac", followup_s=4.2))
+    assert "Evie answered Isaac 4 seconds ago" in s
+    assert "seconds ago" not in render_state(Context(utterance="x", followup_s=4.2, addressed=True))
+    assert "seconds ago" not in render_state(Context(utterance="x"))
