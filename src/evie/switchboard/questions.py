@@ -23,7 +23,9 @@ QUESTIONS = {
         "type": "noul",
         "instructions": "Is the latest speech Isaac talking directly to his assistant Evie, asking the "
                         "computer to do or answer something? Answer no if he is talking to another "
-                        "person, to a class or call, or if the speech is from someone else or a video.",
+                        "person, to a class or call, or if the speech is from someone else or a video. "
+                        "When Isaac starts with Evie's name and then gives a command, it is for Evie, "
+                        "even during a call. Just mentioning Evie while talking about her is not.",
     },
     "route": {
         "type": "choice",
