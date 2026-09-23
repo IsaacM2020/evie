@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import ServiceManagement
@@ -16,10 +17,21 @@ final class AppModel: ObservableObject {
     @Published var lastUtterance = ""
     @Published var error: String? = nil
     @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @Published var calendarDenied = false
     private let core = CoreClient()
+    private var calendarFeed: CalendarFeed?
 
     init() {
         Task { await pollForever() }
+        let feed = CalendarFeed(core: core) { [weak self] granted in self?.calendarDenied = !granted }
+        calendarFeed = feed
+        Task { await feed.run() }
+    }
+
+    func openCalendarSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     var iconName: String {

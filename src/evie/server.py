@@ -1,12 +1,14 @@
 """Evie core: a tiny local HTTP server. The menu bar app is its only client in Phase 0."""
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from typing import Callable, Literal
 
 import uvicorn
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import AwareDatetime, BaseModel
 
 from evie import __version__
+from evie.calendar_store import TZ, CalendarStore, CalEvent
 from evie.config import load_settings
 from evie.jev import JevClient
 from evie.switchboard import Switchboard
@@ -22,6 +24,18 @@ class DecideIn(BaseModel):
     active_jobs: list[str] = []
 
 
+class EventIn(BaseModel):
+    title: str
+    start: AwareDatetime
+    end: AwareDatetime
+    all_day: bool = False
+    calendar: str = ""
+
+
+class CalendarIn(BaseModel):
+    events: list[EventIn]
+
+
 def create_app(make_switchboard: Callable[[], Switchboard], probe: bool = True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -34,6 +48,7 @@ def create_app(make_switchboard: Callable[[], Switchboard], probe: bool = True) 
         await app.state.sb.aclose()
 
     app = FastAPI(lifespan=lifespan)
+    app.state.calendar = CalendarStore()
 
     @app.get("/status")
     async def status() -> dict:
@@ -50,6 +65,19 @@ def create_app(make_switchboard: Callable[[], Switchboard], probe: bool = True) 
         elif o.verdict.reason.startswith("jev unavailable"):
             app.state.jev_ok = False
         return o.to_dict()
+
+    @app.post("/calendar")
+    async def calendar(body: CalendarIn) -> dict:
+        events = [CalEvent(**e.model_dump()) for e in body.events]
+        app.state.calendar.update(events, at=datetime.now(TZ))
+        return {"ok": True, "count": len(events)}
+
+    @app.get("/debug/calendar")
+    async def debug_calendar() -> dict:
+        today = datetime.now(TZ).date()
+        cal = app.state.calendar
+        return {"today": cal.summary(today), "tomorrow": cal.summary(today + timedelta(days=1)),
+                "stale": cal.stale(datetime.now(TZ))}
 
     return app
 

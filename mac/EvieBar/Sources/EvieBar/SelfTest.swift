@@ -20,6 +20,11 @@ enum SelfTest {
               "decode outcome")
         let s = try? CoreJSON.decoder.decode(CoreStatus.self, from: Data(status.utf8))
         check(s?.ok == true && s?.jevOk == nil, "decode status with null jev_ok")
+        let ev = CalEventDTO(title: "Math", start: Date(timeIntervalSince1970: 1_790_211_600),
+                             end: Date(timeIntervalSince1970: 1_790_215_200), allDay: false, calendar: "Math")
+        let body = (try? CalEventDTO.payload([ev])).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        check(body.contains(#""all_day":false"#) && body.contains(#""start":"2026-09-24T01:00:00Z""#),
+              "calendar payload is snake_case with UTC ISO dates")
         let box = StatusBox()
         Task.detached {
             box.result = await CoreClient(base: URL(string: "http://127.0.0.1:1")!).status()

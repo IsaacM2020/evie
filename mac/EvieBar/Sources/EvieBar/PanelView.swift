@@ -28,6 +28,13 @@ struct PanelView: View {
             if model.busy { ProgressView().controlSize(.small) }
             if let err = model.error { Text(err).font(.caption).foregroundStyle(.red) }
             if let o = model.last { OutcomeCard(utterance: model.lastUtterance, outcome: o) }
+            if model.calendarDenied {
+                HStack {
+                    Text("Calendar access off").font(.caption).foregroundStyle(.orange)
+                    Spacer()
+                    Button("Open Settings") { model.openCalendarSettings() }.controlSize(.small)
+                }
+            }
             Divider()
             Toggle("Open at login", isOn: Binding(
                 get: { model.launchAtLogin },

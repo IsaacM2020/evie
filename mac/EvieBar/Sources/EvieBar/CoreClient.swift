@@ -11,6 +11,16 @@ struct CoreClient {
         return try? CoreJSON.decoder.decode(CoreStatus.self, from: data)
     }
 
+    func postCalendar(_ body: Data) async -> Bool {
+        var req = URLRequest(url: base.appendingPathComponent("calendar"))
+        req.httpMethod = "POST"
+        req.timeoutInterval = 5
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+        guard let (_, resp) = try? await URLSession.shared.data(for: req) else { return false }
+        return (resp as? HTTPURLResponse)?.statusCode == 200
+    }
+
     func decide(utterance: String, speaker: String, inCall: Bool) async -> Result<OutcomeDTO, Error> {
         var req = URLRequest(url: base.appendingPathComponent("decide"))
         req.httpMethod = "POST"
