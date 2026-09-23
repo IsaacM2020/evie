@@ -1,0 +1,59 @@
+from evie.switchboard.decision import Decision
+from evie.switchboard.policy import Action, Thresholds, decide
+
+
+def D(for_evie=0.9, route="quick_action", conf=1.0, complete=0.9, has_event=0.0):
+    return Decision(for_evie, route, conf, {route: conf}, complete, has_event, 250.0, 0.0)
+
+
+def test_confident_complete_command_acts():
+    v = decide(D(), "isaac")
+    assert v.action is Action.ACT and v.reason == "quick_action" and not v.followup
+
+
+def test_other_speaker_never_acts_even_if_certain():
+    v = decide(D(for_evie=0.99), "other")
+    assert v.action is Action.IGNORE and v.reason == "not Isaac's voice"
+
+
+def test_overheard_event_is_ignored_but_flagged_for_followup():
+    v = decide(D(for_evie=0.02, route="not_for_evie", has_event=0.99), "isaac")
+    assert v.action is Action.IGNORE and v.followup
+
+
+def test_other_speaker_event_still_flagged():
+    v = decide(D(for_evie=0.01, route="not_for_evie", has_event=0.95), "other")
+    assert v.action is Action.IGNORE and v.followup
+
+
+def test_below_floor_ignores():
+    assert decide(D(for_evie=0.2), "isaac").action is Action.IGNORE
+
+
+def test_middle_confidence_clarifies():
+    v = decide(D(for_evie=0.6), "isaac")
+    assert v.action is Action.CLARIFY and v.reason == "unsure it was for me"
+
+
+def test_answer_has_lower_bar_and_needs_no_detail():
+    v = decide(D(for_evie=0.65, route="answer", complete=0.1), "isaac")
+    assert v.action is Action.ACT
+
+
+def test_missing_detail_clarifies():
+    v = decide(D(complete=0.1), "isaac")
+    assert v.action is Action.CLARIFY and v.reason == "missing detail"
+
+
+def test_unknown_speaker_needs_more_confidence():
+    assert decide(D(for_evie=0.8), "isaac").action is Action.ACT
+    assert decide(D(for_evie=0.8), "unknown").action is Action.CLARIFY
+
+
+def test_low_route_confidence_clarifies():
+    assert decide(D(conf=0.5), "isaac").action is Action.CLARIFY
+
+
+def test_thresholds_are_injectable():
+    strict = Thresholds(act_at=0.95)
+    assert decide(D(for_evie=0.9), "isaac", strict).action is Action.CLARIFY
