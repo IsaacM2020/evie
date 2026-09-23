@@ -7,8 +7,9 @@ and every change is logged in evals/TUNING.md.
 ROUTES = {
     "not_for_evie": "Not meant for Evie: Isaac talking to another person, a class or a call, "
                     "or speech from someone else or a video",
-    "quick_action": "One quick thing on the computer: play, pause or skip music, change volume, "
-                    "open an app or website, set a timer, send a short message",
+    "quick_action": "One quick thing on the computer: play, pause or skip music, ask what song is "
+                    "playing, change volume, open an app or website, set or cancel a timer, undo the "
+                    "last thing Evie did, send a short message",
     "answer": "A question Evie answers by talking: the time, the date, maths, a fact, "
               "what is on Isaac's calendar",
     "deep_job": "Real work that takes minutes: fixing or writing code, researching a topic, "
@@ -29,14 +30,15 @@ SKILLS = {
     "music_next": "Skip to the next song",
     "music_previous": "Go back to the previous song or restart it",
     "now_playing": "Ask what song is playing",
-    "volume": "Change the volume: louder, quieter, a number, mute or unmute",
+    "volume": "Change how loud the Mac is: louder, quieter, a number, mute or unmute (a bare "
+              "'mute' means the sound)",
     "open_app": "Open or switch to an app on the Mac",
     "open_website": "Open a website, or search a site like YouTube or Google",
     "timer_set": "Start a timer or countdown",
     "timer_cancel": "Cancel or stop a timer",
     "undo": "Undo or reverse the last thing Evie did",
-    "other": "Anything else, for example sending a message, changing a setting, or a multi-step "
-             "task on the computer",
+    "other": "Anything else, for example sending a message, muting the microphone, changing a "
+             "setting, or a multi-step task on the computer",
 }
 
 REMEMBER_TO = {
@@ -65,10 +67,14 @@ QUESTIONS = {
         "instructions": "Assuming the latest speech is a request to Evie, could she do it right now "
                         "without asking a follow-up question? 'play that song' is not complete (which "
                         "song?). 'remember I have the dentist on wednesday' is not complete (what "
-                        "time?). 'pause the music', 'what time is it' and 'play some lofi' are complete. "
+                        "time?), but 'I have the dentist on wednesday at 4' and 'vedant's birthday is on sunday' are "
+                        "complete. Quick controls are complete as they are: 'pause', 'resume the music', "
+                        "'skip this song', 'turn it up', 'undo that', 'cancel the timer', 'what song is "
+                        "this', 'what time is it' and 'play some lofi'. "
                         "Real work that names what to work on is complete, because Evie figures out "
-                        "the rest herself: 'fix the chase bug in my cricket model' and 'check why the "
-                        "tests fail in the anchor repo' are complete, but 'fix it' is not.",
+                        "the rest herself: 'fix the chase bug in my cricket model', 'check why the "
+                        "tests fail in the anchor repo' and 'how's the igem website looking' are "
+                        "complete, but 'fix it' is not.",
     },
     "has_event": {
         "type": "noul",

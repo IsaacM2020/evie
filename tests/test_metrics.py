@@ -36,7 +36,20 @@ def test_score_counts_the_right_things():
 
 def test_check_targets():
     good = {"false_action": 0, "false_clarify_rate": 0.05, "command_recall": 0.97, "route_accuracy": 0.93,
-            "complete_accuracy": 0.9, "event_accuracy": 0.95, "latency_p95_ms": 700}
+            "complete_accuracy": 0.9, "event_accuracy": 0.95, "latency_p95_ms": 700,
+            "skill_accuracy": 0.95, "remember_to_accuracy": 0.92}
     assert all(check_targets(good).values())
     assert check_targets({**good, "false_action": 1})["false_action"] is False
     assert check_targets({**good, "event_accuracy": None})["event_accuracy"] is False
+
+
+def test_skill_and_remember_to_are_scored():
+    def r(i, skill=None, rem=None, got_skill=None, got_rem=None):
+        e = {"for_evie": True, "route": "quick_action", **({"skill": skill} if skill else {}),
+             **({"remember_to": rem} if rem else {})}
+        d = {"for_evie": 0.9, "route": "quick_action", "complete": 0.9, "has_event": 0.0, "latency_ms": 300,
+             "cost_usd": 0.0, "skill": got_skill, "remember_to": got_rem}
+        return {"id": i, "speaker": "isaac", "expect": e, "action": "act", "decision": d}
+    m, fails = score([r("a", "volume", got_skill="volume"), r("b", "open_app", got_skill="other"),
+                      r("c", rem="fact", got_rem="fact")])
+    assert fails["skill"] == ["b"] and m["skill_accuracy"] == 0.5 and m["remember_to_accuracy"] == 1.0

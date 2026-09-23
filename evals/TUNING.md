@@ -85,3 +85,25 @@ Ralph, Karen, Moira, Flo) say 20 lines, 13 of them commands to Evie.
   job_control. o08's `complete` label dropped (another person's command: moot).
 - Tweak 1: job_control route text adds "Only possible while Evie is working on something".
   Run 2: **false_action 0, recall 1.0, route 0.941, complete 0.862, event 0.94, p95 527 ms. All PASS.**
+
+## Phase 3: skills + remember (2026-09-23)
+
+Two questions added to the one Jev call: `skill` (13 fast skills + other) and `remember_to`
+(task / event / fact). 43 new labelled cases (s01-s31, r01-r12); 128 total.
+- Baseline: skill 1.0, remember_to 0.917, but complete 0.803 (FAIL: "resume the music", "undo",
+  "dentist wednesday at 4" called incomplete, my own "dentist on wednesday" example over-generalised)
+  and p95 944 ms (FAIL, one slow run: next runs were 524-652 ms with the same 6 questions).
+- Tweak 1: quick_action route lists "what song is playing", "set or cancel a timer", "undo";
+  complete adds examples ("dentist on wednesday at 4" and "birthday on sunday" ARE complete; quick
+  controls are complete as they are). complete 0.93, p95 524. All PASS, but k04 (Isaac's iGEM
+  sentence) dipped to 0.39 and got a clarify.
+- Tweak 2: "how's the igem website looking" added as a complete deep-job example. complete 0.958.
+- Tweak 3: s31 "evie mute my mic" added (was picked `other` at only 0.52, runner-up volume would mute
+  the SPEAKERS). volume text says "(not the microphone)": mic -> other 0.99, but bare "evie mute"
+  swung to other.
+- Tweak 4 (last): volume "a bare 'mute' means the sound", other lists "muting the microphone".
+  Mic -> other 1.0; bare "evie mute" still other 0.72, so it goes to Claude Code (slow, never
+  wrong). Left there: tuning budget used.
+- **Final: false_action 0, recall 1.0, route 0.977, complete 0.958, event 0.94, skill 0.968,
+  remember_to 0.917, p50 410 / p95 554 ms. All PASS.** r11 ("note that my igem team meets in
+  room 204") goes to task instead of fact: harmless (it lands in Todoist).

@@ -11,6 +11,8 @@ TARGETS = {
     "complete_accuracy": (">=", 0.85),
     "event_accuracy": (">=", 0.90),
     "latency_p95_ms": ("<=", 900),
+    "skill_accuracy": (">=", 0.90),
+    "remember_to_accuracy": (">=", 0.90),
 }
 
 
@@ -27,7 +29,8 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
     neg = [r for r in results if not should_act(r)]
     pos = [r for r in results if should_act(r)]
     fails: dict[str, list[str]] = {k: [] for k in
-                                   ("false_action", "false_clarify", "missed_command", "route", "complete", "event")}
+                                   ("false_action", "false_clarify", "missed_command", "route", "complete", "event",
+                                    "skill", "remember_to")}
     for r in neg:
         if r["action"] == "act":
             fails["false_action"].append(r["id"])
@@ -36,9 +39,17 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
     for r in pos:
         if r["action"] == "ignore":
             fails["missed_command"].append(r["id"])
-    n_complete = n_event = 0
+    n_complete = n_event = n_skill = n_rem = 0
     for r in judged:
         d, e = r["decision"], r["expect"]
+        if e.get("skill"):
+            n_skill += 1
+            if d.get("skill") != e["skill"]:
+                fails["skill"].append(r["id"])
+        if e.get("remember_to"):
+            n_rem += 1
+            if d.get("remember_to") != e["remember_to"]:
+                fails["remember_to"].append(r["id"])
         if d["route"] != e["route"]:
             fails["route"].append(r["id"])
         if e.get("complete") is not None:
@@ -61,6 +72,8 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
         "event_accuracy": _ratio(n_event - len(fails["event"]), n_event),
         "latency_p50_ms": round(lat[len(lat) // 2]) if lat else None,
         "latency_p95_ms": round(lat[min(len(lat) - 1, int(len(lat) * 0.95))]) if lat else None,
+        "skill_accuracy": _ratio(n_skill - len(fails["skill"]), n_skill),
+        "remember_to_accuracy": _ratio(n_rem - len(fails["remember_to"]), n_rem),
         "cost_usd": round(sum(r["decision"]["cost_usd"] for r in judged), 6),
     }
     return metrics, fails
