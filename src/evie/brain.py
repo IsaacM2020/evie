@@ -41,6 +41,8 @@ JOB_OP_Q = {
             "status": "He wants to know how it's going, what it's doing or how long it'll take",
             "stop": "He wants the job stopped, cancelled or killed",
             "add_instruction": "He's adding something for the job to do, or changing what it should do",
+            "queue_status": "He asks what's queued or waiting to be done next",
+            "cancel_next": "He wants the next queued job dropped or cancelled, not the one running now",
         },
     }
 }
@@ -271,7 +273,7 @@ class Brain:
         if route == "answer":
             return await self._answer(text, draft, decision)
         if route == "deep_job":
-            return await self._start_job(text)
+            return await self._start_job(text, long=bool(decision and decision.long_job >= 0.6))
         if route == "job_control":
             return await self._job_control(text)
         if route == "quick_action" and self._skills:
@@ -327,15 +329,17 @@ class Brain:
                 return self._say(done.said)
         return await self._start_job(text)
 
-    async def _start_job(self, text: str) -> str:
+    async def _start_job(self, text: str, long: bool = False) -> str:
         running = self._runner.current
-        if running:
-            return self._say(f"Still on {running.goal}. Say stop first.")
-        said = self._clip("on_it")
+        if running:  # it waits its turn (Phase 6's night queue builds on this)
+            self._runner.enqueue(strip_wake(text))
+            return self._say(f"I'm on {running.goal}. I'll do this right after.")
+        said = self._clip("on_it_long" if long else "on_it")
         try:
             job = await self._runner.start(strip_wake(text))
         except Busy as e:
-            return self._say(f"Still on {e}. Say stop first.")
+            self._runner.enqueue(strip_wake(text))
+            return self._say(f"I'm on {e}. I'll do this right after.")
         self._narrator.start(job)
         self._bus.publish("job_started", id=job.id, goal=job.goal)
         return said
@@ -351,9 +355,18 @@ class Brain:
             op = "status"  # unsure: the safe, read-only answer, never a stop
         if op == "stop":
             job = self._runner.current
-            await self._runner.stop()
+            dropped = await self._runner.stop() or []
             self._bus.publish("job_done", id=job.id, status="stopped", summary="Stopped.", result="")
+            if dropped:
+                n = len(dropped)
+                return self._say(f"Stopped. I dropped the {n} queued job{'s' if n > 1 else ''} too.")
             return self._say("Stopped.")
+        if op == "queue_status":
+            q = self._runner.queued
+            return self._say("Nothing queued after this one." if not q else "Next up: " + ", then ".join(q) + ".")
+        if op == "cancel_next":
+            gone = self._runner.drop_next()
+            return self._say(f"Dropped {gone}." if gone else "Nothing queued.")
         if op == "add_instruction":
             await self._runner.add_instruction(strip_wake(text))
             return self._say("Got it, passing that on.")

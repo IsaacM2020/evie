@@ -126,11 +126,26 @@ class Job:
 class JobRunner:
     def __init__(self, on_event: Callable[[Job, str], Awaitable[None]],
                  on_done: Callable[[Job], Awaitable[None]],
-                 client_factory: Callable[[], ClaudeSDKClient] = make_client):
+                 client_factory: Callable[[], ClaudeSDKClient] = make_client,
+                 on_start: Callable[[Job], Awaitable[None]] | None = None):
         self._on_event, self._on_done, self._factory = on_event, on_done, client_factory
+        self._on_start = on_start  # a queued job starting by itself (Evie says so)
         self._job: Job | None = None
         self._task: asyncio.Task | None = None
         self._queued: list[str] = []
+        self._backlog: list[str] = []  # whole jobs waiting their turn ("do this after")
+
+    @property
+    def queued(self) -> list[str]:
+        return list(self._backlog)
+
+    def enqueue(self, goal: str) -> int:
+        """Another job while one runs: it waits its turn instead of being refused. Returns its place."""
+        self._backlog.append(goal)
+        return len(self._backlog)
+
+    def drop_next(self) -> str | None:
+        return self._backlog.pop(0) if self._backlog else None
 
     @property
     def current(self) -> Job | None:
@@ -171,6 +186,13 @@ class JobRunner:
         if job.status == "running":
             job.status = "done"
         await self._on_done(job)
+        if self._backlog and job.status != "stopped":
+            nxt = await self.start(self._backlog.pop(0))
+            if self._on_start:
+                try:
+                    await self._on_start(nxt)
+                except Exception:
+                    log.exception("on_start failed")
 
     async def _handle(self, job: Job, m) -> None:
         if isinstance(m, AssistantMessage):
@@ -197,10 +219,14 @@ class JobRunner:
         if self._task:
             await asyncio.gather(self._task, return_exceptions=True)
 
-    async def stop(self) -> None:
+    async def stop(self) -> list[str]:
+        """Stop the running job. "Stop" means stop: anything queued is dropped too (and returned
+        so Evie can say so)."""
+        dropped, self._backlog = self._backlog, []
         if self._task and not self._task.done():
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)
+        return dropped
 
     def status_line(self) -> str:
         job = self.current

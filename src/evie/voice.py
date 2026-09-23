@@ -17,7 +17,8 @@ import numpy as np
 
 log = logging.getLogger("evie.voice")
 
-ACKS = {"on_it": "On it.", "for_me": "Was that for me?", "not_yet": "Can't do that one yet."}
+ACKS = {"on_it": "On it.", "on_it_long": "On it, this might take a minute.", "for_me": "Was that for me?",
+        "not_yet": "Can't do that one yet."}
 VOICE = "alba"  # Pocket TTS predefined voice
 
 

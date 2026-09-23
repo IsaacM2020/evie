@@ -62,6 +62,18 @@ class FakeRunner:
         self.job = Job(goal=running) if running else None
         self.busy = busy
         self.started, self.stopped, self.instructions = [], 0, []
+        self.queue = []
+
+    @property
+    def queued(self):
+        return list(self.queue)
+
+    def enqueue(self, goal):
+        self.queue.append(goal)
+        return len(self.queue)
+
+    def drop_next(self):
+        return self.queue.pop(0) if self.queue else None
 
     @property
     def current(self):
@@ -77,6 +89,8 @@ class FakeRunner:
     async def stop(self):
         self.stopped += 1
         self.job = None
+        dropped, self.queue = self.queue, []
+        return dropped
 
     async def add_instruction(self, text):
         self.instructions.append(text)
@@ -171,11 +185,45 @@ async def test_deep_job_says_on_it_then_starts_job():
     assert out["said"] == ACKS["on_it"]
 
 
-async def test_deep_job_while_busy_refuses():
+async def test_deep_job_while_busy_is_queued_not_refused():
     runner = FakeRunner(running="fix the chase bug", busy=True)
     b, p = brain(FakeSwitchboard("act", "deep_job", "deep_job"), runner=runner)
     await b.hear("evie research MIT")
-    assert p["mouth"].said == ["Still on fix the chase bug. Say stop first."] and p["mouth"].clips == []
+    assert runner.queue == ["research MIT"]
+    assert p["mouth"].said == ["I'm on fix the chase bug. I'll do this right after."] and p["mouth"].clips == []
+
+
+async def test_long_job_says_it_might_take_a_minute():
+    from evie.switchboard.decision import Decision
+
+    class LongSB(FakeSwitchboard):
+        async def handle(self, ctx):
+            self.contexts.append(ctx)
+            d = Decision(0.9, "deep_job", 1.0, {"deep_job": 1.0}, 0.9, 0.0, 300.0, 0.0, long_job=0.9)
+            return Outcome(ctx, d, Verdict(Action.ACT, "deep_job"))
+
+    b, p = brain(LongSB())
+    out = await b.hear("evie research the best IB physics IA topics")
+    assert p["mouth"].clips == ["on_it_long"] and out["said"] == ACKS["on_it_long"]
+
+
+async def test_job_control_queue_status_and_cancel_next():
+    runner = FakeRunner(running="x")
+    runner.queue = ["research MIT", "clean my desktop"]
+    b, p = brain(FakeSwitchboard("act", "job_control", "job_control"), runner=runner, jev=FakeJev("queue_status"))
+    await b.hear("evie what's queued")
+    assert p["mouth"].said[-1] == "Next up: research MIT, then clean my desktop."
+    b._jev = FakeJev("cancel_next")
+    await b.hear("evie cancel the next one")
+    assert runner.queue == ["clean my desktop"] and p["mouth"].said[-1] == "Dropped research MIT."
+
+
+async def test_stop_says_when_it_dropped_queued_jobs():
+    runner = FakeRunner(running="x")
+    runner.queue = ["research MIT"]
+    b, p = brain(FakeSwitchboard("act", "job_control", "job_control"), runner=runner, jev=FakeJev("stop"))
+    await b.hear("evie stop that")
+    assert p["mouth"].said == ["Stopped. I dropped the 1 queued job too."]
 
 
 async def test_job_control_with_no_job():

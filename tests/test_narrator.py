@@ -151,3 +151,45 @@ async def test_unsubscribe_stops_delivery():
     bus.publish("x")
     await asyncio.sleep(0)
     assert q.empty()
+
+
+# -- Phase 3.5 T12: fill the silence ------------------------------------------------------------
+async def test_heartbeat_speaks_when_a_job_has_been_quiet():
+    jev, mouth, clock, bus = FakeJev(0.1), FakeMouth(), Clock(), EventBus()
+    n = Narrator(jev, FakeTalker("Still going, reading your cricket files."), mouth, bus, clock=clock,
+                 heartbeat_s=25, tick_s=0.005)
+    job = Job(goal="fix the chase bug")
+    job.events = ["Read model.py", "Read data.py"]
+    n.start(job)
+    await asyncio.sleep(0.02)
+    assert mouth.said == []  # not quiet long enough
+    clock.t = 26
+    await asyncio.sleep(0.03)
+    assert mouth.said == [("narration", "Still going, reading your cricket files.")]
+    clock.t = 40  # only 14 s since that line: no second heartbeat yet
+    await asyncio.sleep(0.03)
+    assert len(mouth.said) == 1
+    job.status = "done"
+    await asyncio.sleep(0.02)
+
+
+async def test_heartbeat_waits_while_isaac_is_busy():
+    jev, mouth, clock, bus = FakeJev(0.1), FakeMouth(), Clock(), EventBus()
+    busy = [True]
+    n = Narrator(jev, FakeTalker("x"), mouth, bus, clock=clock, heartbeat_s=25, tick_s=0.005,
+                 can_speak=lambda: not busy[0])
+    job = Job(goal="g")
+    job.events = ["Read a.py"]
+    n.start(job)
+    clock.t = 30
+    await asyncio.sleep(0.03)
+    assert mouth.said == []
+    busy[0] = False
+    await asyncio.sleep(0.03)
+    assert len(mouth.said) == 1
+    job.status = "done"
+
+
+def test_narration_bar_is_lower_now():
+    from evie.narrator import NarrationRules
+    assert NarrationRules().threshold == 0.45

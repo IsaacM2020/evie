@@ -3,6 +3,7 @@
 Jev answers one yes/no question per step ("worth saying right now?"); plain rules stop her
 from chattering (10s gap, 6 per job max). The end-of-job summary is always spoken.
 """
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -31,7 +32,7 @@ NARRATE_Q = {
 
 @dataclass(frozen=True)
 class NarrationRules:
-    threshold: float = 0.60
+    threshold: float = 0.45  # was 0.60: most steps scored 0.1-0.3 and she went silent for minutes
     min_gap_s: float = 10.0
     max_per_job: int = 6
 
@@ -47,9 +48,11 @@ def render_step(goal: str, line: str, since_s: float | None, count: int) -> str:
 
 class Narrator:
     def __init__(self, jev, talker, mouth, bus: EventBus, rules: NarrationRules = NarrationRules(),
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic, heartbeat_s: float = 25.0, tick_s: float = 2.0,
+                 can_speak: Callable[[], bool] = lambda: True):
         self._jev, self._talker, self._mouth, self._bus = jev, talker, mouth, bus
         self._r, self._clock = rules, clock
+        self._heartbeat_s, self._tick_s, self._can_speak = heartbeat_s, tick_s, can_speak
         self._last: dict[str, float] = {}
         self._count: dict[str, int] = {}
 
@@ -57,6 +60,24 @@ class Narrator:
         """Called right after "On it", which counts as the last thing she said."""
         self._last[job.id] = self._clock()
         self._count[job.id] = 0
+        asyncio.get_running_loop().create_task(self._heartbeat(job))
+
+    async def _heartbeat(self, job: Job) -> None:
+        """Never minutes of silence: after ~25 s with nothing said, a one-line "still going" update
+        from the latest steps. Skipped while Isaac is talking or in a call, or she's already speaking."""
+        while job.status == "running":
+            await asyncio.sleep(self._tick_s)
+            last = self._last.get(job.id)
+            if job.status != "running" or last is None or not job.events:
+                continue
+            if self._clock() - last < self._heartbeat_s or getattr(self._mouth, "speaking", False):
+                continue
+            if not self._can_speak():
+                continue
+            self._last[job.id] = self._clock()
+            text = await self._talker.narrate(job.goal, "still working. Latest steps: " + "; ".join(job.events[-3:]))
+            if text != FALLBACK and job.status == "running":
+                self._mouth.say(text, kind="narration", ttl_s=15)
 
     async def worth_saying(self, goal: str, line: str, since_s: float | None, count: int) -> float:
         try:

@@ -450,8 +450,16 @@ def build_deps(s: Settings) -> Deps:
     out = RoutedOut(mouth_link, AppOut(mouth_link, voice.rate), SpeakerOut(voice.rate))
     mouth = Mouth(voice, out, on_say=on_say, clips=voice.prepare_clips(),
                   on_quiet=on_quiet, on_audio=on_audio)
-    narrator = Narrator(jev, talker, mouth, bus)
-    runner = JobRunner(narrator.on_event, narrator.on_done)
+    brain = None
+    narrator = Narrator(jev, talker, mouth, bus,
+                        can_speak=lambda: not (brain and brain.scene().get("in_call", False)))
+
+    async def next_job_started(job) -> None:  # a queued job starting on its own
+        narrator.start(job)
+        bus.publish("job_started", id=job.id, goal=job.goal)
+        mouth.say(f"Starting the next one: {job.goal}.", kind="reply")
+
+    runner = JobRunner(narrator.on_event, narrator.on_done, on_start=next_job_started)
     hands = Hands(bus)
     spotify = SpotifySearch(s.spotify_id, s.spotify_secret)
     timers = Timers(lambda t: mouth.say(done_line(t), kind="reply"))
@@ -462,7 +470,6 @@ def build_deps(s: Settings) -> Deps:
     todoist = Todoist(s.todoist_key)
     skills.tasks = TaskSkills(todoist, jev, skills)
     remember = Remember(talker, hands, todoist, FactStore(), cal, skills, timers=timers)
-    brain: Brain | None = None
     packs = Packs(cal, hands, todoist, projects=ProjectIndex(), web=WebSearch(groq),
                   screen=lambda: brain.scene() if brain else {})
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember,

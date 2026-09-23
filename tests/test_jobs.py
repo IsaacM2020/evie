@@ -250,3 +250,37 @@ async def test_instruction_during_wrap_up_is_refused_not_lost():
     c.release.set()
     await r.wait()
     assert job.status == "done" and c.queries == ["x"]
+
+
+async def test_queued_goal_starts_when_the_current_job_finishes():
+    started = []
+
+    async def on_start(job):
+        started.append(job.goal)
+
+    done = []
+
+    async def on_done(job):
+        done.append(job.goal)
+
+    r = JobRunner(lambda j, l: asyncio.sleep(0), on_done, client_factory=lambda: FakeClient([[result("ok")]]),
+                  on_start=on_start)
+    await r.start("first")
+    r.enqueue("second")
+    assert r.queued == ["second"]
+    await r.wait()
+    for _ in range(50):
+        if r.current is None and started:
+            break
+        await asyncio.sleep(0.01)
+    await r.wait()
+    assert done == ["first", "second"] and started == ["second"] and r.queued == []
+
+
+async def test_stopping_drops_the_queue_too():
+    r = JobRunner(lambda j, l: asyncio.sleep(0), lambda j: asyncio.sleep(0),
+                  client_factory=lambda: FakeClient([[result("x")]], hang=True))
+    await r.start("first")
+    r.enqueue("second")
+    dropped = await r.stop()
+    assert dropped == ["second"] and r.queued == []
