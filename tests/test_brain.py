@@ -574,3 +574,54 @@ async def test_skill_that_isnt_fast_falls_to_claude_code():
     b._skills = FakeSkills(said=None)
     await b.hear("evie open the thing")
     assert p["runner"].started == ["open the thing"]
+
+
+class FakeRemember:
+    def __init__(self, *results):
+        from evie.facts import FactStore
+        self.results, self.runs = list(results), []
+        self.facts = FactStore(None)
+
+    async def run(self, where, text):
+        from evie.remember import Remembered
+        self.runs.append((where, text))
+        return self.results.pop(0) if self.results else Remembered("Added.")
+
+
+def remember_outcome(ctx, where="event"):
+    d = Decision(0.9, "remember", 1.0, {"remember": 1.0}, 0.9, 0.9, 300.0, 0.0, remember_to=where)
+    return Outcome(ctx, d, Verdict(Action.ACT, "remember"))
+
+
+class RememberSwitchboard(FakeSwitchboard):
+    async def handle(self, ctx):
+        self.contexts.append(ctx)
+        return remember_outcome(ctx)
+
+
+async def test_remember_goes_where_jev_said():
+    from evie.remember import Remembered
+    b, p = brain(RememberSwitchboard())
+    b._remember = rem = FakeRemember(Remembered("Added Dentist, Wednesday at 4pm."))
+    out = await b.hear("evie remember the dentist wednesday at 4")
+    assert rem.runs == [("event", "remember the dentist wednesday at 4")]
+    assert out["said"] == "Added Dentist, Wednesday at 4pm."
+
+
+async def test_remember_asks_what_time_then_uses_the_answer():
+    from evie.remember import Remembered
+    b, p = brain_c(RememberSwitchboard())
+    b._remember = rem = FakeRemember(Remembered(None, ask="What time?"), Remembered("Added Dentist, Wednesday at 4pm."))
+    first = await b.hear("evie i have the dentist wednesday")
+    second = await b.hear("4pm", "unknown", addressed=False)
+    assert first["said"] == "What time?"
+    assert rem.runs[1] == ("event", "i have the dentist wednesday. 4pm") and second["said"].startswith("Added")
+
+
+async def test_remembered_facts_reach_her_answers():
+    b, p = brain()
+    b._remember = rem = FakeRemember()
+    rem.facts.add("Isaac's locker code is 4129.")
+    await b.hear("evie whats my locker code")
+    facts = p["talker"].calls[0][2]
+    assert "4129" in facts["things_isaac_told_evie"]

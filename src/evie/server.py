@@ -335,7 +335,9 @@ def build_deps(s: Settings) -> Deps:
     """The real thing: Jev, Groq, Pocket TTS, Whisper, Claude Code, all wired to one event bus."""
     from evie.brain import Brain
     from evie.jobs import JobRunner
+    from evie.facts import FactStore
     from evie.narrator import Narrator
+    from evie.remember import Remember, Todoist
     from evie.skills.catalog import Skills
     from evie.skills.music import SpotifySearch
     from evie.skills.parse import say_duration
@@ -373,7 +375,9 @@ def build_deps(s: Settings) -> Deps:
     spotify = SpotifySearch(s.spotify_id, s.spotify_secret)
     timers = Timers(lambda t: mouth.say(f"Your {say_duration(int(t.seconds))} timer's done.", kind="reply"))
     skills = Skills(hands, talker, jev, System(), spotify, timers, apps=installed_apps)
-    brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills)
+    todoist = Todoist(s.todoist_key)
+    remember = Remember(talker, hands, todoist, FactStore(), cal, skills)
+    brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember)
     stt = Transcriber(s, backend=s.stt_backend)
     open_mic, voiceid = build_ears(stt, brain, mouth, bus)
 
@@ -388,6 +392,7 @@ def build_deps(s: Settings) -> Deps:
     async def close() -> None:
         timers.close()
         await spotify.aclose()
+        await todoist.aclose()
         await mouth.aclose()
         await talker.aclose()
         await stt.aclose()

@@ -223,7 +223,16 @@ class Brain:
             return await self._job_control(text)
         if route == "quick_action" and self._skills:
             return await self._quick(text, decision)
+        if route == "remember" and self._remember:
+            return await self._remember_it(text, decision, speaker)
         return self._clip("not_yet")
+
+    async def _remember_it(self, text: str, decision, speaker: str) -> str:
+        r = await self._remember.run(decision.remember_to if decision else None, strip_wake(text))
+        if r.ask:  # e.g. "What time?": his next sentence is merged in and this runs again
+            self._pending = Pending("detail", text, speaker, self._clock())
+            return self._say(r.ask)
+        return self._say(r.said)
 
     async def _quick(self, text: str, decision) -> str:
         """A fast skill if Jev is sure which one; otherwise Claude Code, the general hands."""
@@ -274,8 +283,11 @@ class Brain:
             today = self._cal.summary(now.date())
             tomorrow = self._cal.summary(now.date() + timedelta(days=1))
             week = " | ".join(self._cal.summary(now.date() + timedelta(days=d)) for d in range(2, 8))
-        return {"now": now.strftime("%a %-d %b %Y, %H:%M"), "calendar_today": today,
-                "calendar_tomorrow": tomorrow, "calendar_week": week, "job": self._runner.status_line()}
+        facts = {"now": now.strftime("%a %-d %b %Y, %H:%M"), "calendar_today": today,
+                 "calendar_tomorrow": tomorrow, "calendar_week": week, "job": self._runner.status_line()}
+        if self._remember and self._remember.facts.recent():
+            facts["things_isaac_told_evie"] = " | ".join(self._remember.facts.recent())
+        return facts
 
     def _say(self, text: str) -> str:
         self._mouth.say(text, kind="reply")

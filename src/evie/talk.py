@@ -26,6 +26,7 @@ FACT_LABELS = {
     "calendar_tomorrow": "Isaac's calendar tomorrow",
     "calendar_week": "Isaac's calendar for the rest of the week",
     "job": "Evie's background job",
+    "things_isaac_told_evie": "Things Isaac asked Evie to remember",
 }
 
 
