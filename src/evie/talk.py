@@ -68,7 +68,8 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 def clean(text: str) -> str:
     """Make LLM text safe to speak: no markdown, no dashes, two sentences max."""
-    text = re.sub(r"[*_`#]", "", text)
+    text = re.sub(r"[*`#]", "", text)
+    text = re.sub(r"(?<!\w)_([^_\n]+)_(?!\w)", r"\1", text)  # _emphasis_, but keep test_brain.py
     text = re.sub(r"\s*[—–]\s*", ", ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return " ".join(_SENTENCE_END.split(text)[:2])

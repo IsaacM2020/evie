@@ -98,3 +98,12 @@ async def test_live_groq_reply_is_short_and_clean():
     await t.aclose()
     assert out != FALLBACK and "math" in out.lower()
     assert "*" not in out and "—" not in out
+
+
+def test_clean_keeps_underscores_inside_names():
+    assert clean("The longest is tests/test_brain.py, then snake_case_name") == \
+        "The longest is tests/test_brain.py, then snake_case_name"
+
+
+def test_clean_strips_underscore_emphasis():
+    assert clean("That's _really_ done") == "That's really done"

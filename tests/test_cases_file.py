@@ -13,8 +13,8 @@ def load():
 
 def test_cases_are_valid():
     cases = load()
-    assert len(cases) == 70
-    assert len({c["id"] for c in cases}) == 70
+    assert len(cases) >= 70  # grows: every verdict that felt wrong becomes a case
+    assert len({c["id"] for c in cases}) == len(cases)
     for c in cases:
         assert c["cat"] in CATS, c["id"]
         assert c["speaker"] in {"isaac", "other", "unknown"}, c["id"]

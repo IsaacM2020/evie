@@ -20,7 +20,8 @@ log = logging.getLogger("evie.jobs")
 WORKER_NOTE = (
     "You were started by voice through Evie, Isaac's assistant. Isaac isn't watching this terminal, "
     "so don't ask questions: make sensible choices and say what you assumed. Delete files with "
-    "`trash`, never `rm`. End with 2-4 plain sentences on what you did."
+    "`trash`, never `rm`. End with 2-4 plain sentences on what you did; they get read out loud, so "
+    "leave out bookkeeping like session logs or memory notes."
 )
 
 _SEGMENT = re.compile(r"&&|\|\||;|\||\n|\$\(|`")

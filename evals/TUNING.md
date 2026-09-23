@@ -46,3 +46,8 @@ One Jev noul, `worth_saying`, threshold 0.60. Run: `uv run python -m evals.run_n
 | 1 | add "a research finding or answer" to the yes list (both misses were research findings at p 0.47/0.53) | 1.0 | 0.0 | 1.0 | yes |
 
 Honest caveat: iteration 1 was tuned on these same 24 lines, so 1.0 is optimistic. There's no holdout for narration yet; real jobs in the Phase 1 demo are the real test, and any narration that felt pointless (or a missed important one) becomes a new line here.
+
+## Phase 1 watch list (from the spoken end-to-end run, 2026-09-23)
+
+- `k01` "evie hows it going" (no job running): for_evie 0.80 but route splits answer / job_control (conf 0.45), so Evie asks "was that for me?". Not tuned yet; Phase 2 clarify work.
+- Regression runs of `--split all` on 2026-09-23: false_action 0 both times; p95 1459 ms then 710 ms (network noise); 2 decision flips between the two runs (b01, h03), so Jev is *nearly* deterministic, not fully.
