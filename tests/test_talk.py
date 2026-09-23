@@ -241,3 +241,19 @@ def test_fill_math_reads_how_models_actually_write_it():
     assert fill_math("[[sin 30°]]") == "0.5"
     assert fill_math("[[2^10]]") == "1024"
     assert fill_math("[[sqrt 16 + 1]]") == "5"
+
+
+@respx.mock
+async def test_rate_limited_big_model_falls_back_to_qwen():
+    calls = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        calls.append(body["model"])
+        if body["model"] == "openai/gpt-oss-120b":
+            return httpx.Response(429, json={"error": {"message": "Rate limit reached"}})
+        return ok('{"op": "done"}')
+
+    respx.post(URL).mock(side_effect=handler)
+    out = await GroqClient(S).chat("s", "u", json_mode=True, model="openai/gpt-oss-120b", reasoning="low")
+    assert out == '{"op": "done"}' and calls == ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]

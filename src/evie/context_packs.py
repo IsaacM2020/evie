@@ -44,6 +44,9 @@ _RAILS = {
 }
 
 
+_PAGE = re.compile(r"\b(this|the) (page|article|tab|site|post|email|doc|video)|summari[sz]e|what does (it|this) say|read (it|this)")
+
+
 def rails(text: str) -> set[str]:
     t = text.lower()
     return {name for name, rx in _RAILS.items() if rx.search(t)}
@@ -200,7 +203,12 @@ class Packs:
         return out
 
     async def _pack_screen(self, text: str) -> dict:
-        s = self._screen() or {}
+        s = dict(self._screen() or {})
+        if self._hands is not None:  # Phase 3b eyes: app, window, page, selection, and the page text if asked
+            r = await self._hands.do("screen_info", timeout=8.0, page=bool(_PAGE.search(text.lower())))
+            if r.ok:
+                s = {"front_app": r.data.get("front_app"), "window": r.data.get("window"), "url": r.data.get("url"),
+                     "selected": r.data.get("selected"), "page_text": r.data.get("page_text")}
         bits = [f"Front app: {s['front_app']}" if s.get("front_app") else "",
                 f"Window: {s['window']}" if s.get("window") else "",
                 f"Page: {s['url']}" if s.get("url") else "",

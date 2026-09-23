@@ -1,0 +1,12 @@
+{"id": "r01", "text": "play a video by mrbeast", "expect": "youtube_play"}
+{"id": "r02", "text": "put on some lofi on youtube", "expect": "youtube_play"}
+{"id": "r03", "text": "google ib physics past papers", "expect": "web_search"}
+{"id": "r04", "text": "open a new tab", "expect": "new_tab"}
+{"id": "r05", "text": "close this tab", "expect": "close_tab"}
+{"id": "r06", "text": "whatsapp mom that I'm on my way", "expect": "message_send"}
+{"id": "r07", "text": "text mr tan I'll be late", "expect": "message_send"}
+{"id": "r08", "text": "go to bbc.com", "expect": "open_site"}
+{"id": "r09", "text": "make a new note in notes", "expect": "none"}
+{"id": "r10", "text": "turn off true tone", "expect": "none"}
+{"id": "r11", "text": "open my chem ia note", "expect": "none"}
+{"id": "r12", "text": "subscribe to this channel", "expect": "none"}

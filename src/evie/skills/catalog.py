@@ -29,6 +29,8 @@ RISK = {
     "volume": "reversible", "open_app": "reversible", "open_website": "reversible",
     "timer_set": "reversible", "timer_cancel": "reversible", "undo": "reversible", "other": "unknown",
     "event_move": "reversible", "event_delete": "deletes", "task_done": "reversible",
+    "computer": "reversible",  # its own sends/buys/deletes are gated step by step (computer/safety.py)
+    "message_send": "sends_as_isaac",
 }
 
 MUSIC_Q = ('What music does Isaac want played? Return {"query": string, "kind": "track" | "artist" | '

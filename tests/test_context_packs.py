@@ -89,7 +89,9 @@ async def test_tasks_pack(tmp_path):
 
 
 async def test_screen_pack(tmp_path):
-    facts = await packs(tmp_path).gather({"screen"}, "what am i looking at")
+    p = packs(tmp_path)
+    p._hands = None  # before the app's eyes answer: front app + window from the open mic
+    facts = await p.gather({"screen"}, "what am i looking at")
     assert facts["screen"] == "Front app: Safari. Window: IB Physics - Kinematics notes"
 
 
@@ -119,3 +121,23 @@ async def test_a_broken_pack_never_breaks_the_answer(tmp_path):
     p._todoist = Boom()
     facts = await p.gather({"tasks"}, "what's due")
     assert facts == {"todoist": "couldn't check Todoist just now"}
+
+
+
+async def test_screen_pack_reads_the_page_when_he_says_this_page(tmp_path):
+    from evie.hands import HandsResult
+
+    class Eyes:
+        def __init__(self):
+            self.args = None
+
+        async def do(self, op, timeout=5.0, **args):
+            self.args = (op, args)
+            return HandsResult(True, "", {"front_app": "Safari", "window": "Kinematics", "url": "https://x.org/k",
+                                          "page_text": "Velocity is the rate of change of displacement."})
+
+    p = packs(tmp_path)
+    p._hands = Eyes()
+    facts = await p.gather({"screen"}, "summarise this page")
+    assert p._hands.args == ("screen_info", {"page": True})
+    assert "Page text: Velocity is the rate" in facts["screen"] and "Page: https://x.org/k" in facts["screen"]

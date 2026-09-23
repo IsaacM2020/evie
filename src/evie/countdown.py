@@ -32,6 +32,15 @@ class Countdown:
 
         self._task = asyncio.get_running_loop().create_task(run())
 
+    async def wait(self, seconds: float | None = None) -> bool:
+        """Say-stop window for something that happens inline (a 3b send): True if nobody said stop."""
+        async def nothing() -> None:
+            return None
+        self.start(nothing, seconds)
+        task = self._task
+        await asyncio.wait({task})
+        return not task.cancelled()
+
     def cancel(self) -> bool:
         """True if something was waiting and is now called off."""
         if not self.pending:

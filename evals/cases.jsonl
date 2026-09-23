@@ -109,7 +109,7 @@
 {"id": "s24", "cat": "skill", "utterance": "evie undo that", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": true, "has_event": null, "skill": "undo"}}
 {"id": "s25", "cat": "skill", "utterance": "undo", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": true, "has_event": null, "skill": "undo"}, "addressed": true}
 {"id": "s26", "cat": "skill", "utterance": "evie turn on do not disturb", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": true, "has_event": null, "skill": "other"}}
-{"id": "s27", "cat": "skill", "utterance": "evie send mom a message saying im running late", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": true, "has_event": null, "skill": "other"}}
+{"id": "s27", "cat": "skill", "utterance": "evie send mom a message saying im running late", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": true, "has_event": null, "skill": "message_send"}}
 {"id": "s28", "cat": "skill", "utterance": "evie make the screen brighter", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": true, "has_event": null, "skill": "other"}}
 {"id": "s29", "cat": "skill", "utterance": "evie empty the trash", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": true, "has_event": null, "skill": "other"}}
 {"id": "s30", "cat": "skill", "utterance": "evie play the new kendrick album", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": true, "has_event": null, "skill": "music_play"}}
@@ -157,3 +157,9 @@
 {"id": "p16", "cat": "phase35", "utterance": "evie is anything due this week", "speaker": "isaac", "expect": {"for_evie": true, "route": "answer", "complete": null, "has_event": null, "packs": ["tasks"]}}
 {"id": "p17", "cat": "phase35", "utterance": "evie what's this video about", "speaker": "isaac", "expect": {"for_evie": true, "route": "answer", "complete": null, "has_event": null, "packs": ["screen"]}}
 {"id": "p18", "cat": "phase35", "utterance": "evie what should i focus on today", "speaker": "isaac", "expect": {"for_evie": true, "route": "answer", "complete": null, "has_event": null, "packs": ["calendar", "tasks"], "packs_ok_extra": ["projects"]}}
+{"id": "x01", "cat": "phase35", "utterance": "evie play a video by mrbeast", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": null, "has_event": null, "skill": "computer"}}
+{"id": "x02", "cat": "phase35", "utterance": "evie open a new tab", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": null, "has_event": null, "skill": "computer"}}
+{"id": "x03", "cat": "phase35", "utterance": "evie whatsapp mom that i'm on my way", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": null, "has_event": null, "skill": "message_send"}}
+{"id": "x04", "cat": "phase35", "utterance": "evie text mr tan i'll be late", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": null, "has_event": null, "skill": "message_send"}}
+{"id": "x05", "cat": "phase35", "utterance": "evie subscribe to this channel", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": null, "has_event": null, "skill": "computer"}}
+{"id": "x06", "cat": "phase35", "utterance": "evie make a new note in notes", "speaker": "isaac", "expect": {"for_evie": true, "route": "quick_action", "complete": null, "has_event": null, "skill": "computer"}}

@@ -90,7 +90,8 @@ def skills(tmp_path, hands=None, talker=None, system=None, spotify=None, jev=Non
 
 def test_every_skill_has_a_risk_and_only_deletes_are_risky():
     assert set(RISK) == set(SKILLS)
-    assert all(RISK[k] in ("read_only", "reversible") for k in SKILLS if k not in ("other", "event_delete"))
+    assert all(RISK[k] in ("read_only", "reversible") for k in SKILLS if k not in ("other", "event_delete", "message_send"))
+    assert RISK["message_send"] == "sends_as_isaac"
     assert RISK["event_delete"] == "deletes"
 
 

@@ -1,4 +1,5 @@
 import AppKit
+import Contacts
 import EventKit
 import Foundation
 
@@ -48,6 +49,9 @@ struct HandsOutcome {
 final class Hands {
     private var gate = HandsGate()
     private let store = EKEventStore()
+    private let eyes = Eyes()
+    static let eyeOps: Set<String> = ["observe", "press", "set_text", "key", "type", "open_url", "menu", "activate",
+                                      "screen_info", "wait_page"]
 
     func run(_ ev: CoreEvent) async -> HandsOutcome? {
         guard let id = ev.id, let op = ev.op,
@@ -68,6 +72,9 @@ final class Hands {
         case "calendar_delete": return calendarDelete(a["id"]?.string ?? "")
         case "calendar_move": return calendarMove(a)
         case "calendar_query": return calendarQuery(a)
+        case "contacts_find": return await contactsFind(a["name"]?.string ?? "")
+        case "imessage_send": return await imessage(to: a["to"]?.string ?? "", text: a["text"]?.string ?? "")
+        case _ where Self.eyeOps.contains(op): return await eyes.run(op, a)
         default: return HandsOutcome(ok: false, detail: "I don't know how to \(op) yet")
         }
     }
@@ -123,6 +130,63 @@ final class Hands {
         if err.contains("-1743") { return "I'm not allowed to control Spotify yet, allow Evie in Settings" }
         if err.contains("-600") { return "Spotify isn't open" }
         return "Spotify didn't do it"
+    }
+
+    // MARK: Messages (Phase 3b)
+
+    private func contactsFind(_ name: String) async -> HandsOutcome {
+        let store = CNContactStore()
+        if CNContactStore.authorizationStatus(for: .contacts) != .authorized {
+            // Asked once, the first time Isaac sends a message by voice.
+            guard (try? await store.requestAccess(for: .contacts)) == true else {
+                return HandsOutcome(ok: false, detail: "no Contacts access")
+            }
+        }
+        let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactNicknameKey, CNContactPhoneNumbersKey,
+                    CNContactOrganizationNameKey] as [CNKeyDescriptor]
+        let found = (try? store.unifiedContacts(matching: CNContact.predicateForContacts(matchingName: name),
+                                                keysToFetch: keys)) ?? []
+        let rows: [[String: Any]] = found.prefix(50).map { c in
+            let full = [c.givenName, c.familyName].filter { !$0.isEmpty }.joined(separator: " ")
+            return ["name": full.isEmpty ? (c.nickname.isEmpty ? c.organizationName : c.nickname) : full,
+                    "phones": c.phoneNumbers.map { $0.value.stringValue }]
+        }
+        let data = (try? JSONSerialization.data(withJSONObject: rows)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        return HandsOutcome(ok: true, detail: "\(rows.count) found", data: ["contacts": data])
+    }
+
+    private func imessage(to: String, text: String) async -> HandsOutcome {
+        guard to.range(of: #"^\+?[0-9]{6,16}$"#, options: .regularExpression) != nil, !text.isEmpty else {
+            return HandsOutcome(ok: false, detail: "that number didn't look right")
+        }
+        // Number and text travel as arguments, never pasted into the script.
+        let r = await Self.osascriptArgs([
+            "on run argv",
+            "tell application \"Messages\"",
+            "set s to 1st account whose service type = iMessage",
+            "send (item 2 of argv) to participant (item 1 of argv) of s",
+            "end tell",
+            "end run"], args: [to, text])
+        return r.ok ? HandsOutcome(ok: true, detail: "sent") : HandsOutcome(ok: false, detail: "Messages said no")
+    }
+
+    nonisolated static func osascriptArgs(_ lines: [String], args: [String]) async -> (ok: Bool, out: String) {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+                p.arguments = lines.flatMap { ["-e", $0] } + args
+                let out = Pipe(), err = Pipe()
+                p.standardOutput = out
+                p.standardError = err
+                do { try p.run() } catch { cont.resume(returning: (false, "\(error)")); return }
+                DispatchQueue.global().asyncAfter(deadline: .now() + 15) { if p.isRunning { p.terminate() } }
+                p.waitUntilExit()
+                let o = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                let e = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                cont.resume(returning: (p.terminationStatus == 0, p.terminationStatus == 0 ? o : e))
+            }
+        }
     }
 
     // MARK: Calendar

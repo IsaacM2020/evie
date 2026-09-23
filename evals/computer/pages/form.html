@@ -1,0 +1,6 @@
+<!doctype html><html><head><title>Form</title></head><body>
+<form onsubmit="event.preventDefault(); document.title='submitted:' + document.getElementById('q').value">
+<input id="q" name="q" placeholder="Search notes"><button>Go</button></form>
+<button onclick="document.title='clicked'">Play</button>
+<div contenteditable="true" aria-label="Message"></div>
+</body></html>

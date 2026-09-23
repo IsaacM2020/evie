@@ -31,6 +31,7 @@ TURNS_LOG = Path.home() / "Library/Logs/Evie/turns.jsonl"
 MAX_TURNS = 3
 PENDING_S = 15.0  # how long Evie waits for the answer to a question she asked
 FOLLOWUP_S = 10.0
+COMPUTER_SKILLS = {"computer", "message_send"}  # Phase 3b: done on screen (or by message)
 SKILL_CONF_MIN = 0.5  # below this Jev isn't sure which fast skill: Claude Code handles it  # after she answers, a follow-up without her name may still be for her
 
 JOB_OP_Q = {
@@ -86,7 +87,7 @@ class Brain:
     HARD_AT = 0.7
     def __init__(self, sb, talker, mouth, runner, narrator, calendar: CalendarStore, bus: EventBus, jev,
                  turns_log: Path | None = TURNS_LOG, clock: Callable[[], float] = time.monotonic,
-                 skills=None, remember=None, countdown=None, conversation=None, packs=None):
+                 skills=None, remember=None, countdown=None, conversation=None, packs=None, computer=None):
         self._sb, self._talker, self._mouth = sb, talker, mouth
         self._runner, self._narrator, self._cal = runner, narrator, calendar
         self._bus, self._jev, self._log, self._clock = bus, jev, turns_log, clock
@@ -94,6 +95,8 @@ class Brain:
         self._countdown = countdown  # a pending "say stop to cancel" (event delete, 3b sends)
         self._conv = conversation  # today's turns with Isaac (evie.memory), for follow-ups
         self._packs = packs  # context packs (evie.context_packs): the knowledge each answer needs
+        self._computer = computer  # Phase 3b: operating apps on screen (evie.computer.recipes)
+        self._computer_task: asyncio.Task | None = None
         self._turns: deque[str] = deque(maxlen=MAX_TURNS)
         self._pending: Pending | None = None
         self._last_reply_at: float | None = None
@@ -140,6 +143,8 @@ class Brain:
     def _stop(self, text: str) -> dict:
         self._mouth.stop()
         self._pending = None
+        if self._computer_task and not self._computer_task.done():
+            self._computer_task.cancel()
         self._bus.publish("heard", text=text)
         self._bus.publish("state", state="working" if self._runner.current else "idle")
         self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "stop", "route": None})
@@ -276,7 +281,7 @@ class Brain:
             return await self._start_job(text, long=bool(decision and decision.long_job >= 0.6))
         if route == "job_control":
             return await self._job_control(text)
-        if route == "quick_action" and self._skills:
+        if route == "quick_action" and (self._skills or self._computer):
             return await self._quick(text, decision, speaker, addressed)
         if route == "remember" and self._remember:
             return await self._remember_it(text, decision, speaker)
@@ -323,11 +328,45 @@ class Brain:
         skill = decision.skill if decision else None
         if skill and not allowed(RISK.get(skill, "unknown"), speaker, addressed):
             return self._say("That one needs your voice. Say it again, or use the talk key.")
-        if skill and skill != "other" and decision.skill_conf >= SKILL_CONF_MIN:
+        if skill in COMPUTER_SKILLS and self._computer is not None and decision.skill_conf >= SKILL_CONF_MIN:
+            return self._start_computer(strip_wake(text))
+        if skill and skill != "other" and self._skills and decision.skill_conf >= SKILL_CONF_MIN:
             done = await self._skills.run(skill, strip_wake(text))
             if done.said is not None:
                 return self._say(done.said)
         return await self._start_job(text)
+
+    def _start_computer(self, goal: str) -> str:
+        """On screen work takes a few seconds: say "On it." now, keep listening, report when done."""
+        if self._computer_task and not self._computer_task.done():
+            self._computer_task.cancel()
+        said = self._clip("on_it")
+        self._computer_task = asyncio.create_task(self._run_computer(goal))
+        return said
+
+    async def _run_computer(self, goal: str) -> None:
+        self._bus.publish("state", state="working")
+        try:
+            out = await self._computer.run(goal)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("computer task crashed")
+            self._say("Something broke doing that on screen.")
+            return
+        finally:
+            self._bus.publish("state", state="working" if self._runner.current else "idle")
+        self._write_log({"t": time.time(), "text": goal, "action": "act", "reason": "computer", "route": "computer",
+                         "said": out.said, "ok": out.ok, "stuck": out.stuck})
+        if out.ask:
+            self._pending = Pending("detail", goal, "isaac", self._clock(), asked=out.said)
+            self._say(out.said)
+        elif out.stuck:
+            self._say("That's fiddly on screen, I'll get Claude Code to do it.")
+            await self._start_job(f"{goal} (Evie tried this in the app's interface and got stuck. Do it another "
+                                  "way, like osascript or Shortcuts; a screenshot only if there's truly no other way.)")
+        else:
+            self._say(out.said)
 
     async def _start_job(self, text: str, long: bool = False) -> str:
         running = self._runner.current

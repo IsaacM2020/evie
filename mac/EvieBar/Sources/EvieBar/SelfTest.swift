@@ -99,6 +99,19 @@ enum SelfTest {
             let vb = AudioCopy.floats(data, format: vf)
             check(vb?.frameLength == 480 && vb?.floatChannelData?[0][479] == 0.25, "mouth: float32 bytes become a buffer")
         }
+        check(AXPick.label(title: "", desc: "Send", value: nil, help: nil, placeholder: nil, role: "AXButton") == "Send"
+              && AXPick.label(title: nil, desc: nil, value: "typed secret", help: nil, placeholder: "Search", role: "AXTextField") == "Search",
+              "eyes: labels come from title/description, a field's typed text is never its label")
+        check(AXPick.keep(role: "AXButton", label: "Play", width: 20, height: 20)
+              && AXPick.keep(role: "AXTextField", label: "", width: 100, height: 20)
+              && !AXPick.keep(role: "AXButton", label: "", width: 20, height: 20)
+              && !AXPick.keep(role: "AXButton", label: "Hidden", width: 0, height: 0)
+              && !AXPick.keep(role: "AXGroup", label: "Sidebar", width: 200, height: 400), "eyes: keeps only real, labelled controls")
+        check(KeyMap.parse("cmd+t").map { $0.0 == 17 && $0.1 == .maskCommand } == true
+              && KeyMap.parse("cmd+shift+n").map { $0.0 == 45 && $0.1.contains(.maskShift) } == true
+              && KeyMap.parse("return").map { $0.0 == 36 } == true && KeyMap.parse("cmd+hyper") == nil, "eyes: key combos")
+        check(WebReader.json("a\"b</script>") == #""a\"b<\/script>""# || WebReader.json("a\"b</script>") == #""a\"b</script>""#,
+              "eyes: text for a page script is JSON-escaped")
         let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let size = NSSize(width: 200, height: 60)
         check(PillPlacement.clamp(NSPoint(x: 1400, y: -50), size: size, in: screen) == NSPoint(x: 1240, y: 0)

@@ -54,6 +54,10 @@ class TalkError(Exception):
     pass
 
 
+class RateLimited(TalkError):
+    pass
+
+
 class GroqClient:
     def __init__(self, settings: Settings, http: httpx.AsyncClient | None = None, hedge_after_s: float = 1.2):
         self._s = settings
@@ -75,6 +79,18 @@ class GroqClient:
             **({"reasoning_effort": reasoning or "low", "include_reasoning": False}
                if model.startswith("openai/gpt-oss") else {"reasoning_effort": reasoning or "none"}),
         }
+        try:
+            return await self._hedged(body)
+        except RateLimited:
+            if model == self._s.groq_model:
+                raise TalkError("rate limited")
+            # The big model has a much smaller rate limit: fall back to the everyday one.
+            log.warning("%s rate limited, falling back to %s", model, self._s.groq_model)
+            body = dict(body, model=self._s.groq_model, reasoning_effort="none")
+            body.pop("include_reasoning", None)
+            return await self._hedged(body)
+
+    async def _hedged(self, body: dict) -> str:
         first = asyncio.create_task(self._once(body))
         done, _ = await asyncio.wait({first}, timeout=self._hedge)
         if done:
@@ -127,6 +143,8 @@ class GroqClient:
             if r.status_code >= 500:
                 last = TalkError(f"server {r.status_code}")
                 continue
+            if r.status_code == 429:
+                raise RateLimited(r.text[:200])
             if r.status_code != 200:
                 raise TalkError(f"http {r.status_code}: {r.text[:200]}")
             text = (r.json()["choices"][0]["message"].get("content") or "").strip()

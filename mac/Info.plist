@@ -11,8 +11,10 @@
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSMicrophoneUsageDescription</key><string>Evie hears you while you hold Control + Option, or all the time with the open mic on. Other people's voices are dropped on your Mac.</string>
-  <key>NSAppleEventsUsageDescription</key><string>Evie plays, pauses and skips music in Spotify when you ask.</string>
+  <key>NSContactsUsageDescription</key>
+	<string>Evie looks up who you want to message, so she never guesses a number.</string>
+	<key>NSMicrophoneUsageDescription</key><string>Evie hears you while you hold Control + Option, or all the time with the open mic on. Other people's voices are dropped on your Mac.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Evie plays music in Spotify, reads and operates pages in Safari, and sends iMessages when you ask.</string>
   <key>NSCalendarsFullAccessUsageDescription</key><string>Evie reads your calendar so she can answer "what's on tomorrow?" and spot clashes.</string>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>

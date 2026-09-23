@@ -43,8 +43,11 @@ SKILLS = {
     "event_move": "Move or reschedule something already on Isaac's calendar to another time or day",
     "event_delete": "Delete, remove or cancel something already on Isaac's calendar",
     "task_done": "Isaac says he finished or did one of his to-dos, or asks to tick one off",
-    "other": "Anything else, for example sending a message, muting the microphone, changing a "
-             "setting, or a multi-step task on the computer",
+    "computer": "Do something inside an app or a web page on the screen: play a video on YouTube, open a new "
+                "tab, search a site, click or type something, fill in a form, change something in an app",
+    "message_send": "Send a WhatsApp message, a text or an iMessage to someone",
+    "other": "Anything else, for example muting the microphone, changing a system setting, or a long "
+             "multi-step job with files",
 }
 
 REMEMBER_TO = {

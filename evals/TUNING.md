@@ -117,3 +117,9 @@ Two questions added to the one Jev call: `skill` (13 fast skills + other) and `r
 ## Phase 3.5 T11: context packs (2026-09-24)
 - Baseline (all nouls at 0.5): pack_accuracy 0.556. Jev over-picked web ("what time is it") and projects ("is anything due").
 - Tweak 1: sharper need_web / need_projects wording ("ONLY answerable with fresh internet info", "No for his to-do list, calendar, time, maths") + bars web 0.8, projects 0.7 → pack_accuracy 0.944, p50 393 ms (no latency cost from 7 extra nouls).
+
+## Phase 3b computer control (2026-09-24), evals/run_computer.py
+- 24 hand-built screens (YouTube, Google, Gmail, Notes, Finder, WhatsApp, Amazon, Settings, Spotify, Notion, Safari) + 12 recipe cases.
+- Run 1: step 0.625, but 7 of 9 misses were Groq 429s on gpt-oss-120b (small per-minute limit). Added a 429 fallback to qwen3.8-27b.
+- Run 2: step_accuracy 0.958, recipe_accuracy 1.0, unsafe 0, step p50 703 ms / p95 1977 ms. PASS.
+- Main eval with 6 new computer/message cases: skill 0.952, false_action 0, pack 1.0. s27 now expects message_send (messages moved to 3b).

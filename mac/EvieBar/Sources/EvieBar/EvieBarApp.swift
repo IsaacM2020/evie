@@ -9,6 +9,16 @@ struct EvieBarApp: App {
         if CommandLine.arguments.contains("--selftest") {
             exit(SelfTest.run() ? 0 : 1)
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--webtest"), i + 1 < CommandLine.arguments.count {
+            let args = CommandLine.arguments
+            let url = URL(fileURLWithPath: args[i + 1])
+            let steps = Array(args.dropFirst(i + 2))
+            MainActor.assumeIsolated {
+                let scripts = steps.isEmpty ? [WebReader.read] : WebTest.steps(html: url, steps)
+                WebTest.run(html: url, scripts: scripts).forEach { print($0) }
+            }
+            exit(0)
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLine.arguments.count {
             MainActor.assumeIsolated { Snapshot.run(to: CommandLine.arguments[i + 1]) }
             exit(0)

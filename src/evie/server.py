@@ -76,6 +76,12 @@ class EnrollIn(BaseModel):
     on: bool
 
 
+class DoIn(BaseModel):
+    op: str
+    args: dict = {}
+    timeout: float = 10.0
+
+
 class HandsResultIn(BaseModel):
     id: str
     ok: bool
@@ -290,6 +296,13 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
             sender.cancel()
             link.detach()
 
+    @app.post("/debug/do")
+    async def debug_do(body: DoIn) -> dict:
+        """Run one hands command by hand (testing Phase 3b). Localhost only, like everything here."""
+        d = need("hands")
+        r = await d.hands.do(body.op, timeout=body.timeout, **body.args)
+        return {"ok": r.ok, "detail": r.detail, "data": r.data}
+
     @app.post("/hands/result")
     async def hands_result(body: HandsResultIn) -> dict:
         d = need("hands")
@@ -411,6 +424,9 @@ def build_deps(s: Settings) -> Deps:
     from evie.facts import FactStore
     from evie.narrator import Narrator
     from evie.remember import Remember, Todoist
+    from evie.computer.messages import Messages
+    from evie.computer.planner import Planner
+    from evie.computer.recipes import Recipes
     from evie.context_packs import Packs, ProjectIndex, WebSearch
     from evie.countdown import Countdown
     from evie.memory import Conversation
@@ -472,8 +488,11 @@ def build_deps(s: Settings) -> Deps:
     remember = Remember(talker, hands, todoist, FactStore(), cal, skills, timers=timers)
     packs = Packs(cal, hands, todoist, projects=ProjectIndex(), web=WebSearch(groq),
                   screen=lambda: brain.scene() if brain else {})
+    speak = lambda text: mouth.say(text, kind="reply")  # noqa: E731
+    planner = Planner(hands, groq, countdown, say=speak)
+    computer = Recipes(hands, jev, talker, planner, messages=Messages(hands, jev, countdown, say=speak))
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember,
-                  countdown=countdown, conversation=conversation, packs=packs)
+                  countdown=countdown, conversation=conversation, packs=packs, computer=computer)
     stt = Transcriber(s, backend=s.stt_backend)
     open_mic, voiceid = build_ears(stt, brain, mouth, bus)
 

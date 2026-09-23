@@ -11,13 +11,14 @@ CAN = [
     "remember facts Isaac tells her and use them later",
     "play, pause and skip Spotify music, change the volume, open apps and websites",
     "undo the last thing she did",
+    "operate apps and web pages on the Mac: play a YouTube video, open tabs, search, click and type in apps "
+    "(Safari first), and send WhatsApp or iMessage messages after reading them back",
     "hand bigger work (coding, research, files, anything multi-step on the Mac) to Claude Code in the "
     "background and keep talking while it runs",
 ]
 CANT_YET = [
-    "send WhatsApp or iMessage messages",
-    "click or type inside other apps' screens by herself (Claude Code can try it as a background job)",
-    "see the screen",
+    "look at screenshots or images (she reads screens as text)",
+    "pay for things or log in to accounts",
 ]
 
 

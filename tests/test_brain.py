@@ -898,3 +898,76 @@ async def test_hard_questions_go_to_the_big_model_with_a_let_me_think():
     out = await b.hear("why is the derivative of sin cos")
     assert p["talker"].calls[-1][3] is True and out["said"] == "Here's why."
     assert p["mouth"].said == ["Let me think.", "Here's why."]
+
+
+# -- Phase 3b: computer control from the Brain --------------------------------------------------
+class SkillSB(FakeSwitchboard):
+    def __init__(self, skill):
+        super().__init__("act", "quick_action", "quick_action")
+        self.skill = skill
+
+    async def handle(self, ctx):
+        self.contexts.append(ctx)
+        d = Decision(0.95, "quick_action", 1.0, {"quick_action": 1.0}, 0.9, 0.0, 300.0, 0.0, skill=self.skill,
+                     skill_conf=0.9)
+        return Outcome(ctx, d, Verdict(Action.ACT, "quick_action"))
+
+
+class FakeComputer:
+    def __init__(self, outcome, delay=0.0):
+        self.outcome, self.delay, self.goals = outcome, delay, []
+
+    async def run(self, text):
+        self.goals.append(text)
+        await asyncio.sleep(self.delay)
+        return self.outcome
+
+
+async def test_computer_goal_runs_in_the_background_and_reports():
+    from evie.computer.planner import Outcome as CO
+    b, p = brain(SkillSB("computer"))
+    b._computer = FakeComputer(CO(True, "Playing I Spent 7 Days Buried Alive."), delay=0.02)
+    out = await b.hear("evie play a video by mrbeast")
+    assert out["said"] == ACKS["on_it"]  # answered straight away, the work carries on
+    await asyncio.sleep(0.05)
+    assert b._computer.goals == ["play a video by mrbeast"]
+    assert p["mouth"].said[-1] == "Playing I Spent 7 Days Buried Alive."
+
+
+async def test_stuck_on_screen_hands_it_to_claude_code():
+    from evie.computer.planner import Outcome as CO
+    b, p = brain(SkillSB("computer"))
+    b._computer = FakeComputer(CO(False, "I got stuck doing that on screen.", stuck=True))
+    await b.hear("evie turn on do not disturb")
+    await asyncio.sleep(0.05)
+    assert p["runner"].started and "turn on do not disturb" in p["runner"].started[0]
+    assert "Claude Code" in p["mouth"].said[-1] or p["mouth"].clips[-1] == "on_it"
+
+
+async def test_computer_question_back_waits_for_the_answer():
+    from evie.computer.planner import Outcome as CO
+    b, p = brain_c(SkillSB("computer"))
+    b._computer = FakeComputer(CO(False, "Which video, the newest one?", ask=True))
+    await b.hear("evie play that video")
+    await asyncio.sleep(0.05)
+    assert b._pending is not None and b._pending.asked == "Which video, the newest one?"
+
+
+async def test_stop_cancels_a_computer_task():
+    from evie.computer.planner import Outcome as CO
+    b, p = brain(SkillSB("computer"))
+    p["mouth"] = b._mouth = StopMouth()
+    b._computer = FakeComputer(CO(True, "done"), delay=1.0)
+    await b.hear("evie play a video by mrbeast")
+    await b.hear("stop")
+    await asyncio.sleep(0.02)
+    assert b._computer_task is None or b._computer_task.cancelled()
+
+
+async def test_sending_a_message_needs_isaacs_own_voice():
+    from evie.computer.planner import Outcome as CO
+    b, p = brain(SkillSB("message_send"))
+    b._computer = FakeComputer(CO(True, "Sent."))
+    said = await b._quick("text mom on my way", (await b._sb.handle(b._context("x", "unknown", False))).decision,
+                          speaker="unknown", addressed=False)
+    assert b._computer.goals == [] and "talk key" in said
