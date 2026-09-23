@@ -98,7 +98,7 @@ async def test_all_day_event(tmp_path):
 
 
 async def test_event_in_the_past_or_nonsense_is_refused(tmp_path):
-    for bad in ({"title": "x", "date": "2025-01-01", "time": "10:00"}, {"title": "", "date": "2026-09-30", "time": "10:00"},
+    for bad in ({"title": "x", "date": "2025-01-01", "time": "10:00"},
                 {"title": "x", "date": "someday", "time": "10:00"}, {}):
         r, _ = rem(tmp_path, bad)
         assert not (await r.run("event", "blah")).ok, bad
@@ -157,15 +157,15 @@ async def test_todoist_client_uses_api_v1():
     route = respx.post("https://api.todoist.com/api/v1/tasks").mock(return_value=httpx.Response(200, json={"id": "99"}))
     tid = await Todoist("tok").add("Email Mr Tan", "tomorrow")
     body = json.loads(route.calls[0].request.content)
-    assert tid == "99" and body == {"content": "Email Mr Tan", "due_string": "tomorrow", "due_lang": "en"}
+    assert tid.id == "99" and body == {"content": "Email Mr Tan", "due_string": "tomorrow", "due_lang": "en"}
     assert route.calls[0].request.headers["Authorization"] == "Bearer tok"
 
 
 @respx.mock
-async def test_todoist_client_failure_is_none():
-    respx.post("https://api.todoist.com/api/v1/tasks").mock(return_value=httpx.Response(401))
-    assert await Todoist("bad").add("x", None) is None
-    assert await Todoist("").add("x", None) is None
+async def test_todoist_client_failure_has_no_id():
+    respx.post("https://api.todoist.com/api/v1/tasks").mock(return_value=httpx.Response(500))
+    assert (await Todoist("bad").add("x", None)).id is None
+    assert (await Todoist("").add("x", None)).id is None
 
 
 @pytest.mark.live
@@ -174,3 +174,128 @@ async def test_live_todoist_add_then_delete_own_task():
     t = Todoist(load_settings().todoist_key)
     tid = await t.add("Evie test (delete me)", None)
     assert tid and await t.delete(tid)
+
+
+# -- Phase 3.5: reminders, Todoist that copes, facts that never vanish -----------------------
+
+class FakeTimers:
+    def __init__(self):
+        self.started = []
+
+    def start(self, seconds, label=""):
+        self.started.append((seconds, label))
+
+
+def rem2(tmp_path, out, todoist=None, timers=None):
+    undo = Undo()
+    r = Remember(FakeTalker(out), FakeHands(), todoist or FakeTodoist(), FactStore(tmp_path / "facts.jsonl"),
+                 CalendarStore(), undo, now=lambda: NOW, timers=timers)
+    return r, undo
+
+
+async def test_short_reminder_is_a_spoken_timer_not_todoist(tmp_path):
+    # 21:19 on 2026-09-23: "remind me in 30 seconds to eat a banana" went to Todoist and got a 400.
+    tm, td = FakeTimers(), FakeTodoist()
+    r, _ = rem2(tmp_path, {"what": "eat a banana", "date": None, "time": None}, todoist=td, timers=tm)
+    out = await r.run("reminder", "set a timer for 30 seconds please, remind me to go eat a banana")
+    assert tm.started == [(30, "eat a banana")] and td.added == []
+    assert out.said == "Okay, in 30 seconds I'll remind you to eat a banana."
+
+
+async def test_reminder_at_a_time_today_is_a_timer(tmp_path):
+    tm = FakeTimers()
+    r, _ = rem2(tmp_path, {"what": "call mom", "date": None, "time": "19:30"}, timers=tm)
+    out = await r.run("reminder", "remind me at 7 30 to call mom")
+    assert tm.started == [(2.5 * 3600, "call mom")] and out.said == "Okay, at 7:30pm I'll remind you to call mom."
+
+
+async def test_reminder_tomorrow_goes_to_todoist_with_its_time(tmp_path):
+    tm, td = FakeTimers(), FakeTodoist()
+    r, _ = rem2(tmp_path, {"what": "Email Mr Tan", "date": "2026-09-24", "time": "17:00", "due": "tomorrow at 5pm"},
+                todoist=td, timers=tm)
+    out = await r.run("reminder", "remind me tomorrow at 5 to email mr tan")
+    assert tm.started == [] and td.added == [("Email Mr Tan", "tomorrow at 5pm")]
+    assert out.said == "Added to Todoist: Email Mr Tan, tomorrow at 5pm."
+
+
+async def test_reminder_with_no_time_is_a_plain_task(tmp_path):
+    td = FakeTodoist()
+    r, _ = rem2(tmp_path, {"what": "Buy milk", "date": None, "time": None}, todoist=td, timers=FakeTimers())
+    await r.run("reminder", "remind me to buy milk")
+    assert td.added == [("Buy milk", None)]
+
+
+async def test_short_reminder_can_be_undone(tmp_path):
+    class Timers(FakeTimers):
+        def start(self, seconds, label=""):
+            super().start(seconds, label)
+
+            class T:
+                id = "t1"
+            return T()
+
+        def cancel(self, tid=None):
+            self.cancelled = tid
+            return True
+
+    tm = Timers()
+    r, undo = rem2(tmp_path, {"what": "stretch", "date": None, "time": None}, timers=tm)
+    await r.run("reminder", "remind me in 1 minute to stretch")
+    assert await undo.fns[0]() == "Reminder cancelled." and tm.cancelled == "t1"
+
+
+@respx.mock
+async def test_todoist_400_retries_without_the_due_date():
+    route = respx.post("https://api.todoist.com/api/v1/tasks").mock(
+        side_effect=[httpx.Response(400, json={"error": "bad due"}), httpx.Response(200, json={"id": "9"})])
+    t = Todoist("k")
+    added = await t.add("Eat a banana", "in 30 seconds")
+    assert added.id == "9" and added.due_dropped is True
+    assert json.loads(route.calls[1].request.content) == {"content": "Eat a banana"}
+
+
+@respx.mock
+async def test_todoist_bad_key_is_named():
+    respx.post("https://api.todoist.com/api/v1/tasks").respond(401)
+    added = await Todoist("k").add("x", None)
+    assert added.id is None and added.error == "Todoist key's wrong"
+
+
+async def test_task_whose_due_date_was_dropped_says_so(tmp_path):
+    from evie.remember import Added
+
+    class TD(FakeTodoist):
+        async def add(self, content, due):
+            self.added.append((content, due))
+            return Added("T2", due_dropped=True)
+
+    r, _ = rem(tmp_path, {"content": "Eat a banana", "due": "in 30 seconds"}, todoist=TD())
+    assert (await r.run("task", "x")).said == "Added to Todoist: Eat a banana, but I couldn't set the time."
+
+
+async def test_fact_is_still_kept_when_extraction_fails(tmp_path):
+    # 21:11: Groq stalled, extraction came back empty, she said "I didn't catch what to remember".
+    r, _ = rem(tmp_path, {})
+    out = await r.run("fact", "Remember my locker code, it is 2545.")
+    assert out.said == "Got it, I'll remember that."
+    assert r.facts.recent() == ["Isaac said: my locker code, it is 2545."]
+
+
+async def test_event_without_a_title_asks_what_its_called(tmp_path):
+    # 21:08: "Set a calendar event for next week Thursday, 4.30pm" got "I couldn't work out when that is".
+    hands = FakeHands()
+    r, _ = rem(tmp_path, {"title": "", "date": "2026-10-01", "time": "16:30"}, hands=hands)
+    out = await r.run("event", "set a calendar event for next week thursday 4.30pm")
+    assert out.ask == "What's it called?" and hands.calls == []
+
+
+@respx.mock
+async def test_todoist_lists_today_and_overdue_and_closes():
+    respx.get("https://api.todoist.com/api/v1/tasks/filter").respond(200, json={"results": [
+        {"id": "1", "content": "Email bio teacher", "due": {"date": "2026-09-24", "string": "tomorrow"}},
+        {"id": "2", "content": "Maths practice", "due": None}]})
+    close = respx.post("https://api.todoist.com/api/v1/tasks/1/close").respond(204)
+    t = Todoist("k")
+    tasks = await t.list("today | overdue")
+    assert [(x.id, x.content, x.due) for x in tasks] == [("1", "Email bio teacher", "tomorrow"), ("2", "Maths practice", None)]
+    assert await t.close("1") is True and close.called

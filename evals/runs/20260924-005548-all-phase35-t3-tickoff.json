@@ -1,0 +1,5046 @@
+{
+ "label": "phase35-t3-tickoff",
+ "split": "all",
+ "metrics": {
+  "n": 141,
+  "jev_failures": 0,
+  "false_action": 0,
+  "false_clarify_rate": 0.026,
+  "command_recall": 1.0,
+  "route_accuracy": 0.957,
+  "complete_accuracy": 0.958,
+  "event_accuracy": 0.952,
+  "latency_p50_ms": 386,
+  "latency_p95_ms": 522,
+  "skill_accuracy": 0.972,
+  "remember_to_accuracy": 1.0,
+  "cost_usd": 0.01004
+ },
+ "fails": {
+  "false_action": [],
+  "false_clarify": [
+   "c09"
+  ],
+  "missed_command": [],
+  "route": [
+   "c09",
+   "c11",
+   "g05",
+   "g06",
+   "i04",
+   "o08"
+  ],
+  "complete": [
+   "d11",
+   "h03",
+   "s27"
+  ],
+  "event": [
+   "a13",
+   "b05",
+   "c10",
+   "h03"
+  ],
+  "skill": [
+   "s14"
+  ],
+  "remember_to": []
+ },
+ "results": [
+  {
+   "id": "a01",
+   "cat": "direct",
+   "utterance": "evie play some lofi",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "remember": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.0,
+     "quick_action": 1.0
+    },
+    "complete": 0.95,
+    "has_event": 0.02,
+    "latency_ms": 543.3298340067267,
+    "cost_usd": 7.1148e-05,
+    "skill": "music_play",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "a02",
+   "cat": "direct",
+   "utterance": "eve pause the music",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.98,
+    "route_probs": {
+     "quick_action": 0.99,
+     "not_for_evie": 0.01,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0
+    },
+    "complete": 0.94,
+    "has_event": 0.02,
+    "latency_ms": 440.43541699647903,
+    "cost_usd": 7.1064e-05,
+    "skill": "music_pause",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "a03",
+   "cat": "direct",
+   "utterance": "evie whats on my calendar tomorrow",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "answer",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "answer",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "answer": 1.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "remember": 0.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.85,
+    "has_event": 0.03,
+    "latency_ms": 502.9295419808477,
+    "cost_usd": 7.0938e-05,
+    "skill": "other",
+    "skill_conf": 0.94,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "a04",
+   "cat": "direct",
+   "utterance": "evey fix the bug in my cricket win predictor where chases are way off",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "deep_job",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "deep_job",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "deep_job",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "remember": 0.0,
+     "not_for_evie": 0.01,
+     "answer": 0.0,
+     "quick_action": 0.0,
+     "job_control": 0.0,
+     "deep_job": 0.99
+    },
+    "complete": 0.83,
+    "has_event": 0.25,
+    "latency_ms": 523.7250420032069,
+    "cost_usd": 7.1568e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "a05",
+   "cat": "direct",
+   "utterance": "evie remind me to email mr tan about the chem ia tonight at 8",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": true
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "remember": 1.0,
+     "not_for_evie": 0.0,
+     "deep_job": 0.0,
+     "quick_action": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0
+    },
+    "complete": 0.86,
+    "has_event": 0.97,
+    "latency_ms": 478.45841699745506,
+    "cost_usd": 7.1316e-05,
+    "skill": "other",
+    "skill_conf": 0.97,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "a06",
+   "cat": "direct",
+   "utterance": "evie remember i have the dentist on wednesday",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": false,
+    "has_event": true
+   },
+   "action": "clarify",
+   "reason": "missing detail",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 0.0,
+     "quick_action": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.0,
+     "remember": 1.0
+    },
+    "complete": 0.16,
+    "has_event": 0.99,
+    "latency_ms": 496.38908298220485,
+    "cost_usd": 7.1106e-05,
+    "skill": "other",
+    "skill_conf": 0.96,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "a07",
+   "cat": "direct",
+   "utterance": "evie play that song",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": false,
+    "has_event": false
+   },
+   "action": "clarify",
+   "reason": "missing detail",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "remember": 0.0,
+     "not_for_evie": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "quick_action": 1.0
+    },
+    "complete": 0.05,
+    "has_event": 0.02,
+    "latency_ms": 455.34566702554,
+    "cost_usd": 7.0854e-05,
+    "skill": "music_play",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "a08",
+   "cat": "direct",
+   "utterance": "ivy turn the volume down a bit",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.98,
+    "route_probs": {
+     "not_for_evie": 0.02,
+     "deep_job": 0.0,
+     "quick_action": 0.98,
+     "remember": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0
+    },
+    "complete": 0.87,
+    "has_event": 0.02,
+    "latency_ms": 466.8850410380401,
+    "cost_usd": 7.0938e-05,
+    "skill": "volume",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "a09",
+   "cat": "direct",
+   "utterance": "evie whats 17 percent of 240",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "answer",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "answer",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "answer": 1.0,
+     "remember": 0.0,
+     "quick_action": 0.0,
+     "not_for_evie": 0.0
+    },
+    "complete": 0.96,
+    "has_event": 0.02,
+    "latency_ms": 356.53337504481897,
+    "cost_usd": 7.1148e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "a10",
+   "cat": "direct",
+   "utterance": "evie research the best budget mechanical keyboards and make me a shortlist",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "deep_job",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "deep_job",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "deep_job",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "remember": 0.0,
+     "deep_job": 1.0
+    },
+    "complete": 0.87,
+    "has_event": 0.1,
+    "latency_ms": 339.05499998945743,
+    "cost_usd": 7.1274e-05,
+    "skill": "open_website",
+    "skill_conf": 0.78,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "a11",
+   "cat": "direct",
+   "utterance": "evie open whatsapp",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 1.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0,
+     "remember": 0.0
+    },
+    "complete": 0.81,
+    "has_event": 0.03,
+    "latency_ms": 373.34491696674377,
+    "cost_usd": 7.0812e-05,
+    "skill": "open_app",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "a12",
+   "cat": "direct",
+   "utterance": "evie send it to him",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": false,
+    "has_event": false
+   },
+   "action": "clarify",
+   "reason": "missing detail",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.9,
+    "route": "quick_action",
+    "route_confidence": 0.94,
+    "route_probs": {
+     "not_for_evie": 0.04,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "answer": 0.0,
+     "quick_action": 0.96
+    },
+    "complete": 0.08,
+    "has_event": 0.1,
+    "latency_ms": 483.1066250335425,
+    "cost_usd": 7.0896e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "a13",
+   "cat": "direct",
+   "utterance": "evie add buy printer ink to my todo list",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": true
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "not_for_evie": 0.0,
+     "quick_action": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "remember": 1.0
+    },
+    "complete": 0.75,
+    "has_event": 0.35,
+    "latency_ms": 352.42433298844844,
+    "cost_usd": 7.1064e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "a14",
+   "cat": "direct",
+   "utterance": "evie set a timer for 25 minutes",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 0.0,
+     "not_for_evie": 0.0,
+     "quick_action": 1.0,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.93,
+    "has_event": 0.07,
+    "latency_ms": 456.5240829833783,
+    "cost_usd": 7.1064e-05,
+    "skill": "timer_set",
+    "skill_conf": 1.0,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "b01",
+   "cat": "bare",
+   "utterance": "pause",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.76,
+    "route": "quick_action",
+    "route_confidence": 0.98,
+    "route_probs": {
+     "not_for_evie": 0.02,
+     "quick_action": 0.98,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.0
+    },
+    "complete": 0.96,
+    "has_event": 0.02,
+    "latency_ms": 337.6363329589367,
+    "cost_usd": 7.0938e-05,
+    "skill": "music_pause",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "b02",
+   "cat": "bare",
+   "utterance": "what time is it",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "answer",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.91,
+    "route": "answer",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 0.0,
+     "not_for_evie": 0.0,
+     "answer": 1.0,
+     "remember": 0.0,
+     "quick_action": 0.0,
+     "job_control": 0.0
+    },
+    "complete": 0.98,
+    "has_event": 0.01,
+    "latency_ms": 426.2399590224959,
+    "cost_usd": 7.0812e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "b03",
+   "cat": "bare",
+   "utterance": "skip this song",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.87,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 0.01,
+     "job_control": 0.0,
+     "answer": 0.0,
+     "quick_action": 0.99
+    },
+    "complete": 0.97,
+    "has_event": 0.02,
+    "latency_ms": 395.9295419626869,
+    "cost_usd": 7.1022e-05,
+    "skill": "music_next",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "b04",
+   "cat": "bare",
+   "utterance": "how many days until october 10",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "answer",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.88,
+    "route": "answer",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "answer": 1.0
+    },
+    "complete": 0.87,
+    "has_event": 0.07,
+    "latency_ms": 335.9713749960065,
+    "cost_usd": 7.1022e-05,
+    "skill": "other",
+    "skill_conf": 0.83,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "b05",
+   "cat": "bare",
+   "utterance": "can you check why the tests are failing in the anchor repo",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "deep_job",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "deep_job",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.93,
+    "route": "deep_job",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "not_for_evie": 0.01,
+     "deep_job": 0.99,
+     "answer": 0.0,
+     "remember": 0.0,
+     "quick_action": 0.0,
+     "job_control": 0.0
+    },
+    "complete": 0.89,
+    "has_event": 0.53,
+    "latency_ms": 362.7414589864202,
+    "cost_usd": 7.14e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "b06",
+   "cat": "bare",
+   "utterance": "remind me to call grandma on sunday",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": null,
+    "has_event": true
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.93,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "not_for_evie": 0.0,
+     "quick_action": 0.0,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "remember": 1.0
+    },
+    "complete": 0.45,
+    "has_event": 0.94,
+    "latency_ms": 389.4582919892855,
+    "cost_usd": 7.098e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "b07",
+   "cat": "bare",
+   "utterance": "whats the weather like later",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "answer",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.93,
+    "route": "answer",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "answer": 1.0,
+     "quick_action": 0.0,
+     "remember": 0.0,
+     "deep_job": 0.0
+    },
+    "complete": 0.62,
+    "has_event": 0.01,
+    "latency_ms": 624.9706669477746,
+    "cost_usd": 7.0896e-05,
+    "skill": "other",
+    "skill_conf": 0.56,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "b08",
+   "cat": "bare",
+   "utterance": "make it louder",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.75,
+    "route": "quick_action",
+    "route_confidence": 0.98,
+    "route_probs": {
+     "quick_action": 0.98,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 0.02,
+     "remember": 0.0,
+     "job_control": 0.0
+    },
+    "complete": 0.82,
+    "has_event": 0.01,
+    "latency_ms": 342.1702079940587,
+    "cost_usd": 7.1022e-05,
+    "skill": "volume",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "b09",
+   "cat": "bare",
+   "utterance": "turn on do not disturb",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.9,
+    "route": "quick_action",
+    "route_confidence": 0.98,
+    "route_probs": {
+     "quick_action": 0.99,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.01,
+     "remember": 0.0
+    },
+    "complete": 0.89,
+    "has_event": 0.02,
+    "latency_ms": 390.9972919500433,
+    "cost_usd": 7.0854e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "b10",
+   "cat": "bare",
+   "utterance": "open my chem notes",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.92,
+    "route": "quick_action",
+    "route_confidence": 0.63,
+    "route_probs": {
+     "deep_job": 0.3,
+     "quick_action": 0.69,
+     "answer": 0.0,
+     "not_for_evie": 0.01,
+     "job_control": 0.0,
+     "remember": 0.0
+    },
+    "complete": 0.76,
+    "has_event": 0.08,
+    "latency_ms": 522.813166026026,
+    "cost_usd": 7.0812e-05,
+    "skill": "open_app",
+    "skill_conf": 0.57,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "c01",
+   "cat": "room",
+   "utterance": "mom ive got the dentist on wednesday can you drive me",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": true
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": true,
+   "decision": {
+    "for_evie": 0.07,
+    "route": "not_for_evie",
+    "route_confidence": 0.76,
+    "route_probs": {
+     "remember": 0.15,
+     "quick_action": 0.05,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.8,
+     "deep_job": 0.0
+    },
+    "complete": 0.11,
+    "has_event": 0.98,
+    "latency_ms": 400.2775839762762,
+    "cost_usd": 7.119e-05,
+    "skill": "other",
+    "skill_conf": 0.96,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "c02",
+   "cat": "room",
+   "utterance": "can you pass me the charger",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.6,
+    "route": "not_for_evie",
+    "route_confidence": 0.94,
+    "route_probs": {
+     "quick_action": 0.04,
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 0.96,
+     "answer": 0.0,
+     "job_control": 0.0
+    },
+    "complete": 0.07,
+    "has_event": 0.03,
+    "latency_ms": 454.5520410174504,
+    "cost_usd": 7.1316e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "c03",
+   "cat": "room",
+   "utterance": "no i finished my homework already",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.23,
+    "route": "not_for_evie",
+    "route_confidence": 0.64,
+    "route_probs": {
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "quick_action": 0.06,
+     "job_control": 0.0,
+     "answer": 0.23,
+     "not_for_evie": 0.71
+    },
+    "complete": 0.17,
+    "has_event": 0.48,
+    "latency_ms": 371.4448750251904,
+    "cost_usd": 7.1316e-05,
+    "skill": "task_done",
+    "skill_conf": 0.94,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "c04",
+   "cat": "room",
+   "utterance": "i have a physics test on friday so i cant go out saturday",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": true
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": true,
+   "decision": {
+    "for_evie": 0.18,
+    "route": "not_for_evie",
+    "route_confidence": 0.75,
+    "route_probs": {
+     "not_for_evie": 0.79,
+     "deep_job": 0.0,
+     "quick_action": 0.01,
+     "remember": 0.02,
+     "job_control": 0.0,
+     "answer": 0.18
+    },
+    "complete": 0.17,
+    "has_event": 0.98,
+    "latency_ms": 417.8359580109827,
+    "cost_usd": 7.182e-05,
+    "skill": "other",
+    "skill_conf": 0.83,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "c05",
+   "cat": "room",
+   "utterance": "dad can you put some music on in the car",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.06,
+    "route": "not_for_evie",
+    "route_confidence": 0.95,
+    "route_probs": {
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 0.96,
+     "quick_action": 0.04,
+     "remember": 0.0
+    },
+    "complete": 0.15,
+    "has_event": 0.06,
+    "latency_ms": 408.7374159717001,
+    "cost_usd": 7.1064e-05,
+    "skill": "music_play",
+    "skill_conf": 0.62,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "c06",
+   "cat": "room",
+   "utterance": "ill send you the photos tonight",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": true
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": true,
+   "decision": {
+    "for_evie": 0.12,
+    "route": "not_for_evie",
+    "route_confidence": 0.69,
+    "route_probs": {
+     "remember": 0.01,
+     "quick_action": 0.21,
+     "deep_job": 0.0,
+     "not_for_evie": 0.76,
+     "job_control": 0.0,
+     "answer": 0.02
+    },
+    "complete": 0.23,
+    "has_event": 0.96,
+    "latency_ms": 333.221125009004,
+    "cost_usd": 7.14e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "c07",
+   "cat": "room",
+   "utterance": "okay bye love you",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.04,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 1.0,
+     "job_control": 0.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.13,
+    "has_event": 0.02,
+    "latency_ms": 331.68591698631644,
+    "cost_usd": 7.0812e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "c08",
+   "cat": "room",
+   "utterance": "the wifi is so slow today",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.23,
+    "route": "not_for_evie",
+    "route_confidence": 0.88,
+    "route_probs": {
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 0.91,
+     "quick_action": 0.03,
+     "answer": 0.06,
+     "job_control": 0.0
+    },
+    "complete": 0.13,
+    "has_event": 0.01,
+    "latency_ms": 361.77137499907985,
+    "cost_usd": 7.1358e-05,
+    "skill": "other",
+    "skill_conf": 0.87,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "c09",
+   "cat": "room",
+   "utterance": "play the one from yesterday",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "clarify",
+   "reason": "missing detail",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.74,
+    "route": "quick_action",
+    "route_confidence": 0.86,
+    "route_probs": {
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.11,
+     "answer": 0.0,
+     "quick_action": 0.89,
+     "remember": 0.0
+    },
+    "complete": 0.12,
+    "has_event": 0.05,
+    "latency_ms": 472.68387500662357,
+    "cost_usd": 7.14e-05,
+    "skill": "music_play",
+    "skill_conf": 0.95,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "c10",
+   "cat": "room",
+   "utterance": "grandma is coming on sunday right",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": true
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.27,
+    "route": "not_for_evie",
+    "route_confidence": 0.53,
+    "route_probs": {
+     "deep_job": 0.0,
+     "not_for_evie": 0.61,
+     "answer": 0.35,
+     "remember": 0.03,
+     "quick_action": 0.01,
+     "job_control": 0.0
+    },
+    "complete": 0.16,
+    "has_event": 0.22,
+    "latency_ms": 337.5651250244118,
+    "cost_usd": 7.0938e-05,
+    "skill": "other",
+    "skill_conf": 0.91,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "c11",
+   "cat": "room",
+   "utterance": "yeah the chem ia is due on the tenth",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": true
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": true,
+   "decision": {
+    "for_evie": 0.36,
+    "route": "answer",
+    "route_confidence": 0.46,
+    "route_probs": {
+     "answer": 0.55,
+     "job_control": 0.0,
+     "quick_action": 0.01,
+     "not_for_evie": 0.4,
+     "deep_job": 0.0,
+     "remember": 0.04
+    },
+    "complete": 0.38,
+    "has_event": 0.95,
+    "latency_ms": 363.72541601303965,
+    "cost_usd": 7.1442e-05,
+    "skill": "other",
+    "skill_conf": 0.92,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "d01",
+   "cat": "other",
+   "utterance": "okay everyone open your books to page forty two",
+   "speaker": "other",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.02,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "remember": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 1.0,
+     "answer": 0.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.13,
+    "has_event": 0.1,
+    "latency_ms": 357.8015830134973,
+    "cost_usd": 7.1316e-05,
+    "skill": "other",
+    "skill_conf": 0.92,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "d02",
+   "cat": "other",
+   "utterance": "isaac your dentist appointment is on wednesday at four",
+   "speaker": "other",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": true
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": true,
+   "decision": {
+    "for_evie": 0.05,
+    "route": "not_for_evie",
+    "route_confidence": 0.75,
+    "route_probs": {
+     "answer": 0.18,
+     "remember": 0.02,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "quick_action": 0.0,
+     "not_for_evie": 0.8
+    },
+    "complete": 0.61,
+    "has_event": 0.96,
+    "latency_ms": 373.12595802359283,
+    "cost_usd": 7.119e-05,
+    "skill": "other",
+    "skill_conf": 0.87,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "d03",
+   "cat": "other",
+   "utterance": "hey siri set an alarm for six am",
+   "speaker": "other",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.16,
+    "route": "not_for_evie",
+    "route_confidence": 0.78,
+    "route_probs": {
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.81,
+     "remember": 0.08,
+     "quick_action": 0.11
+    },
+    "complete": 0.76,
+    "has_event": 0.11,
+    "latency_ms": 386.03574997978285,
+    "cost_usd": 7.1358e-05,
+    "skill": "other",
+    "skill_conf": 0.9,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "d04",
+   "cat": "other",
+   "utterance": "evie open whatsapp and send a message to everyone",
+   "speaker": "other",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.41,
+    "route": "not_for_evie",
+    "route_confidence": 0.73,
+    "route_probs": {
+     "deep_job": 0.0,
+     "quick_action": 0.22,
+     "not_for_evie": 0.78,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.14,
+    "has_event": 0.07,
+    "latency_ms": 367.398125003092,
+    "cost_usd": 7.1442e-05,
+    "skill": "other",
+    "skill_conf": 0.53,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "d05",
+   "cat": "other",
+   "utterance": "que hiciste el fin de semana isaac",
+   "speaker": "other",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.02,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 0.0,
+     "not_for_evie": 1.0,
+     "quick_action": 0.0,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.12,
+    "has_event": 0.03,
+    "latency_ms": 502.15858401497826,
+    "cost_usd": 7.1316e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "d06",
+   "cat": "other",
+   "utterance": "the quiz on chapter five is next monday so please revise",
+   "speaker": "other",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": true
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": true,
+   "decision": {
+    "for_evie": 0.02,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 1.0,
+     "job_control": 0.0,
+     "remember": 0.0
+    },
+    "complete": 0.18,
+    "has_event": 0.85,
+    "latency_ms": 485.556416970212,
+    "cost_usd": 7.14e-05,
+    "skill": "other",
+    "skill_conf": 0.93,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "d07",
+   "cat": "other",
+   "utterance": "so the real key to productivity is to just start before youre ready",
+   "speaker": "other",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.03,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 1.0,
+     "job_control": 0.0,
+     "remember": 0.0,
+     "deep_job": 0.0
+    },
+    "complete": 0.09,
+    "has_event": 0.02,
+    "latency_ms": 366.1196249886416,
+    "cost_usd": 7.1484e-05,
+    "skill": "other",
+    "skill_conf": 0.84,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "d08",
+   "cat": "other",
+   "utterance": "can you take out the trash before dinner",
+   "speaker": "other",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": null
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.06,
+    "route": "not_for_evie",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "quick_action": 0.0,
+     "remember": 0.01,
+     "job_control": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.99
+    },
+    "complete": 0.12,
+    "has_event": 0.6,
+    "latency_ms": 365.7829579897225,
+    "cost_usd": 7.1022e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "d09",
+   "cat": "other",
+   "utterance": "bro send me the notes after this",
+   "speaker": "other",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": null
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.02,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "not_for_evie": 1.0,
+     "deep_job": 0.0,
+     "quick_action": 0.0,
+     "remember": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0
+    },
+    "complete": 0.06,
+    "has_event": 0.34,
+    "latency_ms": 518.7563329818659,
+    "cost_usd": 7.1232e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "d10",
+   "cat": "other",
+   "utterance": "breaking news tonight a major storm is heading for the coast",
+   "speaker": "other",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.01,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 1.0,
+     "remember": 0.0,
+     "deep_job": 0.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.16,
+    "has_event": 0.01,
+    "latency_ms": 340.2451250003651,
+    "cost_usd": 7.1148e-05,
+    "skill": "other",
+    "skill_conf": 0.75,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "d11",
+   "cat": "other",
+   "utterance": "eve can you play some music",
+   "speaker": "other",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.46,
+    "route": "quick_action",
+    "route_confidence": 0.49,
+    "route_probs": {
+     "job_control": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.43,
+     "quick_action": 0.57,
+     "remember": 0.0
+    },
+    "complete": 0.26,
+    "has_event": 0.02,
+    "latency_ms": 433.17937501706183,
+    "cost_usd": 7.0938e-05,
+    "skill": "music_play",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "d12",
+   "cat": "other",
+   "utterance": "write this down the essay is due thursday at midnight",
+   "speaker": "other",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": true
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": true,
+   "decision": {
+    "for_evie": 0.06,
+    "route": "not_for_evie",
+    "route_confidence": 0.88,
+    "route_probs": {
+     "deep_job": 0.0,
+     "not_for_evie": 0.91,
+     "quick_action": 0.0,
+     "remember": 0.09,
+     "job_control": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.46,
+    "has_event": 0.89,
+    "latency_ms": 383.1615839735605,
+    "cost_usd": 7.1442e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "e01",
+   "cat": "call",
+   "utterance": "hola profesora el fin de semana fui al cine con mis amigos",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.02,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "quick_action": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 1.0
+    },
+    "complete": 0.07,
+    "has_event": 0.03,
+    "latency_ms": 380.8385420124978,
+    "cost_usd": 7.1484e-05,
+    "skill": "other",
+    "skill_conf": 0.97,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "e02",
+   "cat": "call",
+   "utterance": "sorry can you repeat the question",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.03,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "remember": 0.0,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 1.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.16,
+    "has_event": 0.02,
+    "latency_ms": 317.1192909940146,
+    "cost_usd": 7.1148e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "e03",
+   "cat": "call",
+   "utterance": "i think the answer is b because demand shifts right",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.03,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "not_for_evie": 1.0,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.1,
+    "has_event": 0.04,
+    "latency_ms": 419.4222089718096,
+    "cost_usd": 7.1316e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "e04",
+   "cat": "call",
+   "utterance": "can you hear me",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.07,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 1.0
+    },
+    "complete": 0.34,
+    "has_event": 0.02,
+    "latency_ms": 370.33033301122487,
+    "cost_usd": 7.1064e-05,
+    "skill": "other",
+    "skill_conf": 0.89,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "e05",
+   "cat": "call",
+   "utterance": "yes ill submit it by friday",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": true
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": true,
+   "decision": {
+    "for_evie": 0.03,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 1.0,
+     "job_control": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.14,
+    "has_event": 0.97,
+    "latency_ms": 367.6697079790756,
+    "cost_usd": 7.1736e-05,
+    "skill": "other",
+    "skill_conf": 0.78,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "e06",
+   "cat": "call",
+   "utterance": "evie mute my mic",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "quick_action",
+    "route_confidence": 0.65,
+    "route_probs": {
+     "remember": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.29,
+     "quick_action": 0.71,
+     "job_control": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.8,
+    "has_event": 0.02,
+    "latency_ms": 385.2656250237487,
+    "cost_usd": 7.1106e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "e07",
+   "cat": "call",
+   "utterance": "evie whats the spanish word for library",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "answer",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "answer",
+    "route_confidence": 0.73,
+    "route_probs": {
+     "answer": 0.78,
+     "quick_action": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.22
+    },
+    "complete": 0.93,
+    "has_event": 0.02,
+    "latency_ms": 524.2942090262659,
+    "cost_usd": 7.1232e-05,
+    "skill": "other",
+    "skill_conf": 0.93,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "e08",
+   "cat": "call",
+   "utterance": "can you share your screen",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.07,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 1.0,
+     "job_control": 0.0,
+     "remember": 0.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.16,
+    "has_event": 0.04,
+    "latency_ms": 486.67549999663606,
+    "cost_usd": 7.1106e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "g01",
+   "cat": "vague",
+   "utterance": "evie send a message to dad",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": false,
+    "has_event": false
+   },
+   "action": "clarify",
+   "reason": "missing detail",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "remember": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.0,
+     "quick_action": 1.0
+    },
+    "complete": 0.24,
+    "has_event": 0.07,
+    "latency_ms": 367.8743329946883,
+    "cost_usd": 7.0938e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "g02",
+   "cat": "vague",
+   "utterance": "evie open that file",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": false,
+    "has_event": false
+   },
+   "action": "clarify",
+   "reason": "missing detail",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.8,
+    "route_probs": {
+     "remember": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 0.01,
+     "job_control": 0.0,
+     "deep_job": 0.16,
+     "quick_action": 0.83
+    },
+    "complete": 0.18,
+    "has_event": 0.06,
+    "latency_ms": 329.7683750279248,
+    "cost_usd": 7.0854e-05,
+    "skill": "other",
+    "skill_conf": 0.88,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "g03",
+   "cat": "vague",
+   "utterance": "evie book the dentist",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": false,
+    "has_event": true
+   },
+   "action": "clarify",
+   "reason": "missing detail",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "remember",
+    "route_confidence": 0.81,
+    "route_probs": {
+     "remember": 0.84,
+     "deep_job": 0.01,
+     "answer": 0.0,
+     "not_for_evie": 0.01,
+     "quick_action": 0.14,
+     "job_control": 0.0
+    },
+    "complete": 0.15,
+    "has_event": 0.81,
+    "latency_ms": 424.5550000341609,
+    "cost_usd": 7.0854e-05,
+    "skill": "other",
+    "skill_conf": 0.9,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "g04",
+   "cat": "vague",
+   "utterance": "evie play the new one",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": false,
+    "has_event": false
+   },
+   "action": "clarify",
+   "reason": "missing detail",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "remember": 0.0,
+     "quick_action": 0.99,
+     "not_for_evie": 0.01,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.11,
+    "has_event": 0.02,
+    "latency_ms": 371.77370802965015,
+    "cost_usd": 7.0896e-05,
+    "skill": "music_play",
+    "skill_conf": 0.85,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "g05",
+   "cat": "vague",
+   "utterance": "evie fix it",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "deep_job",
+    "complete": false,
+    "has_event": false
+   },
+   "action": "clarify",
+   "reason": "unsure it was for me",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.92,
+    "route": "quick_action",
+    "route_confidence": 0.34,
+    "route_probs": {
+     "deep_job": 0.43,
+     "not_for_evie": 0.11,
+     "remember": 0.0,
+     "job_control": 0.01,
+     "quick_action": 0.45,
+     "answer": 0.0
+    },
+    "complete": 0.04,
+    "has_event": 0.02,
+    "latency_ms": 346.8555830186233,
+    "cost_usd": 7.0812e-05,
+    "skill": "other",
+    "skill_conf": 0.87,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "g06",
+   "cat": "vague",
+   "utterance": "evie move my meeting",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": false,
+    "has_event": true
+   },
+   "action": "clarify",
+   "reason": "missing detail",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.94,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "not_for_evie": 0.0,
+     "quick_action": 1.0,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.12,
+    "has_event": 0.52,
+    "latency_ms": 407.3155410005711,
+    "cost_usd": 7.0854e-05,
+    "skill": "event_move",
+    "skill_conf": 1.0,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "h01",
+   "cat": "job",
+   "utterance": "evie hows it going",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "job_control",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "job_control",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.8,
+    "route": "job_control",
+    "route_confidence": 0.97,
+    "route_probs": {
+     "not_for_evie": 0.02,
+     "job_control": 0.97,
+     "remember": 0.0,
+     "quick_action": 0.0,
+     "answer": 0.01,
+     "deep_job": 0.0
+    },
+    "complete": 0.51,
+    "has_event": 0.02,
+    "latency_ms": 380.07820799248293,
+    "cost_usd": 7.119e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "h02",
+   "cat": "job",
+   "utterance": "evie stop that",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "job_control",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "job_control",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.92,
+    "route": "job_control",
+    "route_confidence": 0.98,
+    "route_probs": {
+     "job_control": 0.98,
+     "not_for_evie": 0.02,
+     "remember": 0.0,
+     "quick_action": 0.0,
+     "deep_job": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.48,
+    "has_event": 0.03,
+    "latency_ms": 340.47383297001943,
+    "cost_usd": 7.1106e-05,
+    "skill": "other",
+    "skill_conf": 0.65,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "h03",
+   "cat": "job",
+   "utterance": "also add a test for it",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "job_control",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "job_control",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.7,
+    "route": "job_control",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "not_for_evie": 0.01,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "remember": 0.0,
+     "job_control": 0.99,
+     "quick_action": 0.0
+    },
+    "complete": 0.25,
+    "has_event": 0.66,
+    "latency_ms": 359.0287080151029,
+    "cost_usd": 7.119e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "h04",
+   "cat": "job",
+   "utterance": "is it done yet",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "job_control",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "job_control",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.81,
+    "route": "job_control",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "not_for_evie": 0.01,
+     "deep_job": 0.0,
+     "quick_action": 0.0,
+     "remember": 0.0,
+     "job_control": 0.99,
+     "answer": 0.0
+    },
+    "complete": 0.35,
+    "has_event": 0.12,
+    "latency_ms": 392.90858298772946,
+    "cost_usd": 7.1106e-05,
+    "skill": "other",
+    "skill_conf": 0.9,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "h05",
+   "cat": "job",
+   "utterance": "hey hows it going",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.18,
+    "route": "not_for_evie",
+    "route_confidence": 0.95,
+    "route_probs": {
+     "not_for_evie": 0.96,
+     "job_control": 0.01,
+     "answer": 0.03,
+     "quick_action": 0.0,
+     "remember": 0.0,
+     "deep_job": 0.0
+    },
+    "complete": 0.16,
+    "has_event": 0.01,
+    "latency_ms": 440.4510830063373,
+    "cost_usd": 7.119e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "i01",
+   "cat": "mention",
+   "utterance": "i built this assistant called evie and she runs on my laptop",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.07,
+    "route": "not_for_evie",
+    "route_confidence": 0.64,
+    "route_probs": {
+     "not_for_evie": 0.7,
+     "answer": 0.27,
+     "job_control": 0.0,
+     "remember": 0.01,
+     "deep_job": 0.02,
+     "quick_action": 0.0
+    },
+    "complete": 0.23,
+    "has_event": 0.02,
+    "latency_ms": 329.70224996097386,
+    "cost_usd": 7.1694e-05,
+    "skill": "other",
+    "skill_conf": 0.94,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "i02",
+   "cat": "mention",
+   "utterance": "evie is kind of slow today honestly",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.07,
+    "route": "not_for_evie",
+    "route_confidence": 0.86,
+    "route_probs": {
+     "quick_action": 0.01,
+     "deep_job": 0.0,
+     "answer": 0.06,
+     "not_for_evie": 0.89,
+     "remember": 0.0,
+     "job_control": 0.04
+    },
+    "complete": 0.17,
+    "has_event": 0.02,
+    "latency_ms": 386.88937498955056,
+    "cost_usd": 7.1442e-05,
+    "skill": "other",
+    "skill_conf": 0.96,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "i03",
+   "cat": "mention",
+   "utterance": "i named her evie after the movie",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.06,
+    "route": "not_for_evie",
+    "route_confidence": 0.9,
+    "route_probs": {
+     "not_for_evie": 0.93,
+     "deep_job": 0.0,
+     "quick_action": 0.0,
+     "answer": 0.01,
+     "job_control": 0.0,
+     "remember": 0.06
+    },
+    "complete": 0.21,
+    "has_event": 0.02,
+    "latency_ms": 459.42274999106303,
+    "cost_usd": 7.098e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "fact"
+   }
+  },
+  {
+   "id": "i04",
+   "cat": "mention",
+   "utterance": "yeah evie can do that",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.3,
+    "route": "answer",
+    "route_confidence": 0.78,
+    "route_probs": {
+     "deep_job": 0.0,
+     "not_for_evie": 0.18,
+     "quick_action": 0.0,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "answer": 0.82
+    },
+    "complete": 0.37,
+    "has_event": 0.03,
+    "latency_ms": 407.6472920132801,
+    "cost_usd": 7.1316e-05,
+    "skill": "other",
+    "skill_conf": 0.95,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "k01",
+   "cat": "direct",
+   "utterance": "evie hows it going",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "clarify",
+   "reason": "unsure it was for me",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.82,
+    "route": "answer",
+    "route_confidence": 0.43,
+    "route_probs": {
+     "not_for_evie": 0.33,
+     "job_control": 0.13,
+     "answer": 0.52,
+     "remember": 0.0,
+     "quick_action": 0.02,
+     "deep_job": 0.0
+    },
+    "complete": 0.46,
+    "has_event": 0.01,
+    "latency_ms": 324.3680839659646,
+    "cost_usd": 7.0896e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "k02",
+   "cat": "job",
+   "utterance": "evie also tell me how many tests there are in total",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "job_control",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "job_control",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "job_control",
+    "route_confidence": 0.8,
+    "route_probs": {
+     "job_control": 0.83,
+     "remember": 0.0,
+     "answer": 0.09,
+     "not_for_evie": 0.01,
+     "deep_job": 0.07,
+     "quick_action": 0.0
+    },
+    "complete": 0.6,
+    "has_event": 0.21,
+    "latency_ms": 451.77599997259676,
+    "cost_usd": 7.1652e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "k04",
+   "cat": "direct",
+   "utterance": "hows the igem website looking like",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "deep_job",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "deep_job",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "deep_job",
+    "route_confidence": 0.9,
+    "route_probs": {
+     "job_control": 0.01,
+     "deep_job": 0.92,
+     "remember": 0.0,
+     "quick_action": 0.01,
+     "not_for_evie": 0.0,
+     "answer": 0.06
+    },
+    "complete": 0.89,
+    "has_event": 0.07,
+    "latency_ms": 359.6539170248434,
+    "cost_usd": 7.182e-05,
+    "skill": "open_website",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "k05",
+   "cat": "direct",
+   "utterance": "how is the igem website looking like right now",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "deep_job",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "deep_job",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "deep_job",
+    "route_confidence": 0.83,
+    "route_probs": {
+     "remember": 0.0,
+     "answer": 0.12,
+     "deep_job": 0.86,
+     "job_control": 0.01,
+     "not_for_evie": 0.0,
+     "quick_action": 0.01
+    },
+    "complete": 0.89,
+    "has_event": 0.05,
+    "latency_ms": 396.994375041686,
+    "cost_usd": 7.1904e-05,
+    "skill": "open_website",
+    "skill_conf": 0.97,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "k06",
+   "cat": "direct",
+   "utterance": "please edit the cricket files",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "deep_job",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "deep_job",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "deep_job",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 1.0,
+     "remember": 0.0,
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.49,
+    "has_event": 0.18,
+    "latency_ms": 346.9947499688715,
+    "cost_usd": 7.1694e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "o01",
+   "cat": "openmic",
+   "utterance": "and friday",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "clarify",
+   "reason": "unsure it was for me",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.74,
+    "route": "answer",
+    "route_confidence": 0.49,
+    "route_probs": {
+     "answer": 0.57,
+     "job_control": 0.39,
+     "remember": 0.0,
+     "not_for_evie": 0.03,
+     "deep_job": 0.0,
+     "quick_action": 0.01
+    },
+    "complete": 0.38,
+    "has_event": 0.09,
+    "latency_ms": 416.0514579853043,
+    "cost_usd": 7.2828e-05,
+    "skill": "other",
+    "skill_conf": 0.92,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "o02",
+   "cat": "openmic",
+   "utterance": "what about saturday then",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "answer",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.85,
+    "route": "answer",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "quick_action": 0.0,
+     "not_for_evie": 0.01,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "answer": 0.99,
+     "remember": 0.0
+    },
+    "complete": 0.51,
+    "has_event": 0.05,
+    "latency_ms": 373.4734579920769,
+    "cost_usd": 7.2996e-05,
+    "skill": "other",
+    "skill_conf": 0.81,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "o03",
+   "cat": "openmic",
+   "utterance": "mom have you seen my charger",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.03,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 1.0
+    },
+    "complete": 0.08,
+    "has_event": 0.03,
+    "latency_ms": 356.4091249718331,
+    "cost_usd": 7.2996e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "o04",
+   "cat": "openmic",
+   "utterance": "so the mitochondria makes atp through respiration",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.03,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "remember": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 1.0,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.09,
+    "has_event": 0.02,
+    "latency_ms": 369.68174995854497,
+    "cost_usd": 7.1484e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "o05",
+   "cat": "openmic",
+   "utterance": "okay so we meet at the library tomorrow at four",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": true
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": true,
+   "decision": {
+    "for_evie": 0.03,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 1.0,
+     "remember": 0.0
+    },
+    "complete": 0.16,
+    "has_event": 0.9,
+    "latency_ms": 324.5987080154009,
+    "cost_usd": 7.1358e-05,
+    "skill": "other",
+    "skill_conf": 0.88,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "o06",
+   "cat": "openmic",
+   "utterance": "evie pause the music",
+   "speaker": "unknown",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": false
+   },
+   "action": "clarify",
+   "reason": "unsure it was for me",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.92,
+    "route": "quick_action",
+    "route_confidence": 0.92,
+    "route_probs": {
+     "quick_action": 0.94,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "job_control": 0.03,
+     "not_for_evie": 0.03,
+     "remember": 0.0
+    },
+    "complete": 0.9,
+    "has_event": 0.02,
+    "latency_ms": 420.7212089677341,
+    "cost_usd": 7.0728e-05,
+    "skill": "music_pause",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "o07",
+   "cat": "openmic",
+   "utterance": "evie whats the time",
+   "speaker": "unknown",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "answer",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "answer",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "answer": 1.0,
+     "quick_action": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 0.0
+    },
+    "complete": 0.97,
+    "has_event": 0.01,
+    "latency_ms": 399.8501669848338,
+    "cost_usd": 7.0728e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "o08",
+   "cat": "openmic",
+   "utterance": "evie play some music",
+   "speaker": "other",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not Isaac's voice",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.49,
+    "route": "not_for_evie",
+    "route_confidence": 0.45,
+    "route_probs": {
+     "job_control": 0.0,
+     "not_for_evie": 0.54,
+     "quick_action": 0.46,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "remember": 0.0
+    },
+    "complete": 0.32,
+    "has_event": 0.02,
+    "latency_ms": 387.4292079708539,
+    "cost_usd": 7.0896e-05,
+    "skill": "music_play",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "o09",
+   "cat": "openmic",
+   "utterance": "how long is that going to take",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "job_control",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "act",
+   "reason": "job_control",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.94,
+    "route": "job_control",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 0.0,
+     "quick_action": 0.0,
+     "answer": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 0.0,
+     "job_control": 1.0
+    },
+    "complete": 0.81,
+    "has_event": 0.19,
+    "latency_ms": 394.7003749781288,
+    "cost_usd": 7.2954e-05,
+    "skill": "other",
+    "skill_conf": 0.97,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "o10",
+   "cat": "openmic",
+   "utterance": "subscribe and hit the bell for more videos like this",
+   "speaker": "unknown",
+   "expect": {
+    "for_evie": false,
+    "route": "not_for_evie",
+    "complete": null,
+    "has_event": false
+   },
+   "action": "ignore",
+   "reason": "not for Evie",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.04,
+    "route": "not_for_evie",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 1.0,
+     "remember": 0.0,
+     "deep_job": 0.0
+    },
+    "complete": 0.15,
+    "has_event": 0.02,
+    "latency_ms": 512.5979580334388,
+    "cost_usd": 7.119e-05,
+    "skill": "other",
+    "skill_conf": 0.66,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s01",
+   "cat": "skill",
+   "utterance": "evie play espresso by sabrina carpenter",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "music_play"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "not_for_evie": 0.0,
+     "quick_action": 1.0,
+     "remember": 0.0,
+     "deep_job": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.91,
+    "has_event": 0.02,
+    "latency_ms": 349.4640829740092,
+    "cost_usd": 7.1022e-05,
+    "skill": "music_play",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s02",
+   "cat": "skill",
+   "utterance": "play some lofi",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "music_play"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "remember": 0.0,
+     "quick_action": 1.0,
+     "deep_job": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.96,
+    "has_event": 0.01,
+    "latency_ms": 386.0241250367835,
+    "cost_usd": 7.1652e-05,
+    "skill": "music_play",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s03",
+   "cat": "skill",
+   "utterance": "evie put on some taylor swift",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "music_play"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "quick_action": 1.0,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.0,
+     "remember": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.78,
+    "has_event": 0.04,
+    "latency_ms": 453.6181250005029,
+    "cost_usd": 7.098e-05,
+    "skill": "music_play",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s04",
+   "cat": "skill",
+   "utterance": "evie pause",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "music_pause"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.69,
+    "route_probs": {
+     "job_control": 0.13,
+     "answer": 0.0,
+     "remember": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.13,
+     "quick_action": 0.74
+    },
+    "complete": 0.9,
+    "has_event": 0.02,
+    "latency_ms": 347.36495796823874,
+    "cost_usd": 7.077e-05,
+    "skill": "music_pause",
+    "skill_conf": 0.73,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s05",
+   "cat": "skill",
+   "utterance": "stop the music",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "music_pause"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 0.98,
+    "route_probs": {
+     "deep_job": 0.0,
+     "job_control": 0.02,
+     "remember": 0.0,
+     "answer": 0.0,
+     "quick_action": 0.98,
+     "not_for_evie": 0.0
+    },
+    "complete": 0.78,
+    "has_event": 0.01,
+    "latency_ms": 426.31949996575713,
+    "cost_usd": 7.161e-05,
+    "skill": "music_pause",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s06",
+   "cat": "skill",
+   "utterance": "evie resume the music",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "music_resume"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 0.9,
+    "route_probs": {
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "job_control": 0.06,
+     "answer": 0.0,
+     "not_for_evie": 0.02,
+     "quick_action": 0.92
+    },
+    "complete": 0.93,
+    "has_event": 0.03,
+    "latency_ms": 337.19995798310265,
+    "cost_usd": 7.0854e-05,
+    "skill": "music_resume",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s07",
+   "cat": "skill",
+   "utterance": "unpause",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "music_resume"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.94,
+    "route": "quick_action",
+    "route_confidence": 0.97,
+    "route_probs": {
+     "quick_action": 0.98,
+     "deep_job": 0.0,
+     "job_control": 0.01,
+     "not_for_evie": 0.01,
+     "remember": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.65,
+    "has_event": 0.02,
+    "latency_ms": 390.50508302170783,
+    "cost_usd": 7.1568e-05,
+    "skill": "music_resume",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s08",
+   "cat": "skill",
+   "utterance": "evie skip this song",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "music_next"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 0.01,
+     "quick_action": 0.99,
+     "answer": 0.0,
+     "job_control": 0.0
+    },
+    "complete": 0.92,
+    "has_event": 0.02,
+    "latency_ms": 360.1030000136234,
+    "cost_usd": 7.0854e-05,
+    "skill": "music_next",
+    "skill_conf": 0.98,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s09",
+   "cat": "skill",
+   "utterance": "next track",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "music_next"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "quick_action": 1.0
+    },
+    "complete": 0.9,
+    "has_event": 0.02,
+    "latency_ms": 324.3067920557223,
+    "cost_usd": 7.1568e-05,
+    "skill": "music_next",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s10",
+   "cat": "skill",
+   "utterance": "evie go back a song",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "music_previous"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "answer": 0.0,
+     "remember": 0.0,
+     "quick_action": 0.99,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.01
+    },
+    "complete": 0.71,
+    "has_event": 0.02,
+    "latency_ms": 394.4737910060212,
+    "cost_usd": 7.0896e-05,
+    "skill": "music_previous",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s11",
+   "cat": "skill",
+   "utterance": "evie what song is this",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "now_playing"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.94,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "remember": 0.0,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "quick_action": 1.0
+    },
+    "complete": 0.94,
+    "has_event": 0.01,
+    "latency_ms": 528.1317500048317,
+    "cost_usd": 7.0896e-05,
+    "skill": "now_playing",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s12",
+   "cat": "skill",
+   "utterance": "evie turn it up",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "volume"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "quick_action": 0.99,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "remember": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 0.01
+    },
+    "complete": 0.95,
+    "has_event": 0.02,
+    "latency_ms": 338.4201659937389,
+    "cost_usd": 7.0854e-05,
+    "skill": "volume",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s13",
+   "cat": "skill",
+   "utterance": "volume 30",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "volume"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 1.0,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "remember": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 0.0
+    },
+    "complete": 0.81,
+    "has_event": 0.01,
+    "latency_ms": 502.2805840126239,
+    "cost_usd": 7.1652e-05,
+    "skill": "volume",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s14",
+   "cat": "skill",
+   "utterance": "evie mute",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "volume"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.94,
+    "route": "quick_action",
+    "route_confidence": 0.95,
+    "route_probs": {
+     "remember": 0.0,
+     "job_control": 0.01,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "quick_action": 0.95,
+     "not_for_evie": 0.04
+    },
+    "complete": 0.84,
+    "has_event": 0.02,
+    "latency_ms": 440.59737503994256,
+    "cost_usd": 7.077e-05,
+    "skill": "other",
+    "skill_conf": 0.71,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s15",
+   "cat": "skill",
+   "utterance": "evie open notion",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "open_app"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 0.0,
+     "answer": 0.0,
+     "quick_action": 1.0
+    },
+    "complete": 0.85,
+    "has_event": 0.02,
+    "latency_ms": 441.4132080273703,
+    "cost_usd": 7.0812e-05,
+    "skill": "open_app",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s16",
+   "cat": "skill",
+   "utterance": "open spotify",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "open_app"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 1.0,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.0,
+     "remember": 0.0
+    },
+    "complete": 0.86,
+    "has_event": 0.02,
+    "latency_ms": 415.1062499731779,
+    "cost_usd": 7.1568e-05,
+    "skill": "open_app",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s17",
+   "cat": "skill",
+   "utterance": "evie switch to safari",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "open_app"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.0,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "quick_action": 1.0
+    },
+    "complete": 0.84,
+    "has_event": 0.02,
+    "latency_ms": 437.2407079790719,
+    "cost_usd": 7.0854e-05,
+    "skill": "open_app",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s18",
+   "cat": "skill",
+   "utterance": "evie open youtube",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "open_website"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "quick_action": 1.0,
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 0.0
+    },
+    "complete": 0.9,
+    "has_event": 0.03,
+    "latency_ms": 359.9996249540709,
+    "cost_usd": 7.0812e-05,
+    "skill": "open_website",
+    "skill_conf": 0.94,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s19",
+   "cat": "skill",
+   "utterance": "evie search youtube for mr beast",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "open_website"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 0.96,
+    "route_probs": {
+     "not_for_evie": 0.01,
+     "job_control": 0.0,
+     "deep_job": 0.02,
+     "remember": 0.0,
+     "answer": 0.0,
+     "quick_action": 0.97
+    },
+    "complete": 0.88,
+    "has_event": 0.05,
+    "latency_ms": 502.1322090178728,
+    "cost_usd": 7.0938e-05,
+    "skill": "open_website",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s20",
+   "cat": "skill",
+   "utterance": "evie go to igem.org",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "open_website"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "quick_action": 1.0,
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "remember": 0.0
+    },
+    "complete": 0.8,
+    "has_event": 0.08,
+    "latency_ms": 522.3517499980517,
+    "cost_usd": 7.0938e-05,
+    "skill": "open_website",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s21",
+   "cat": "skill",
+   "utterance": "evie set a timer for ten minutes",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "timer_set"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 1.0,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.95,
+    "has_event": 0.07,
+    "latency_ms": 337.6254169852473,
+    "cost_usd": 7.098e-05,
+    "skill": "timer_set",
+    "skill_conf": 1.0,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "s22",
+   "cat": "skill",
+   "utterance": "timer 5 minutes",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "timer_set"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "not_for_evie": 0.0,
+     "quick_action": 1.0,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.94,
+    "has_event": 0.06,
+    "latency_ms": 313.8180829701014,
+    "cost_usd": 7.1652e-05,
+    "skill": "timer_set",
+    "skill_conf": 1.0,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "s23",
+   "cat": "skill",
+   "utterance": "evie cancel the timer",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "timer_cancel"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "not_for_evie": 0.01,
+     "deep_job": 0.0,
+     "job_control": 0.01,
+     "remember": 0.0,
+     "answer": 0.0,
+     "quick_action": 0.98
+    },
+    "complete": 0.95,
+    "has_event": 0.08,
+    "latency_ms": 453.5100829671137,
+    "cost_usd": 7.0854e-05,
+    "skill": "timer_cancel",
+    "skill_conf": 1.0,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "s24",
+   "cat": "skill",
+   "utterance": "evie undo that",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "undo"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.98,
+    "route_probs": {
+     "answer": 0.0,
+     "not_for_evie": 0.02,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "quick_action": 0.98,
+     "remember": 0.0
+    },
+    "complete": 0.89,
+    "has_event": 0.02,
+    "latency_ms": 417.2480829874985,
+    "cost_usd": 7.0812e-05,
+    "skill": "undo",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s25",
+   "cat": "skill",
+   "utterance": "undo",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "undo"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.93,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "remember": 0.0,
+     "quick_action": 1.0,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.0,
+     "deep_job": 0.0
+    },
+    "complete": 0.78,
+    "has_event": 0.02,
+    "latency_ms": 392.142208002042,
+    "cost_usd": 7.1526e-05,
+    "skill": "undo",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s26",
+   "cat": "skill",
+   "utterance": "evie turn on do not disturb",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "other"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "deep_job": 0.0,
+     "quick_action": 0.99,
+     "answer": 0.0,
+     "not_for_evie": 0.01,
+     "job_control": 0.0,
+     "remember": 0.0
+    },
+    "complete": 0.93,
+    "has_event": 0.02,
+    "latency_ms": 348.59312500339,
+    "cost_usd": 7.0938e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s27",
+   "cat": "skill",
+   "utterance": "evie send mom a message saying im running late",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "other"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "quick_action": 1.0,
+     "answer": 0.0,
+     "not_for_evie": 0.0
+    },
+    "complete": 0.44,
+    "has_event": 0.41,
+    "latency_ms": 444.3983330274932,
+    "cost_usd": 7.1064e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s28",
+   "cat": "skill",
+   "utterance": "evie make the screen brighter",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "other"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "quick_action",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "quick_action": 1.0,
+     "deep_job": 0.0,
+     "remember": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.92,
+    "has_event": 0.02,
+    "latency_ms": 385.020625020843,
+    "cost_usd": 7.0896e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s29",
+   "cat": "skill",
+   "utterance": "evie empty the trash",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "other"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.97,
+    "route_probs": {
+     "remember": 0.0,
+     "deep_job": 0.01,
+     "quick_action": 0.98,
+     "job_control": 0.0,
+     "not_for_evie": 0.01,
+     "answer": 0.0
+    },
+    "complete": 0.76,
+    "has_event": 0.07,
+    "latency_ms": 351.5758329886012,
+    "cost_usd": 7.0854e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "s30",
+   "cat": "skill",
+   "utterance": "evie play the new kendrick album",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "music_play"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "remember": 0.0,
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "quick_action": 1.0
+    },
+    "complete": 0.73,
+    "has_event": 0.02,
+    "latency_ms": 344.91983300540596,
+    "cost_usd": 7.098e-05,
+    "skill": "music_play",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "r01",
+   "cat": "remember",
+   "utterance": "evie remind me to email mr tan tomorrow",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": [
+     "task",
+     "reminder"
+    ]
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "remember": 1.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.0
+    },
+    "complete": 0.53,
+    "has_event": 0.94,
+    "latency_ms": 343.9054579939693,
+    "cost_usd": 7.1022e-05,
+    "skill": "other",
+    "skill_conf": 0.98,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "r02",
+   "cat": "remember",
+   "utterance": "evie add buy printer ink to my to do list",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": "task"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "not_for_evie": 0.0,
+     "deep_job": 0.0,
+     "quick_action": 0.0,
+     "remember": 1.0,
+     "job_control": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.72,
+    "has_event": 0.34,
+    "latency_ms": 387.5137920258567,
+    "cost_usd": 7.1106e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "r03",
+   "cat": "remember",
+   "utterance": "remind me to submit the chem ia on friday",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": [
+     "task",
+     "reminder"
+    ]
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": true,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 0.0,
+     "quick_action": 0.0,
+     "remember": 1.0,
+     "deep_job": 0.0
+    },
+    "complete": 0.62,
+    "has_event": 0.98,
+    "latency_ms": 376.0660830303095,
+    "cost_usd": 7.1904e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "r04",
+   "cat": "remember",
+   "utterance": "evie i have the dentist next wednesday at 4",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": "event"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.84,
+    "route": "remember",
+    "route_confidence": 0.95,
+    "route_probs": {
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.03,
+     "job_control": 0.0,
+     "quick_action": 0.01,
+     "remember": 0.96
+    },
+    "complete": 0.84,
+    "has_event": 0.98,
+    "latency_ms": 377.3175830137916,
+    "cost_usd": 7.119e-05,
+    "skill": "other",
+    "skill_conf": 0.92,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "r05",
+   "cat": "remember",
+   "utterance": "evie put football practice on saturday at 9am in my calendar",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": "event"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "remember",
+    "route_confidence": 0.98,
+    "route_probs": {
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "quick_action": 0.01,
+     "remember": 0.99,
+     "not_for_evie": 0.0
+    },
+    "complete": 0.85,
+    "has_event": 0.91,
+    "latency_ms": 342.9238749668002,
+    "cost_usd": 7.1316e-05,
+    "skill": "other",
+    "skill_conf": 0.94,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "r06",
+   "cat": "remember",
+   "utterance": "evie my chem test is on the 30th at 8",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": "event"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.73,
+    "route": "remember",
+    "route_confidence": 0.94,
+    "route_probs": {
+     "quick_action": 0.01,
+     "deep_job": 0.0,
+     "remember": 0.95,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.04
+    },
+    "complete": 0.52,
+    "has_event": 0.98,
+    "latency_ms": 898.8012090558186,
+    "cost_usd": 7.1274e-05,
+    "skill": "other",
+    "skill_conf": 0.91,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "r07",
+   "cat": "remember",
+   "utterance": "evie vedants birthday is on sunday add it",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": "event"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.94,
+    "route": "remember",
+    "route_confidence": 0.98,
+    "route_probs": {
+     "not_for_evie": 0.01,
+     "quick_action": 0.01,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.98,
+     "answer": 0.0
+    },
+    "complete": 0.83,
+    "has_event": 0.3,
+    "latency_ms": 334.78624996496364,
+    "cost_usd": 7.1064e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "r08",
+   "cat": "remember",
+   "utterance": "evie remember my locker code is 4129",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": "fact"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "remember": 1.0,
+     "deep_job": 0.0,
+     "quick_action": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 0.0
+    },
+    "complete": 0.89,
+    "has_event": 0.04,
+    "latency_ms": 363.8209999771789,
+    "cost_usd": 7.1148e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "fact"
+   }
+  },
+  {
+   "id": "r09",
+   "cat": "remember",
+   "utterance": "evie remember that i dont eat beef",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": "fact"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "remember": 1.0
+    },
+    "complete": 0.9,
+    "has_event": 0.1,
+    "latency_ms": 399.6469160192646,
+    "cost_usd": 7.098e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "fact"
+   }
+  },
+  {
+   "id": "r10",
+   "cat": "remember",
+   "utterance": "remember my shoe size is nine",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": "fact"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "answer": 0.0,
+     "quick_action": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.0,
+     "remember": 1.0
+    },
+    "complete": 0.83,
+    "has_event": 0.06,
+    "latency_ms": 483.20220794994384,
+    "cost_usd": 7.1736e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "fact"
+   }
+  },
+  {
+   "id": "r11",
+   "cat": "remember",
+   "utterance": "evie note that my igem team meets in room 204",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": "fact"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "remember",
+    "route_confidence": 0.99,
+    "route_probs": {
+     "remember": 1.0,
+     "quick_action": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "not_for_evie": 0.0
+    },
+    "complete": 0.8,
+    "has_event": 0.87,
+    "latency_ms": 355.08654202567413,
+    "cost_usd": 7.1274e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "fact"
+   }
+  },
+  {
+   "id": "r12",
+   "cat": "remember",
+   "utterance": "evie remind me to stretch in an hour",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": true,
+    "has_event": null,
+    "remember_to": "reminder"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "remember": 1.0,
+     "not_for_evie": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.88,
+    "has_event": 0.61,
+    "latency_ms": 408.5930829751305,
+    "cost_usd": 7.1022e-05,
+    "skill": "other",
+    "skill_conf": 0.84,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "s31",
+   "cat": "skill",
+   "utterance": "evie mute my mic",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": true,
+    "has_event": null,
+    "skill": "other"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 0.95,
+    "route_probs": {
+     "not_for_evie": 0.04,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "job_control": 0.0,
+     "quick_action": 0.96,
+     "remember": 0.0
+    },
+    "complete": 0.77,
+    "has_event": 0.02,
+    "latency_ms": 325.1322910073213,
+    "cost_usd": 7.0854e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "m01",
+   "cat": "phase35",
+   "utterance": "set a timer for 30 seconds please, remind me to go eat a banana",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": null,
+    "has_event": null,
+    "remember_to": "reminder"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.94,
+    "route": "remember",
+    "route_confidence": 0.63,
+    "route_probs": {
+     "job_control": 0.0,
+     "not_for_evie": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.7,
+     "quick_action": 0.3
+    },
+    "complete": 0.87,
+    "has_event": 0.41,
+    "latency_ms": 473.47025002818555,
+    "cost_usd": 7.1358e-05,
+    "skill": "timer_set",
+    "skill_conf": 0.99,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "m02",
+   "cat": "phase35",
+   "utterance": "evie remind me in 20 minutes to check the oven",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": null,
+    "has_event": null,
+    "remember_to": "reminder"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.97,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "remember": 1.0,
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.91,
+    "has_event": 0.73,
+    "latency_ms": 419.03354099486023,
+    "cost_usd": 7.119e-05,
+    "skill": "timer_set",
+    "skill_conf": 0.47,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "m03",
+   "cat": "phase35",
+   "utterance": "remind me at 7 30 to call my grandma",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": null,
+    "has_event": null,
+    "remember_to": "reminder"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.93,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "answer": 0.0,
+     "not_for_evie": 0.0,
+     "quick_action": 0.0,
+     "remember": 1.0,
+     "deep_job": 0.0
+    },
+    "complete": 0.7,
+    "has_event": 0.93,
+    "latency_ms": 467.87925000535324,
+    "cost_usd": 7.119e-05,
+    "skill": "other",
+    "skill_conf": 0.96,
+    "remember_to": "reminder"
+   }
+  },
+  {
+   "id": "m04",
+   "cat": "phase35",
+   "utterance": "can you add a task for me to do some math practice on functions please",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": null,
+    "has_event": null,
+    "remember_to": "task"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.94,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "quick_action": 0.0,
+     "not_for_evie": 0.0,
+     "remember": 1.0,
+     "deep_job": 0.0,
+     "answer": 0.0
+    },
+    "complete": 0.63,
+    "has_event": 0.54,
+    "latency_ms": 324.8365829931572,
+    "cost_usd": 7.1274e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "m05",
+   "cat": "phase35",
+   "utterance": "evie remember my locker code, it is 2545",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": null,
+    "has_event": null,
+    "remember_to": "fact"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "remember": 1.0,
+     "not_for_evie": 0.0,
+     "job_control": 0.0,
+     "quick_action": 0.0
+    },
+    "complete": 0.9,
+    "has_event": 0.08,
+    "latency_ms": 411.2470409600064,
+    "cost_usd": 7.1232e-05,
+    "skill": "other",
+    "skill_conf": 1.0,
+    "remember_to": "fact"
+   }
+  },
+  {
+   "id": "m06",
+   "cat": "phase35",
+   "utterance": "evie put buy a new calculator on my to do list",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "remember",
+    "complete": null,
+    "has_event": null,
+    "remember_to": "task"
+   },
+   "action": "act",
+   "reason": "remember",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "remember",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.0,
+     "quick_action": 0.0,
+     "answer": 0.0,
+     "remember": 1.0
+    },
+    "complete": 0.64,
+    "has_event": 0.38,
+    "latency_ms": 397.9964590398595,
+    "cost_usd": 7.1148e-05,
+    "skill": "other",
+    "skill_conf": 0.99,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "m07",
+   "cat": "phase35",
+   "utterance": "evie move my sax class to 5",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": null,
+    "has_event": null,
+    "skill": "event_move"
+   },
+   "action": "clarify",
+   "reason": "missing detail",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.96,
+    "route_probs": {
+     "job_control": 0.0,
+     "deep_job": 0.0,
+     "remember": 0.02,
+     "not_for_evie": 0.0,
+     "answer": 0.0,
+     "quick_action": 0.98
+    },
+    "complete": 0.22,
+    "has_event": 0.9,
+    "latency_ms": 365.60791602823883,
+    "cost_usd": 7.1022e-05,
+    "skill": "event_move",
+    "skill_conf": 1.0,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "m08",
+   "cat": "phase35",
+   "utterance": "evie delete the dentist from my calendar",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": null,
+    "has_event": null,
+    "skill": "event_delete"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "job_control": 0.0,
+     "not_for_evie": 0.0,
+     "remember": 0.0,
+     "deep_job": 0.0,
+     "answer": 0.0,
+     "quick_action": 1.0
+    },
+    "complete": 0.44,
+    "has_event": 0.95,
+    "latency_ms": 360.747332975734,
+    "cost_usd": 7.098e-05,
+    "skill": "event_delete",
+    "skill_conf": 1.0,
+    "remember_to": "event"
+   }
+  },
+  {
+   "id": "m09",
+   "cat": "phase35",
+   "utterance": "evie i finished the bio email, tick it off",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": null,
+    "has_event": null,
+    "skill": "task_done"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "remember": 0.0,
+     "answer": 0.0,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "not_for_evie": 0.0,
+     "quick_action": 1.0
+    },
+    "complete": 0.45,
+    "has_event": 0.82,
+    "latency_ms": 334.67045798897743,
+    "cost_usd": 7.1106e-05,
+    "skill": "task_done",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "m10",
+   "cat": "phase35",
+   "utterance": "evie open whatsapp",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": null,
+    "has_event": null,
+    "skill": "open_app"
+   },
+   "action": "act",
+   "reason": "quick_action",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.96,
+    "route": "quick_action",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "answer": 0.0,
+     "job_control": 0.0,
+     "quick_action": 1.0,
+     "remember": 0.0,
+     "not_for_evie": 0.0,
+     "deep_job": 0.0
+    },
+    "complete": 0.77,
+    "has_event": 0.03,
+    "latency_ms": 331.46495901746675,
+    "cost_usd": 7.0812e-05,
+    "skill": "open_app",
+    "skill_conf": 1.0,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "m11",
+   "cat": "phase35",
+   "utterance": "evie what's cos 60",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": null
+   },
+   "action": "act",
+   "reason": "answer",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "answer",
+    "route_confidence": 1.0,
+    "route_probs": {
+     "quick_action": 0.0,
+     "job_control": 0.0,
+     "remember": 0.0,
+     "answer": 1.0,
+     "not_for_evie": 0.0,
+     "deep_job": 0.0
+    },
+    "complete": 0.84,
+    "has_event": 0.03,
+    "latency_ms": 442.1077920123935,
+    "cost_usd": 7.098e-05,
+    "skill": "other",
+    "skill_conf": 0.85,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "m12",
+   "cat": "phase35",
+   "utterance": "evie what am i doing right now",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "answer",
+    "complete": null,
+    "has_event": null
+   },
+   "action": "act",
+   "reason": "answer",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.94,
+    "route": "answer",
+    "route_confidence": 0.88,
+    "route_probs": {
+     "answer": 0.9,
+     "deep_job": 0.0,
+     "job_control": 0.01,
+     "not_for_evie": 0.08,
+     "remember": 0.0,
+     "quick_action": 0.01
+    },
+    "complete": 0.31,
+    "has_event": 0.02,
+    "latency_ms": 364.9710000026971,
+    "cost_usd": 7.098e-05,
+    "skill": "other",
+    "skill_conf": 0.78,
+    "remember_to": "task"
+   }
+  },
+  {
+   "id": "m13",
+   "cat": "phase35",
+   "utterance": "evie reschedule chem class to 9 tonight",
+   "speaker": "isaac",
+   "expect": {
+    "for_evie": true,
+    "route": "quick_action",
+    "complete": null,
+    "has_event": null,
+    "skill": "event_move"
+   },
+   "action": "clarify",
+   "reason": "unsure it was for me",
+   "followup": false,
+   "decision": {
+    "for_evie": 0.95,
+    "route": "quick_action",
+    "route_confidence": 0.48,
+    "route_probs": {
+     "answer": 0.0,
+     "not_for_evie": 0.01,
+     "remember": 0.41,
+     "deep_job": 0.0,
+     "job_control": 0.0,
+     "quick_action": 0.58
+    },
+    "complete": 0.21,
+    "has_event": 0.88,
+    "latency_ms": 362.9035000340082,
+    "cost_usd": 7.1106e-05,
+    "skill": "event_move",
+    "skill_conf": 1.0,
+    "remember_to": "event"
+   }
+  }
+ ]
+}

@@ -28,7 +28,7 @@ RISK = {
     "music_next": "reversible", "music_previous": "reversible", "now_playing": "read_only",
     "volume": "reversible", "open_app": "reversible", "open_website": "reversible",
     "timer_set": "reversible", "timer_cancel": "reversible", "undo": "reversible", "other": "unknown",
-    "event_move": "reversible", "event_delete": "deletes",
+    "event_move": "reversible", "event_delete": "deletes", "task_done": "reversible",
 }
 
 MUSIC_Q = ('What music does Isaac want played? Return {"query": string, "kind": "track" | "artist" | '
@@ -67,6 +67,7 @@ class Skills:
         self._sys, self._search, self.timers = system, spotify, timers
         self._apps, self._log = apps, log
         self.events = None  # EventSkills (move / delete calendar events), wired in by the server
+        self.tasks = None  # TaskSkills (tick off a Todoist task)
         self._undo_stack: deque[Callable[[], Awaitable[str]]] = deque(maxlen=10)
 
     def remember_undo(self, fn: Callable[[], Awaitable[str]]) -> None:
@@ -219,6 +220,9 @@ class Skills:
 
     async def _event_delete(self, text: str) -> Done:
         return await self.events.delete(text) if self.events else Done(None)
+
+    async def _task_done(self, text: str) -> Done:
+        return await self.tasks.done(text) if self.tasks else Done(None)
 
     async def _undo(self, text: str) -> Done:
         if not self._undo_stack:

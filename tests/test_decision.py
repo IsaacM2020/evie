@@ -8,7 +8,7 @@ from tests.helpers import make_answers
 def test_question_set_shape():
     assert set(QUESTIONS) == {"for_evie", "route", "complete", "has_event", "skill", "remember_to"}
     assert QUESTIONS["skill"]["criteria"] is SKILLS and "other" in SKILLS
-    assert set(QUESTIONS["remember_to"]["criteria"]) == {"task", "event", "fact"}
+    assert set(QUESTIONS["remember_to"]["criteria"]) == {"task", "event", "fact", "reminder"}
     assert QUESTIONS["route"]["type"] == "choice"
     assert QUESTIONS["route"]["criteria"] is ROUTES
     assert set(ROUTES) == {"not_for_evie", "quick_action", "answer", "deep_job", "job_control", "remember"}

@@ -1,12 +1,17 @@
 """Evie's words. Jev decides what happens; Groq only writes the sentence she says out loud."""
 import ast
+import asyncio
 import json
 import operator
 import re
 
+import logging
+
 import httpx
 
 from evie.config import Settings
+
+log = logging.getLogger("evie.talk")
 
 FALLBACK = "My brain's lagging, try again."
 
@@ -36,20 +41,46 @@ class TalkError(Exception):
 
 
 class GroqClient:
-    def __init__(self, settings: Settings, http: httpx.AsyncClient | None = None):
+    def __init__(self, settings: Settings, http: httpx.AsyncClient | None = None, hedge_after_s: float = 1.2):
         self._s = settings
         self._http = http or httpx.AsyncClient(timeout=settings.groq_timeout_s)
+        # Groq answers in ~250 ms, but about 1 call in 35 stalls for 4 s+ (2026-09-23: "I didn't
+        # catch what to remember" was a stall, not a bad answer). If there's no answer by this
+        # point, a second identical request goes out and whichever lands first wins.
+        self._hedge = hedge_after_s
 
-    async def chat(self, system: str, user: str, max_tokens: int = 400, json_mode: bool = False) -> str:
+    async def chat(self, system: str, user: str, max_tokens: int = 400, json_mode: bool = False,
+                   model: str | None = None, reasoning: str | None = None) -> str:
+        model = model or self._s.groq_model
         body = {
-            "model": self._s.groq_model,
+            "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "max_tokens": max_tokens,
             **({"response_format": {"type": "json_object"}} if json_mode else {}),
             # Evie's lines are short: no thinking. gpt-oss can't switch it off, so hide it.
-            **({"reasoning_effort": "low", "include_reasoning": False}
-               if self._s.groq_model.startswith("openai/gpt-oss") else {"reasoning_effort": "none"}),
+            **({"reasoning_effort": reasoning or "low", "include_reasoning": False}
+               if model.startswith("openai/gpt-oss") else {"reasoning_effort": reasoning or "none"}),
         }
+        first = asyncio.create_task(self._once(body))
+        done, _ = await asyncio.wait({first}, timeout=self._hedge)
+        if done:
+            return first.result()
+        second = asyncio.create_task(self._once(body))
+        last: TalkError | None = None
+        pending = {first, second}
+        try:
+            while pending:
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for t in done:
+                    if t.exception() is None:
+                        return t.result()
+                    last = t.exception()
+            raise last
+        finally:
+            for t in pending:
+                t.cancel()
+
+    async def _once(self, body: dict) -> str:
         headers = {"Authorization": f"Bearer {self._s.groq_key}"}
         last: TalkError | None = None
         for _ in range(2):
@@ -146,7 +177,8 @@ class Talker:
         try:
             out = json.loads(await self._groq.chat(EXTRACT + instructions, f'Request: "{text}"',
                                                    max_tokens=200, json_mode=True))
-        except (TalkError, ValueError):
+        except (TalkError, ValueError) as e:
+            log.warning("extract failed: %s", str(e)[:120])
             return {}
         return out if isinstance(out, dict) else {}
 

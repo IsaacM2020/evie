@@ -22,6 +22,14 @@ class Timer:
     label: str = ""
 
 
+def done_line(t: Timer) -> str:
+    """What Evie says when it goes off: a reminder says what it was for."""
+    if t.label:
+        return f"Reminder: {t.label}."
+    from evie.skills.parse import say_duration
+    return f"Your {say_duration(int(t.seconds))} timer's done."
+
+
 class Timers:
     def __init__(self, on_done: Callable[[Timer], None], path: Path | None = TIMERS_FILE,
                  clock: Callable[[], float] = time.time):

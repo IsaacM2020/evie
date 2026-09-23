@@ -379,7 +379,8 @@ def build_deps(s: Settings) -> Deps:
     from evie.skills.music import SpotifySearch
     from evie.skills.parse import say_duration
     from evie.skills.system import System, installed_apps
-    from evie.skills.timers import Timers
+    from evie.skills.tasks import TaskSkills
+    from evie.skills.timers import Timers, done_line
     from evie.stt import Transcriber
     from evie.talk import GroqClient, Talker
     from evie.voice import Mouth, PocketVoice, SpeakerOut
@@ -410,12 +411,13 @@ def build_deps(s: Settings) -> Deps:
     runner = JobRunner(narrator.on_event, narrator.on_done)
     hands = Hands(bus)
     spotify = SpotifySearch(s.spotify_id, s.spotify_secret)
-    timers = Timers(lambda t: mouth.say(f"Your {say_duration(int(t.seconds))} timer's done.", kind="reply"))
+    timers = Timers(lambda t: mouth.say(done_line(t), kind="reply"))
     skills = Skills(hands, talker, jev, System(), spotify, timers, apps=installed_apps)
     countdown = Countdown()
     skills.events = EventSkills(hands, talker, jev, cal, skills, countdown)
     todoist = Todoist(s.todoist_key)
-    remember = Remember(talker, hands, todoist, FactStore(), cal, skills)
+    skills.tasks = TaskSkills(todoist, jev, skills)
+    remember = Remember(talker, hands, todoist, FactStore(), cal, skills, timers=timers)
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember,
                   countdown=countdown)
     stt = Transcriber(s, backend=s.stt_backend)

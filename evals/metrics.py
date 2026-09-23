@@ -74,11 +74,12 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
         d, e = r["decision"], r["expect"]
         if e.get("skill"):
             n_skill += 1
-            if d.get("skill") != e["skill"]:
+            if d.get("skill") not in (e["skill"] if isinstance(e["skill"], list) else [e["skill"]]):
                 fails["skill"].append(r["id"])
         if e.get("remember_to"):
             n_rem += 1
-            if d.get("remember_to") != e["remember_to"]:
+            ok = e["remember_to"] if isinstance(e["remember_to"], list) else [e["remember_to"]]
+            if d.get("remember_to") not in ok:
                 fails["remember_to"].append(r["id"])
         if d["route"] != e["route"]:
             fails["route"].append(r["id"])

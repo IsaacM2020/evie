@@ -173,3 +173,29 @@ async def test_extract_gives_empty_dict_on_junk_or_failure():
     assert await Talker(GroqClient(S)).extract("x", "y") == {}
     respx.post(URL).mock(return_value=httpx.Response(401, text="bad key"))
     assert await Talker(GroqClient(S)).extract("x", "y") == {}
+
+
+@respx.mock
+async def test_a_stalled_groq_call_is_hedged_with_a_second_one():
+    import asyncio
+    import time
+    n = []
+
+    async def handler(request):
+        n.append(1)
+        if len(n) == 1:
+            await asyncio.sleep(2.0)  # the 21:11 stall: this one would have hit the 4 s timeout
+            return ok("late")
+        return ok("fast")
+
+    respx.post(URL).mock(side_effect=handler)
+    t0 = time.perf_counter()
+    assert await GroqClient(S, hedge_after_s=0.05).chat("sys", "user") == "fast"
+    assert time.perf_counter() - t0 < 1.0 and len(n) == 2
+
+
+@respx.mock
+async def test_quick_groq_call_is_never_duplicated():
+    route = respx.post(URL).mock(return_value=ok("hi"))
+    assert await GroqClient(S, hedge_after_s=0.5).chat("sys", "user") == "hi"
+    assert route.call_count == 1

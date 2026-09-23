@@ -9,7 +9,8 @@ ROUTES = {
                     "or speech from someone else or a video",
     "quick_action": "One quick thing on the computer: play, pause or skip music, ask what song is "
                     "playing, change volume, open an app or website, set or cancel a timer, undo the "
-                    "last thing Evie did, move or delete a calendar event, send a short message",
+                    "last thing Evie did, move or delete a calendar event, tick off a to-do Isaac says he "
+                 "finished, send a short message",
     "answer": "A question Evie answers by talking: the time, the date, maths, a fact, "
               "what is on Isaac's calendar",
     "deep_job": "Real work that takes minutes: fixing or writing code, researching a topic, "
@@ -18,7 +19,9 @@ ROUTES = {
     "job_control": "About a task Evie is already working on: asking how it is going, stopping it, "
                    "or adding an instruction to it. Only possible while Evie is working on something; "
                    "then a follow-up that starts with 'also' or 'and' adds to that task",
-    "remember": "Isaac wants something remembered, scheduled, or added as a task or reminder",
+    "remember": "Isaac wants something NEW remembered, scheduled, reminded, or added as a task or to-do "
+                "(\"add a task\", \"put X on my list\", \"remind me in 20 minutes to...\"). Not for "
+                "ticking off something he already finished",
 }
 
 # Which fast skill a quick_action needs. Asked in the SAME Jev call as everything else (answered
@@ -39,12 +42,15 @@ SKILLS = {
     "undo": "Undo or reverse the last thing Evie did",
     "event_move": "Move or reschedule something already on Isaac's calendar to another time or day",
     "event_delete": "Delete, remove or cancel something already on Isaac's calendar",
+    "task_done": "Isaac says he finished or did one of his to-dos, or asks to tick one off",
     "other": "Anything else, for example sending a message, muting the microphone, changing a "
              "setting, or a multi-step task on the computer",
 }
 
 REMEMBER_TO = {
-    "task": "A to-do or reminder: something Isaac has to do, with or without a due date",
+    "task": "A to-do: something Isaac has to do, with or without a due date",
+    "reminder": "Isaac wants to be reminded or nudged at a certain time or after a while (\"remind me in "
+                "20 minutes to...\", \"remind me at 5 to...\", a timer that should say what it's for)",
     "event": "Something happening at a specific time or day: an appointment, class, match, test or meeting",
     "fact": "A fact about Isaac or his life to keep in mind, with nothing to do and no time attached, "
             "like a locker code or a friend's birthday",

@@ -4,7 +4,7 @@ from pathlib import Path
 from evie.switchboard.questions import ROUTES
 
 CASES = Path(__file__).resolve().parents[1] / "evals" / "cases.jsonl"
-CATS = {"direct", "bare", "room", "other", "call", "vague", "job", "mention", "openmic", "skill", "remember"}
+CATS = {"direct", "bare", "room", "other", "call", "vague", "job", "mention", "openmic", "skill", "remember", "phase35"}
 
 
 def load():
