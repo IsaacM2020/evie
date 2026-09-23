@@ -1,0 +1,24 @@
+{"id": "n01", "goal": "fix the chase bug in my cricket model", "line": "Read CLAUDE.md", "since_s": 30, "count": 1, "expect": false}
+{"id": "n02", "goal": "fix the chase bug in my cricket model", "line": "Read model.py", "since_s": 30, "count": 1, "expect": false}
+{"id": "n03", "goal": "fix the chase bug in my cricket model", "line": "Searched for 'chase'", "since_s": 30, "count": 1, "expect": false}
+{"id": "n04", "goal": "fix the chase bug in my cricket model", "line": "Looked for files matching **/*.py", "since_s": 30, "count": 1, "expect": false}
+{"id": "n05", "goal": "fix the chase bug in my cricket model", "line": "Found the bug: the chase target is off by one in compute_target().", "since_s": 30, "count": 1, "expect": true}
+{"id": "n06", "goal": "fix the chase bug in my cricket model", "line": "Edited model.py", "since_s": 30, "count": 1, "expect": false}
+{"id": "n07", "goal": "fix the chase bug in my cricket model", "line": "Ran: uv run pytest -q", "since_s": 30, "count": 1, "expect": false}
+{"id": "n08", "goal": "fix the chase bug in my cricket model", "line": "3 tests fail after the change, the required run rate calc also uses the old target.", "since_s": 30, "count": 1, "expect": true}
+{"id": "n09", "goal": "fix the chase bug in my cricket model", "line": "All 42 tests pass now.", "since_s": 30, "count": 1, "expect": true}
+{"id": "n10", "goal": "fix the chase bug in my cricket model", "line": "I'll start by reading the project structure.", "since_s": 30, "count": 1, "expect": false}
+{"id": "n11", "goal": "check why the tests fail in the anchor repo", "line": "Read package.json", "since_s": 30, "count": 1, "expect": false}
+{"id": "n12", "goal": "check why the tests fail in the anchor repo", "line": "Ran: npm test", "since_s": 30, "count": 1, "expect": false}
+{"id": "n13", "goal": "check why the tests fail in the anchor repo", "line": "The tests fail because the Supabase env vars are missing in CI, not because of a code bug.", "since_s": 30, "count": 1, "expect": true}
+{"id": "n14", "goal": "check why the tests fail in the anchor repo", "line": "Let me check the test config.", "since_s": 30, "count": 1, "expect": false}
+{"id": "n15", "goal": "check why the tests fail in the anchor repo", "line": "Wrote .env.test", "since_s": 30, "count": 1, "expect": false}
+{"id": "n16", "goal": "check why the tests fail in the anchor repo", "line": "I can't run the tests: node_modules is missing and npm install needs network access.", "since_s": 30, "count": 1, "expect": true}
+{"id": "n17", "goal": "check why the tests fail in the anchor repo", "line": "Searched for 'SUPABASE_URL'", "since_s": 30, "count": 1, "expect": false}
+{"id": "n18", "goal": "check why the tests fail in the anchor repo", "line": "Fixed: added a test env file, and 17 of 17 tests pass.", "since_s": 30, "count": 1, "expect": true}
+{"id": "n19", "goal": "research the best way to get into MIT from Singapore", "line": "Searched the web for 'MIT admissions international students Singapore'", "since_s": 30, "count": 1, "expect": false}
+{"id": "n20", "goal": "research the best way to get into MIT from Singapore", "line": "Opened https://mitadmissions.org/apply/", "since_s": 30, "count": 1, "expect": false}
+{"id": "n21", "goal": "research the best way to get into MIT from Singapore", "line": "MIT is need-blind for international students too, so asking for aid won't hurt your chances.", "since_s": 30, "count": 1, "expect": true}
+{"id": "n22", "goal": "research the best way to get into MIT from Singapore", "line": "Started a helper: research MIT summer programs", "since_s": 30, "count": 1, "expect": false}
+{"id": "n23", "goal": "research the best way to get into MIT from Singapore", "line": "Found 3 summer programs worth applying to, and two have deadlines in January.", "since_s": 30, "count": 1, "expect": true}
+{"id": "n24", "goal": "research the best way to get into MIT from Singapore", "line": "Let me look at a few more sources.", "since_s": 30, "count": 1, "expect": false}

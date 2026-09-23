@@ -91,3 +91,10 @@ def test_calendar_endpoint_rejects_bad_datetime():
                         "all_day": False, "calendar": "c"}]}
     with client() as c:
         assert c.post("/calendar", json=body).status_code == 422
+
+
+def test_updated_at_is_none_until_first_update():
+    s = CalendarStore()
+    assert s.updated_at is None
+    s.update([], at=at(TODAY, 8))
+    assert s.updated_at == at(TODAY, 8)

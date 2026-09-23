@@ -30,6 +30,10 @@ class CalendarStore:
         self._events = list(events)
         self._updated = at
 
+    @property
+    def updated_at(self) -> datetime | None:
+        return self._updated
+
     def stale(self, now: datetime) -> bool:
         return self._updated is None or now - self._updated > STALE_AFTER
 

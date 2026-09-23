@@ -35,3 +35,14 @@ Honest notes on the holdout misses (not tuned on, on purpose):
 **Known risk to watch in Phase 2 (real audio):** `c09`, "play the one from yesterday" said to someone asking about car music, scores for_evie 0.75 as a quick_action. Right now the only thing stopping Evie from acting is the "missing detail" rule (complete 0.10). A complete-sounding version ("play the song from the car yesterday") could act. Real voice ID + recordings of these moments go into the Phase 2 eval set first.
 
 Final thresholds: ignore_below 0.50 · act_at 0.70 · answer_act_at 0.60 · unknown_speaker_penalty 0.10 · route_conf_min 0.60 · incomplete_below 0.40 · event_at 0.80
+
+## Phase 1: narration (`evals/narration.jsonl`, 24 job steps, 8 "say" / 16 "skip")
+
+One Jev noul, `worth_saying`, threshold 0.60. Run: `uv run python -m evals.run_narration`.
+
+| iter | change | accuracy | false_yes | recall | kept? |
+|---|---|---|---|---|---|
+| 0 | baseline wording (bug found / fix / tests / result / blocker = yes; routine steps = no) | 0.917 | 0.0 | 0.75 | - |
+| 1 | add "a research finding or answer" to the yes list (both misses were research findings at p 0.47/0.53) | 1.0 | 0.0 | 1.0 | yes |
+
+Honest caveat: iteration 1 was tuned on these same 24 lines, so 1.0 is optimistic. There's no holdout for narration yet; real jobs in the Phase 1 demo are the real test, and any narration that felt pointless (or a missed important one) becomes a new line here.
