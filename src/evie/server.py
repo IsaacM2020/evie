@@ -4,6 +4,7 @@ App -> core over HTTP: audio (/voice), typed text (/hear), calendar snapshots (/
 Core -> app over one WebSocket (/ws): everything that happens, live.
 """
 import asyncio
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -11,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Awaitable, Callable, Literal
 
+import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import AwareDatetime, BaseModel
@@ -18,6 +20,7 @@ from pydantic import AwareDatetime, BaseModel
 from evie import __version__
 from evie.calendar_store import TZ, CalendarStore, CalEvent
 from evie.config import Settings, load_settings
+from evie.ears import FRAME, wav_to_pcm
 from evie.events import EventBus
 from evie.jev import JevClient
 from evie.switchboard import Switchboard
@@ -52,6 +55,14 @@ class CalendarIn(BaseModel):
     events: list[EventIn]
 
 
+class ModeIn(BaseModel):
+    mode: Literal["off", "shadow", "live"]
+
+
+class EnrollIn(BaseModel):
+    on: bool
+
+
 @dataclass
 class Deps:
     """Everything the core runs. Tests pass fakes; build_deps() makes the real ones."""
@@ -64,6 +75,8 @@ class Deps:
     runner: object | None = None
     warm: Callable[[], Awaitable[dict]] | None = None
     pings: list = field(default_factory=list)  # keep-warm callables
+    open_mic: object | None = None
+    voiceid: object | None = None
     close: Callable[[], Awaitable[None]] | None = None
 
 
@@ -92,6 +105,7 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         app.state.d = d
         app.state.jev_ok = None
         app.state.ready = {"stt_ready": False, "voice_ready": False}
+        app.state.enrolling = False
         if d.warm:
             app.state.ready = await d.warm()
         if probe:
@@ -103,6 +117,8 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
             warmer.cancel()
         if d.runner:
             await d.runner.shutdown()
+        if d.open_mic:
+            d.open_mic.close()
         if d.close:
             await d.close()
         await d.sb.aclose()
@@ -118,9 +134,12 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
     @app.get("/status")
     async def status() -> dict:
         d: Deps = app.state.d
-        return {"ok": True, "version": __version__, "jev_ok": app.state.jev_ok, **app.state.ready,
-                "calendar_fresh": not d.calendar.stale(datetime.now(TZ)),
-                "job": _job_dict(d.runner.current) if d.runner else None}
+        out = {"ok": True, "version": __version__, "jev_ok": app.state.jev_ok, **app.state.ready,
+               "calendar_fresh": not d.calendar.stale(datetime.now(TZ)),
+               "job": _job_dict(d.runner.current) if d.runner else None}
+        if d.open_mic and d.voiceid:
+            out |= {"ears_mode": d.open_mic.modes.mode, "voiceprint": d.voiceid.print.status()}
+        return out
 
     @app.post("/decide")
     async def decide(body: DecideIn) -> dict:
@@ -142,14 +161,39 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
     async def voice_start() -> dict:
         d = need("mouth")
         d.mouth.stop()  # barge-in: Isaac pressed the talk key, so Evie stops talking
+        if d.open_mic:
+            d.open_mic.ptt_start()  # this turn belongs to the key, not the open mic
         d.bus.publish("state", state="listening")
         return {"ok": True}
+
+    async def learn_voice(d: Deps, wav: bytes) -> bool:
+        """A talk-key clip is certainly Isaac: it teaches voice ID (embedding only, ~50 ms)."""
+        pcm = wav_to_pcm(wav)
+        learned = await asyncio.get_running_loop().run_in_executor(None, d.voiceid.learn, pcm)
+        if learned:
+            d.bus.publish("voiceprint", **d.voiceid.print.status())
+        return learned
 
     @app.post("/voice")
     async def voice(request: Request) -> dict:
         d = need("brain", "stt")
+        audio = await request.body()
+        try:
+            if d.voiceid and app.state.enrolling:
+                await learn_voice(d, audio)
+                d.bus.publish("state", state="idle")
+                return {"text": "", "action": "ignore", "reason": "enrolled", "route": None, "said": None,
+                        "voiceprint": d.voiceid.print.status()}
+            if d.voiceid:
+                asyncio.get_running_loop().create_task(learn_voice(d, audio))
+            return await transcribe_and_hear(d, audio)
+        finally:
+            if d.open_mic:
+                d.open_mic.ptt_end()
+
+    async def transcribe_and_hear(d: Deps, audio: bytes) -> dict:
         t0 = time.perf_counter()
-        text = await d.stt.transcribe(await request.body())
+        text = await d.stt.transcribe(audio)
         stt_ms = round((time.perf_counter() - t0) * 1000)
         if not text:
             d.bus.publish("heard", text="")
@@ -187,6 +231,75 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
             pass
         finally:
             d.bus.unsubscribe(q)
+
+    # -- open mic ----------------------------------------------------------------------------
+    def ears_body(d: Deps) -> dict:
+        return {"mode": d.open_mic.modes.mode, "enrolling": app.state.enrolling,
+                "voiceprint": d.voiceid.print.status()}
+
+    @app.get("/ears")
+    async def ears() -> dict:
+        return ears_body(need("open_mic", "voiceid"))
+
+    @app.post("/ears/mode")
+    async def ears_mode(body: ModeIn) -> dict:
+        d = need("open_mic", "voiceid")
+        if body.mode == "live" and not d.voiceid.print.ready:
+            raise HTTPException(409, "Evie needs to learn your voice first (hold the talk key a few times)")
+        d.open_mic.modes.set(body.mode)
+        d.bus.publish("ears", **ears_body(d))
+        return ears_body(d)
+
+    @app.get("/voiceid")
+    async def voiceid() -> dict:
+        return ears_body(need("open_mic", "voiceid"))
+
+    @app.post("/voiceid/enroll")
+    async def enroll(body: EnrollIn) -> dict:
+        d = need("open_mic", "voiceid")
+        app.state.enrolling = body.on
+        d.bus.publish("ears", **ears_body(d))
+        return ears_body(d)
+
+    @app.post("/voiceid/reset")
+    async def voiceid_reset() -> dict:
+        d = need("open_mic", "voiceid")
+        d.voiceid.print.clear()
+        if d.open_mic.modes.mode == "live":
+            d.open_mic.modes.set("shadow")
+        d.bus.publish("ears", **ears_body(d))
+        return ears_body(d)
+
+    @app.websocket("/ws/ears")
+    async def ws_ears(sock: WebSocket) -> None:
+        """The app streams the mic here: binary = 16 kHz int16 samples, text = JSON context."""
+        d: Deps = app.state.d
+        await sock.accept()
+        if not d.open_mic:
+            await sock.close()
+            return
+        rest = np.zeros(0, dtype=np.float32)
+        try:
+            while True:
+                msg = await sock.receive()
+                if msg["type"] == "websocket.disconnect":
+                    break
+                if msg.get("bytes") is not None:
+                    pcm = np.frombuffer(msg["bytes"], dtype="<i2").astype(np.float32) / 32768
+                    rest = np.concatenate([rest, pcm])
+                    while len(rest) >= FRAME:
+                        d.open_mic.feed(rest[:FRAME])
+                        rest = rest[FRAME:]
+                elif msg.get("text"):
+                    try:
+                        ctx = json.loads(msg["text"])
+                    except ValueError:
+                        continue
+                    for k in ("front_app", "in_call"):
+                        if k in ctx:
+                            d.open_mic.context[k] = ctx[k]
+        except (WebSocketDisconnect, RuntimeError):
+            pass
 
     @app.post("/calendar")
     async def calendar(body: CalendarIn) -> dict:

@@ -93,3 +93,11 @@ async def test_known_mishearings_of_evie_are_fixed(heard, fixed):
 async def test_other_words_are_left_alone():
     out = await Transcriber(S, backend="local", local_fn=FakeModel("the eve of the match")).transcribe(wav(1.0))
     assert out == "the eve of the match"
+
+
+async def test_transcribe_pcm_wraps_audio_as_wav():
+    import numpy as np
+    m = FakeModel(" hi there")
+    t = Transcriber(S, backend="local", local_fn=m)
+    assert await t.transcribe_pcm(np.zeros(16000, dtype=np.float32)) == "hi there"
+    assert len(m.paths) == 1

@@ -9,6 +9,7 @@ Only the numbers are stored, never the audio.
 """
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -88,13 +89,15 @@ class VoiceId:
     def __init__(self, embed_fn: Callable[[np.ndarray], np.ndarray], voiceprint: VoicePrint,
                  bars: VoiceBars = VoiceBars()):
         self._embed, self.print, self.bars = embed_fn, voiceprint, bars
+        self._lock = threading.Lock()  # the open mic and the talk key can both call in
 
     def who(self, audio: np.ndarray) -> tuple[str, float]:
         """(speaker, similarity). Blocking (~50 ms): call it from a worker thread."""
         ref = self.print.mean()
         if ref is None or not self.print.ready or len(audio) / RATE < self.bars.min_seconds:
             return "unknown", 0.0
-        e = np.asarray(self._embed(audio), dtype=np.float32)
+        with self._lock:
+            e = np.asarray(self._embed(audio), dtype=np.float32)
         sim = float(ref @ (e / np.linalg.norm(e)))
         if sim >= self.bars.isaac_at:
             return "isaac", sim
@@ -107,7 +110,8 @@ class VoiceId:
         seconds = len(audio) / RATE
         if seconds < self.bars.learn_min_seconds:
             return False
-        self.print.add(self._embed(audio), seconds)
+        with self._lock:
+            self.print.add(self._embed(audio), seconds)
         return True
 
 

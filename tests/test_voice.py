@@ -182,3 +182,14 @@ def test_live_pocket_first_chunk_is_fast():
     t = time.perf_counter()
     first = next(iter(v.chunks("Tomorrow you have school at eight.")))
     assert (time.perf_counter() - t) < 0.3 and len(first) > 0
+
+
+async def test_mouth_remembers_what_it_last_said_and_when_it_went_quiet():
+    clock = Clock()
+    m = mouth(clock=clock)
+    assert m.current_text == "" and m.quiet_at < clock.t
+    m.say("hello there")
+    m.start()
+    await settle()
+    assert m.current_text == "hello there" and m.quiet_at == clock.t and not m.speaking
+    await m.aclose()

@@ -94,6 +94,8 @@ class Mouth:
         self._task: asyncio.Task | None = None
         self.speaking = False
         self._spoke = False
+        self.current_text = ""  # the open mic compares what it hears to this (echo guard)
+        self.quiet_at = clock() - 60.0  # when she last stopped making sound
 
     def start(self) -> None:
         if self._task is None:
@@ -136,6 +138,7 @@ class Mouth:
             self._cancel = cancel = threading.Event()
             if self._on_say:
                 self._on_say(line.text)
+            self.current_text = line.text
             self.speaking = self._spoke = True
             try:
                 await asyncio.to_thread(self._play, line, cancel)
@@ -143,6 +146,7 @@ class Mouth:
                 log.exception("couldn't speak %r", line.text)
             finally:
                 self.speaking = False
+                self.quiet_at = self._clock()
 
     async def aclose(self) -> None:
         self._cancel.set()

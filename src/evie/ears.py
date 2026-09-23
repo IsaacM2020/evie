@@ -6,7 +6,9 @@ so Whisper and voice ID can start early. If Isaac keeps talking it emits Resume 
 work is thrown away. At 600 ms of silence the sentence Ends; if nothing was said after the
 peek, the early result is simply reused, which saves ~350 ms on every turn.
 """
+import io
 import math
+import wave
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -106,6 +108,27 @@ class Segmenter:
         self._speech, self._silence, self._peeked = self._run, 0, False
         self._pre.clear()
         return [Start()]
+
+
+def pcm_to_wav(audio: np.ndarray) -> bytes:
+    """float32 samples in [-1, 1] at 16 kHz -> 16-bit mono WAV bytes (what Whisper reads)."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(RATE)
+        w.writeframes((np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes())
+    return buf.getvalue()
+
+
+def wav_to_pcm(data: bytes) -> np.ndarray:
+    """16-bit mono WAV bytes -> float32 samples. Anything unreadable gives an empty array."""
+    try:
+        with wave.open(io.BytesIO(data)) as w:
+            raw = w.readframes(w.getnframes())
+    except (wave.Error, EOFError):
+        return np.zeros(0, dtype=np.float32)
+    return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768
 
 
 class Vad:

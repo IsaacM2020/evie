@@ -121,3 +121,15 @@ def test_live_vad_finds_the_sentence_in_real_speech(tmp_path):
         f = a[i:i + FRAME]
         evs += seg.feed(f, vad.is_speech(f))
     assert kinds(evs)[:1] == ["Start"] and "End" in kinds(evs)
+
+
+def test_pcm_wav_round_trip():
+    from evie.ears import pcm_to_wav, wav_to_pcm
+    a = (np.sin(np.linspace(0, 100, 16000)) * 0.5).astype(np.float32)
+    b = wav_to_pcm(pcm_to_wav(a))
+    assert len(b) == len(a) and np.allclose(a, b, atol=1e-4)
+
+
+def test_wav_to_pcm_of_junk_is_empty():
+    from evie.ears import wav_to_pcm
+    assert len(wav_to_pcm(b"RIFFnope")) == 0

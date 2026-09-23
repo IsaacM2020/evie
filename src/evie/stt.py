@@ -60,6 +60,11 @@ class Transcriber:
             text = await asyncio.get_running_loop().run_in_executor(self._pool, self._run_local, audio)
         return _NAME_FIXES.sub("Evie", text)
 
+    async def transcribe_pcm(self, audio) -> str:
+        """The open mic hands over raw samples (float32, 16 kHz), not a WAV file."""
+        from evie.ears import pcm_to_wav
+        return await self.transcribe(pcm_to_wav(audio))
+
     def _run_local(self, audio: bytes) -> str:
         with tempfile.NamedTemporaryFile(suffix=".wav") as f:
             f.write(audio)

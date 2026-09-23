@@ -171,3 +171,113 @@ def test_shutdown_stops_the_job_runner():
     with client(deps=d):
         pass
     assert d.runner.shutdowns == 1
+
+
+class FakeVoicePrint:
+    def __init__(self, ready=False):
+        self.is_ready, self.clips, self.cleared = ready, 0, 0
+
+    @property
+    def ready(self):
+        return self.is_ready
+
+    def status(self):
+        return {"clips": self.clips, "seconds": self.clips * 2.0, "ready": self.is_ready}
+
+    def clear(self):
+        self.cleared += 1
+        self.clips = 0
+
+
+class FakeVoiceId:
+    def __init__(self, ready=False):
+        self.print = FakeVoicePrint(ready)
+
+    def learn(self, audio):
+        self.print.clips += 1
+        return True
+
+
+class FakeOpenMic:
+    def __init__(self):
+        from evie.open_mic import ModeStore
+        self.modes = ModeStore(None)
+        self.frames, self.ptt, self.context = [], [], {}
+
+    def feed(self, frame):
+        self.frames.append(frame)
+
+    def ptt_start(self):
+        self.ptt.append("start")
+
+    def ptt_end(self):
+        self.ptt.append("end")
+
+    def close(self):
+        pass
+
+
+def ears_deps(ready=False):
+    d = full_deps()
+    d.open_mic, d.voiceid = FakeOpenMic(), FakeVoiceId(ready)
+    return d
+
+
+def speech_wav(seconds=2.0):
+    import numpy as np
+
+    from evie.ears import pcm_to_wav
+    return pcm_to_wav(np.zeros(int(16000 * seconds), dtype=np.float32))
+
+
+def test_ears_mode_round_trip_and_live_needs_a_voiceprint():
+    d = ears_deps(ready=False)
+    with client(deps=d) as c:
+        assert c.get("/ears").json() == {"mode": "off", "enrolling": False,
+                                         "voiceprint": {"clips": 0, "seconds": 0.0, "ready": False}}
+        assert c.post("/ears/mode", json={"mode": "shadow"}).json()["mode"] == "shadow"
+        assert c.post("/ears/mode", json={"mode": "live"}).status_code == 409
+        assert c.post("/ears/mode", json={"mode": "loud"}).status_code == 422
+        d.voiceid.print.is_ready = True
+        assert c.post("/ears/mode", json={"mode": "live"}).json()["mode"] == "live"
+        assert c.get("/status").json()["ears_mode"] == "live"
+
+
+def test_ears_socket_feeds_512_sample_frames_and_context():
+    import numpy as np
+    d = ears_deps()
+    with client(deps=d) as c:
+        with c.websocket_connect("/ws/ears") as ws:
+            ws.send_bytes(np.zeros(700, dtype=np.int16).tobytes())
+            ws.send_bytes(np.zeros(400, dtype=np.int16).tobytes())
+            ws.send_text('{"front_app": "zoom.us", "in_call": true}')
+            ws.send_text("{}")  # a round trip so the server has handled everything above
+            ws.close()
+    assert [len(f) for f in d.open_mic.frames] == [512, 512]
+    assert d.open_mic.frames[0].dtype == np.float32
+    assert d.open_mic.context == {"front_app": "zoom.us", "in_call": True}
+
+
+def test_talk_key_pauses_the_open_mic_and_teaches_voice_id():
+    d = ears_deps()
+    with client(deps=d) as c:
+        c.post("/voice/start")
+        c.post("/voice", content=speech_wav())
+    assert d.open_mic.ptt == ["start", "end"]
+    assert d.voiceid.print.clips == 1 and d.brain.heard  # learning never replaces the turn
+
+
+def test_enrolling_trains_voice_id_without_a_turn():
+    d = ears_deps()
+    with client(deps=d) as c:
+        assert c.post("/voiceid/enroll", json={"on": True}).json()["enrolling"] is True
+        out = c.post("/voice", content=speech_wav()).json()
+        c.post("/voiceid/enroll", json={"on": False})
+    assert out["reason"] == "enrolled" and d.brain.heard == [] and d.voiceid.print.clips == 1
+
+
+def test_voiceid_reset_forgets():
+    d = ears_deps(ready=True)
+    with client(deps=d) as c:
+        c.post("/voiceid/reset")
+    assert d.voiceid.print.cleared == 1
