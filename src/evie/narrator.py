@@ -74,10 +74,13 @@ class Narrator:
         since = None if last is None else self._clock() - last
         if since is not None and since < self._r.min_gap_s:
             return
-        if await self.worth_saying(job.goal, line, since, count) < self._r.threshold:
+        p = await self.worth_saying(job.goal, line, since, count)
+        log.info("narrate? p=%.2f %s", p, line[:80])
+        if p < self._r.threshold:
             return
         text = await self._talker.narrate(job.goal, line)
         if text == FALLBACK:
+            log.info("narration skipped: Groq fallback")
             return
         self._mouth.say(text, kind="narration", ttl_s=15)
         self._last[job.id] = self._clock()

@@ -80,3 +80,16 @@ async def test_live_local_whisper_hears_a_spoken_sentence(tmp_path):
     text = await t.transcribe(out.read_bytes())
     print(f"local whisper: {(time.perf_counter() - t0) * 1000:.0f} ms -> {text!r}")
     assert "time" in text.lower()
+
+
+@pytest.mark.parametrize("heard,fixed", [
+    ("Eevee, fix the bug", "Evie, fix the bug"),
+    ("eevee fix the bug in the Eevee repo", "Evie fix the bug in the Evie repo"),
+])
+async def test_known_mishearings_of_evie_are_fixed(heard, fixed):
+    assert await Transcriber(S, backend="local", local_fn=FakeModel(heard)).transcribe(wav(1.0)) == fixed
+
+
+async def test_other_words_are_left_alone():
+    out = await Transcriber(S, backend="local", local_fn=FakeModel("the eve of the match")).transcribe(wav(1.0))
+    assert out == "the eve of the match"

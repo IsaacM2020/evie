@@ -2,6 +2,7 @@
 leaves the Mac); Groq's hosted Whisper is a switch if local ever gets too slow."""
 import asyncio
 import io
+import re
 import tempfile
 import wave
 from concurrent.futures import ThreadPoolExecutor
@@ -15,6 +16,9 @@ from evie.config import Settings
 # 2026-09-23). Evie needs the verdict fast; Jev already copes with small mishearings.
 MODEL = "mlx-community/whisper-small.en-mlx"
 MIN_SECONDS = 0.3
+# Whisper spells her name like the Pokemon. Only exact known mishearings: "eve" stays, since
+# "the eve of the match" is a real phrase (Jev is told about those in its state text instead).
+_NAME_FIXES = re.compile(r"\beevee\b", re.IGNORECASE)
 
 
 def _mlx_transcribe(path: str) -> str:
@@ -44,8 +48,10 @@ class Transcriber:
         if _seconds(audio) < MIN_SECONDS:
             return ""
         if self.backend == "groq":
-            return await self._groq(audio)
-        return await asyncio.get_running_loop().run_in_executor(self._pool, self._run_local, audio)
+            text = await self._groq(audio)
+        else:
+            text = await asyncio.get_running_loop().run_in_executor(self._pool, self._run_local, audio)
+        return _NAME_FIXES.sub("Evie", text)
 
     def _run_local(self, audio: bytes) -> str:
         with tempfile.NamedTemporaryFile(suffix=".wav") as f:
