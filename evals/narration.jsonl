@@ -22,3 +22,4 @@
 {"id": "n22", "goal": "research the best way to get into MIT from Singapore", "line": "Started a helper: research MIT summer programs", "since_s": 30, "count": 1, "expect": false}
 {"id": "n23", "goal": "research the best way to get into MIT from Singapore", "line": "Found 3 summer programs worth applying to, and two have deadlines in January.", "since_s": 30, "count": 1, "expect": true}
 {"id": "n24", "goal": "research the best way to get into MIT from Singapore", "line": "Let me look at a few more sources.", "since_s": 30, "count": 1, "expect": false}
+{"id": "n25", "goal": "look through the Evie repo for functions longer than 40 lines and suggest which to split first", "line": "Five hits. Let me read each one.", "since_s": 15, "count": 0, "expect": true}

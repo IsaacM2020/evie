@@ -51,3 +51,13 @@ Honest caveat: iteration 1 was tuned on these same 24 lines, so 1.0 is optimisti
 
 - `k01` "evie hows it going" (no job running): for_evie 0.80 but route splits answer / job_control (conf 0.45), so Evie asks "was that for me?". Not tuned yet; Phase 2 clarify work.
 - Regression runs of `--split all` on 2026-09-23: false_action 0 both times; p95 1459 ms then 710 ms (network noise); 2 decision flips between the two runs (b01, h03), so Jev is *nearly* deterministic, not fully.
+
+## Phase 1: tuning from the spoken demos (2026-09-23)
+
+| iter | change | result | kept? |
+|---|---|---|---|
+| switchboard 1 | job_control route: "While Evie is working on something, a follow-up that starts with 'also' or 'and' adds to that task" (new case k02 "evie also tell me how many tests there are in total" was routed `answer`) | all 72: false_action 0, route 0.972, complete 0.923, event 0.943, p95 640 ms. k01 + k02 now pass, and holdout h03 "also add a test for it" now acts as job_control (was a Phase 0 soft spot) | yes |
+| narration 2 | add "how many things it found" to the yes list (new line n25 "Five hits. Let me read each one." scored 0.12) | n25 only rose to 0.23; "five hits" has no noun, so Jev reasonably can't tell it matters | no, reverted |
+
+Narration eval now 25 lines: accuracy 0.96, false_yes 0.0, recall 0.889 (n25 is the known miss).
+Honest note: in the three spoken demos the jobs ran 22-160 s and Evie said **0** narrations. Claude Code writes few mid-job text lines on short jobs, and its tool steps ("Ran: ...") are rightly skipped. The spec's "3-5 narrations" bar needs a real multi-minute job to judge; that's Isaac's demo.

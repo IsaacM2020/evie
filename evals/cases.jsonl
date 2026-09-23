@@ -69,3 +69,4 @@
 {"id":"i03","cat":"mention","utterance":"i named her evie after the movie","speaker":"isaac","expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
 {"id":"i04","cat":"mention","utterance":"yeah evie can do that","speaker":"isaac","recent":["can your ai book appointments"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
 {"id":"k01","cat":"direct","utterance":"evie hows it going","speaker":"isaac","expect":{"for_evie":true,"route":"answer","complete":null,"has_event":false}}
+{"id":"k02","cat":"job","utterance":"evie also tell me how many tests there are in total","speaker":"isaac","jobs":["look through the evie repo for functions longer than 40 lines"],"expect":{"for_evie":true,"route":"job_control","complete":null,"has_event":false}}
