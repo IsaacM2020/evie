@@ -14,3 +14,4 @@ Jev determinism: baseline run twice, 0 action flips, probabilities move by about
 | 0 | baseline | 0 | 0.071 | 1.0 | 0.964 | 0.857 | 0.963 | 821 / 533 | 0 | - |
 | 1 | `complete`: named real work counts as complete (examples) | 0 | 0.071 | 1.0 | 0.964 | **0.952** | 0.963 | 446 | 3 (a04,b05 fixed; b01 jitter at 0.74/0.75) | yes |
 | 2 | `for_evie`: name + command is for Evie even in a call; mentioning her is not | 0 | **0.036** | 1.0 | 0.964 | 0.952 | 0.963 | 679 | 1 (i04 now ignored) | yes |
+| 3 | `route_conf_min` 0.70 → 0.60 | 0 | 0.036 | 1.0 | 0.964 | 0.952 | 0.963 | - | 3 (e06 fixed; b01,b08 jitter at 0.71-0.76 vs act_at) | yes |

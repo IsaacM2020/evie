@@ -21,7 +21,7 @@ class Thresholds:
     act_at: float = 0.75
     answer_act_at: float = 0.60
     unknown_speaker_penalty: float = 0.10
-    route_conf_min: float = 0.70
+    route_conf_min: float = 0.60
     incomplete_below: float = 0.40
     event_at: float = 0.80
 
