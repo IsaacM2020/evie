@@ -625,3 +625,32 @@ async def test_remembered_facts_reach_her_answers():
     await b.hear("evie whats my locker code")
     facts = p["talker"].calls[0][2]
     assert "4129" in facts["things_isaac_told_evie"]
+
+
+async def test_an_unknown_voice_cant_say_yes_for_an_unknown_voice():
+    # TV: "Evie play music" (unknown) -> "Was that for me?" -> TV: "yes" (unknown): nothing happens
+    sb = SeqSwitchboard(("clarify", "unsure it was for me", "quick_action"), ("ignore", "not for Evie", "x"))
+    b, p = brain_c(sb)
+    await b.hear("evie play some music", "unknown", addressed=False)
+    await b.hear("yes", "unknown", addressed=False)
+    assert sb.contexts[1].utterance == "yes" and not sb.contexts[1].addressed
+
+
+async def test_isaacs_matched_yes_still_confirms_an_unknown_voice():
+    sb = SeqSwitchboard(("clarify", "unsure it was for me", "quick_action"), ("act", "answer", "answer"))
+    b, p = brain_c(sb)
+    await b.hear("evie whats the time", "unknown", addressed=False)
+    await b.hear("yes that was me", "isaac", addressed=False)
+    assert sb.contexts[1].utterance == "evie whats the time" and sb.contexts[1].addressed
+
+
+class BrokenRemember(FakeRemember):
+    async def run(self, where, text):
+        raise ValueError("boom")
+
+
+async def test_a_broken_remember_still_answers():
+    b, p = brain(RememberSwitchboard())
+    b._remember = BrokenRemember()
+    out = await b.hear("evie remember the dentist")
+    assert out["said"] == "Couldn't save that, try again."

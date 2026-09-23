@@ -220,3 +220,18 @@ def test_mode_store_persists_and_rejects_junk(tmp_path):
 ])
 def test_is_echo(heard, said, echo):
     assert is_echo(heard, said) is echo
+
+
+class BrokenBrain(FakeBrain):
+    async def hear(self, *a, **k):
+        raise RuntimeError("boom")
+
+
+async def test_a_brain_crash_is_logged_and_the_mic_keeps_going(tmp_path, caplog):
+    m, p = mic(tmp_path)
+    m._brain = BrokenBrain()
+    await say(m, ISAAC)
+    assert "open mic turn failed" in caplog.text
+    m._brain = p["brain"]
+    await say(m, ISAAC)
+    assert len(p["brain"].heard) == 1

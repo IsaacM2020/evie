@@ -142,7 +142,10 @@ class OpenMic:
             if m.speaking:
                 m.stop()  # Isaac talked over her: she stops, like a person would
         async with self._lock:
-            await self._brain.hear(text, speaker, addressed=False, shadow=self.modes.mode == "shadow")
+            try:
+                await self._brain.hear(text, speaker, addressed=False, shadow=self.modes.mode == "shadow")
+            except Exception:
+                log.exception("open mic turn failed")
 
     def close(self) -> None:
         self._cancel_spec()

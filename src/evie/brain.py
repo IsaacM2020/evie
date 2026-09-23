@@ -133,6 +133,10 @@ class Brain:
             return None
         words = _norm(text)
         if p.kind == "for_me":
+            if p.speaker != "isaac" and speaker != "isaac":
+                # She asked because the voice wasn't clearly Isaac's; only Isaac's matched voice
+                # can say yes (a TV can't answer "yes" for another TV line).
+                return None
             if _YES.match(words):
                 return await self._turn(p.text, p.speaker, addressed=True)
             if _NO.match(words):
@@ -228,7 +232,11 @@ class Brain:
         return self._clip("not_yet")
 
     async def _remember_it(self, text: str, decision, speaker: str) -> str:
-        r = await self._remember.run(decision.remember_to if decision else None, strip_wake(text))
+        try:
+            r = await self._remember.run(decision.remember_to if decision else None, strip_wake(text))
+        except Exception:
+            log.exception("remember failed")
+            return self._say("Couldn't save that, try again.")
         if r.ask:  # e.g. "What time?": his next sentence is merged in and this runs again
             self._pending = Pending("detail", text, speaker, self._clock())
             return self._say(r.ask)
