@@ -47,6 +47,8 @@ final class CalendarFeed {
     }
 
     func push() async {
+        // Without access EventKit returns no events, which would look like "nothing on".
+        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return }
         let start = Calendar.current.startOfDay(for: Date())
         guard let end = Calendar.current.date(byAdding: .day, value: 8, to: start) else { return }
         let pred = store.predicateForEvents(withStart: start, end: end, calendars: nil)
