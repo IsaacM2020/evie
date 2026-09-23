@@ -27,5 +27,9 @@ class EventBus:
                 q.get_nowait()
             q.put_nowait(ev)
 
+    @property
+    def subscribers(self) -> int:
+        return len(self._subs)
+
     def history(self) -> list[dict]:
         return list(self._history)

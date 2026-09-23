@@ -281,3 +281,12 @@ def test_voiceid_reset_forgets():
     with client(deps=d) as c:
         c.post("/voiceid/reset")
     assert d.voiceid.print.cleared == 1
+
+
+def test_hands_result_endpoint_rejects_unknown_and_bad_results():
+    from evie.hands import Hands
+    d = full_deps()
+    d.hands = Hands(d.bus)
+    with client(deps=d) as c:
+        assert c.post("/hands/result", json={"id": "nobody", "ok": True}).json() == {"accepted": False}
+        assert c.post("/hands/result", json={"id": "x", "ok": "maybe"}).status_code == 422

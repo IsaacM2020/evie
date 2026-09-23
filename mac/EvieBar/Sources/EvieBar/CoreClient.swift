@@ -69,6 +69,12 @@ struct CoreClient {
         return .failure(CoreRefusal(detail: detail ?? "Evie's core said no."))
     }
 
+    func handsResult(id: String, _ o: HandsOutcome) async {
+        let body: [String: Any] = ["id": id, "ok": o.ok, "detail": o.detail, "data": o.data]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+        _ = try? await post("hands/result", body: data, type: "application/json", timeout: 5)
+    }
+
     func postCalendar(_ body: Data) async -> Bool {
         (try? await post("calendar", body: body, type: "application/json", timeout: 5)) != nil
     }

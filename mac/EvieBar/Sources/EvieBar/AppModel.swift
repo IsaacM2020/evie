@@ -52,6 +52,7 @@ final class AppModel: ObservableObject {
     private var monitors: [Any] = []
     private let ears = Ears()
     private let pill = PillController()
+    private let hands = Hands()
     private var noteClear: Task<Void, Never>?
 
     /// preview: true builds a model with no side effects (no mic, keys, network) for snapshots.
@@ -226,6 +227,11 @@ final class AppModel: ObservableObject {
         case "voiceprint":
             if let c = ev.clips, let sec = ev.seconds, let r = ev.ready {
                 voiceprint = VoicePrintDTO(clips: c, seconds: sec, ready: r)
+            }
+        case "do":
+            guard let id = ev.id else { break }
+            Task {
+                if let outcome = await hands.run(ev) { await core.handsResult(id: id, outcome) }
             }
         case "ears":
             if let m = ev.mode { earsMode = m }

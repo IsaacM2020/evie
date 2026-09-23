@@ -68,6 +68,16 @@ enum SelfTest {
         let st2 = try? CoreJSON.decoder.decode(CoreStatus.self, from: Data(
             #"{"ok":true,"version":"0.1.0","jev_ok":true,"ears_mode":"off","voiceprint":{"clips":0,"seconds":0,"ready":false}}"#.utf8))
         check(st2?.earsMode == "off" && st2?.voiceprint?.ready == false, "decode phase 2 status")
+        var gate = HandsGate()
+        check(gate.admit(id: "a", expires: 100, now: 50) && !gate.admit(id: "a", expires: 100, now: 51)
+              && !gate.admit(id: "b", expires: 100, now: 101), "hands: each command once, never after expiry")
+        check(HandsGate.isSpotifyURI("spotify:track:4uLU6hMCjMI75M1A2tKUQC")
+              && !HandsGate.isSpotifyURI("spotify:track:x\" to quit")
+              && !HandsGate.isSpotifyURI("https://evil"), "hands: only clean Spotify links reach AppleScript")
+        let doEv = try? CoreJSON.decoder.decode(CoreEvent.self, from: Data(
+            #"{"kind":"do","id":"c1","op":"calendar_add","args":{"title":"Dentist","all_day":false,"n":3},"expires":1.5}"#.utf8))
+        check(doEv?.op == "calendar_add" && doEv?.args?["title"]?.string == "Dentist"
+              && doEv?.args?["all_day"]?.bool == false && doEv?.expires == 1.5, "decode do command")
         let box = StatusBox()
         Task.detached {
             box.result = await CoreClient(base: URL(string: "http://127.0.0.1:1")!).status()

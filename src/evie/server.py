@@ -22,6 +22,7 @@ from evie.calendar_store import TZ, CalendarStore, CalEvent
 from evie.config import Settings, load_settings
 from evie.ears import FRAME, wav_to_pcm
 from evie.events import EventBus
+from evie.hands import Hands
 from evie.jev import JevClient
 from evie.switchboard import Switchboard
 from evie.switchboard.context import Context
@@ -63,6 +64,13 @@ class EnrollIn(BaseModel):
     on: bool
 
 
+class HandsResultIn(BaseModel):
+    id: str
+    ok: bool
+    detail: str = ""
+    data: dict = {}
+
+
 @dataclass
 class Deps:
     """Everything the core runs. Tests pass fakes; build_deps() makes the real ones."""
@@ -77,6 +85,7 @@ class Deps:
     pings: list = field(default_factory=list)  # keep-warm callables
     open_mic: object | None = None
     voiceid: object | None = None
+    hands: object | None = None
     close: Callable[[], Awaitable[None]] | None = None
 
 
@@ -232,6 +241,11 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         finally:
             d.bus.unsubscribe(q)
 
+    @app.post("/hands/result")
+    async def hands_result(body: HandsResultIn) -> dict:
+        d = need("hands")
+        return {"accepted": d.hands.result(body.id, body.ok, body.detail, body.data)}
+
     # -- open mic ----------------------------------------------------------------------------
     def ears_body(d: Deps) -> dict:
         return {"mode": d.open_mic.modes.mode, "enrolling": app.state.enrolling,
@@ -353,6 +367,7 @@ def build_deps(s: Settings) -> Deps:
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev)
     stt = Transcriber(s, backend=s.stt_backend)
     open_mic, voiceid = build_ears(stt, brain, mouth, bus)
+    hands = Hands(bus)
 
     async def warm() -> dict:
         t0 = time.perf_counter()
@@ -367,7 +382,8 @@ def build_deps(s: Settings) -> Deps:
         await stt.aclose()
 
     return Deps(sb=sb, calendar=cal, bus=bus, brain=brain, mouth=mouth, stt=stt, runner=runner,
-                warm=warm, close=close, pings=[jev.warm, groq.warm], open_mic=open_mic, voiceid=voiceid)
+                warm=warm, close=close, pings=[jev.warm, groq.warm], open_mic=open_mic, voiceid=voiceid,
+                hands=hands)
 
 
 def build_ears(stt, brain, mouth, bus):

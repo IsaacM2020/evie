@@ -88,6 +88,10 @@ struct CoreEvent: Decodable, Equatable {
     var seconds: Double? = nil
     var ready: Bool? = nil
     var voiceprint: VoicePrintDTO? = nil
+    // Phase 3: hands commands
+    var op: String? = nil
+    var args: [String: JSONValue]? = nil
+    var expires: Double? = nil
 }
 
 enum CoreJSON {
