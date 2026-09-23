@@ -133,10 +133,11 @@ class OpenMic:
             return
         if not text:
             return
+        log.info("open mic heard %s (sim %.2f, %d chars)", speaker, sim, len(text))  # for voice-ID tuning
         m = self._mouth
         if echo_start or m.speaking or self._clock() - m.quiet_at < ECHO_TAIL_S:
             if speaker != "isaac" or is_echo(text, m.current_text):
-                log.info("dropped echo/unsure speech while Evie talked: %r (%s %.2f)", text, speaker, sim)
+                log.info("dropped echo/unsure speech while Evie talked (%s %.2f)", speaker, sim)
                 return
             if m.speaking:
                 m.stop()  # Isaac talked over her: she stops, like a person would

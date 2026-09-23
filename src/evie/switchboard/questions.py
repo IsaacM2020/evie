@@ -15,8 +15,8 @@ ROUTES = {
                 "editing files or documents, multi-step tasks, or checking on one of Isaac's own "
                 "projects, websites or files",
     "job_control": "About a task Evie is already working on: asking how it is going, stopping it, "
-                   "or adding an instruction to it. While Evie is working on something, a follow-up "
-                   "that starts with 'also' or 'and' adds to that task",
+                   "or adding an instruction to it. Only possible while Evie is working on something; "
+                   "then a follow-up that starts with 'also' or 'and' adds to that task",
     "remember": "Isaac wants something remembered, scheduled, or added as a task or reminder",
 }
 

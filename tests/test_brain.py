@@ -517,3 +517,13 @@ async def test_what_the_mac_is_doing_goes_into_the_context():
     b.scene = lambda: {"front_app": "zoom.us", "in_call": True}
     await b.hear("so the answer is four", "isaac", addressed=False)
     assert sb.contexts[0].in_call is True and sb.contexts[0].front_app == "zoom.us"
+
+
+async def test_overheard_chatter_is_logged_without_its_words(tmp_path):
+    log = tmp_path / "turns.jsonl"
+    sb = SeqSwitchboard(("ignore", "not for Evie", "not_for_evie"), ("ignore", "not for Evie", "not_for_evie"))
+    b, p = brain_c(sb, log=log)
+    await b.hear("mom can you drive me", "isaac", addressed=False)
+    await b.hear("mom can you drive me", "isaac", addressed=False, shadow=True)
+    rows = [json.loads(l) for l in log.read_text().splitlines()]
+    assert all(r["text"] is None for r in rows) and all(r["action"] == "ignore" for r in rows)

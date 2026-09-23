@@ -4,7 +4,7 @@ from pathlib import Path
 from evie.switchboard.questions import ROUTES
 
 CASES = Path(__file__).resolve().parents[1] / "evals" / "cases.jsonl"
-CATS = {"direct", "bare", "room", "other", "call", "vague", "job", "mention"}
+CATS = {"direct", "bare", "room", "other", "call", "vague", "job", "mention", "openmic"}
 
 
 def load():
@@ -28,4 +28,4 @@ def test_cases_are_valid():
 
 def test_holdout_is_about_a_fifth():
     hold = [c for c in load() if c["id"][-1] in "37"]
-    assert len(hold) == 14
+    assert 0.15 <= len(hold) / len(load()) <= 0.25

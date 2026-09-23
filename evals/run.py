@@ -39,6 +39,7 @@ def to_context(c: dict) -> Context:
         recent=tuple(c.get("recent", [])),
         active_jobs=tuple(c.get("jobs", [])),
         addressed=c.get("addressed", False),
+        followup_s=c.get("followup_s"),
     )
 
 

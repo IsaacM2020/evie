@@ -145,7 +145,8 @@ class Brain:
         detail = route if o.verdict.action == Action.ACT else o.verdict.reason
         would = f"{o.verdict.action.value} · {detail}"
         self._bus.publish("shadow", text=text, speaker=speaker, would=would)
-        self._write_log({"t": time.time(), "text": text, "speaker": speaker, "shadow": True,
+        keep = o.verdict.action != Action.IGNORE  # overheard chatter isn't kept as text
+        self._write_log({"t": time.time(), "text": text if keep else None, "speaker": speaker, "shadow": True,
                          "action": o.verdict.action.value, "reason": o.verdict.reason, "route": route,
                          "jev_ms": round(o.decision.latency_ms) if o.decision else None})
         return {"text": text, "action": o.verdict.action.value, "reason": o.verdict.reason, "route": route,
@@ -186,7 +187,9 @@ class Brain:
         if addressed or o.verdict.action != Action.IGNORE:
             self._bus.publish("state", state="working" if self._runner.current else "idle")
         self._write_log({
-            "t": time.time(), "text": text, "speaker": speaker, "addressed": addressed,
+            "t": time.time(), "speaker": speaker, "addressed": addressed,
+            # overheard chatter that wasn't for Evie isn't kept as text
+            "text": text if (addressed or o.verdict.action != Action.IGNORE) else None,
             "action": o.verdict.action.value, "reason": o.verdict.reason,
             "route": route, "said": said,
             "ms_to_verdict": round((t_verdict - t0) * 1000),

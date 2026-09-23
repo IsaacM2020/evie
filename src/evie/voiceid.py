@@ -25,9 +25,10 @@ VOICEPRINT = Path.home() / "Library/Application Support/Evie/voiceprint.json"
 
 @dataclass(frozen=True)
 class VoiceBars:
-    # Synthetic voices score ~0.9 same-speaker and ~0.57 across speakers (measured 2026-09-23
-    # with macOS voices); real people differ more. Tuned in evals/TUNING.md.
-    isaac_at: float = 0.70
+    # evals/run_ears.py (macOS voices, 2026-09-23): "Isaac" 0.62-0.83, strangers up to 0.62.
+    # 0.65 keeps every stranger out and accepts 83% of Isaac. Synthetic voices sound more alike
+    # than real people, so this gets re-tuned from Isaac's real sims (core.log). See TUNING.md.
+    isaac_at: float = 0.65
     other_below: float = 0.45
     min_seconds: float = 1.0  # shorter clips don't carry enough voice to judge
     learn_min_seconds: float = 1.5
