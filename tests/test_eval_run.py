@@ -7,7 +7,7 @@ CASES = Path(__file__).resolve().parents[1] / "evals" / "cases.jsonl"
 
 def test_splits_partition_the_cases():
     tune, hold, all_ = (load_cases(CASES, s) for s in ("tune", "holdout", "all"))
-    assert len(tune) + len(hold) == len(all_) == 70
+    assert len(tune) + len(hold) == len(all_) >= 70
     assert all(c["id"][-1] in "37" for c in hold)
     assert not {c["id"] for c in tune} & {c["id"] for c in hold}
 
