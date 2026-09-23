@@ -7,6 +7,7 @@ import operator
 import re
 
 import logging
+from datetime import datetime
 
 import httpx
 
@@ -16,6 +17,7 @@ from evie.config import Settings
 log = logging.getLogger("evie.talk")
 
 FALLBACK = "My brain's lagging, try again."
+BIG_MODEL = "openai/gpt-oss-120b"  # hard questions only: slower (~1-2 s) but it actually reasons
 
 PERSONA = (
     "You are Evie, Isaac's voice assistant on his MacBook. Isaac is 16 and lives in Singapore. "
@@ -40,6 +42,11 @@ FACT_LABELS = {
     "conversation_earlier": "Earlier today with Isaac, in short",
     "conversation": "What you and Isaac said today, oldest first (use it for follow-ups like 'move it to 5' or 'what about Friday')",
     "things_isaac_told_evie": "Things Isaac asked Evie to remember",
+    "todoist": "Isaac's Todoist, due today or overdue",
+    "isaac_brief": "About Isaac and what he's been working on this week",
+    "isaac_files": "Matching bits of Isaac's own notes (IsaacOS)",
+    "screen": "What's on Isaac's screen",
+    "web": "Web search result (fresh)",
 }
 
 
@@ -86,6 +93,25 @@ class GroqClient:
         finally:
             for t in pending:
                 t.cancel()
+
+    async def search(self, question: str) -> str:
+        """A web-grounded answer: gpt-oss-120b with Groq's built-in browser search (~4 s)."""
+        body = {"model": "openai/gpt-oss-120b", "reasoning_effort": "low", "include_reasoning": False,
+                "max_tokens": 700, "tools": [{"type": "browser_search"}], "tool_choice": "auto",
+                "messages": [{"role": "user", "content": (
+                    f"Search the web and answer in two or three plain sentences with the key facts and "
+                    f"dates (Isaac is in Singapore; today is {datetime.now().strftime('%A %-d %B %Y')}): {question}")}]}
+        headers = {"Authorization": f"Bearer {self._s.groq_key}"}
+        try:
+            r = await self._http.post(f"{self._s.groq_url}/chat/completions", json=body, headers=headers, timeout=15.0)
+        except httpx.HTTPError as e:
+            raise TalkError(f"search: {e!r}") from e
+        if r.status_code != 200:
+            raise TalkError(f"search http {r.status_code}")
+        text = (r.json()["choices"][0]["message"].get("content") or "").strip()
+        if not text:
+            raise TalkError("search: empty")
+        return text
 
     async def _once(self, body: dict) -> str:
         headers = {"Authorization": f"Bearer {self._s.groq_key}"}
@@ -238,12 +264,15 @@ class Talker:
         except MathError:
             return CANT_COMPUTE
 
-    async def reply(self, utterance: str, facts: dict) -> str:
+    async def reply(self, utterance: str, facts: dict, hard: bool = False) -> str:
+        """hard: a question that needs real reasoning goes to the bigger model (gpt-oss-120b)."""
         lines = "\n".join(f"- {FACT_LABELS.get(k, k)}: {v}" for k, v in facts.items() if v)
         return await self._say(
             f"What you know right now:\n{lines or '- nothing extra'}\n\n"
             f'Isaac said: "{utterance}"\n'
             "Answer him. If what you know doesn't cover it, say so briefly. Never make up events or facts."
+            + (" Think it through carefully, then give the answer in plain spoken words." if hard else ""),
+            model=BIG_MODEL if hard else None, reasoning="medium" if hard else None,
         )
 
     async def sum_up(self, summary: str, turns: list[dict]) -> str:

@@ -37,7 +37,7 @@ def test_score_counts_the_right_things():
 def test_check_targets():
     good = {"false_action": 0, "false_clarify_rate": 0.05, "command_recall": 0.97, "route_accuracy": 0.93,
             "complete_accuracy": 0.9, "event_accuracy": 0.95, "latency_p95_ms": 700,
-            "skill_accuracy": 0.95, "remember_to_accuracy": 0.92}
+            "skill_accuracy": 0.95, "remember_to_accuracy": 0.92, "pack_accuracy": 0.9}
     assert all(check_targets(good).values())
     assert check_targets({**good, "false_action": 1})["false_action"] is False
     assert check_targets({**good, "event_accuracy": None})["event_accuracy"] is False

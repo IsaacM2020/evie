@@ -6,7 +6,8 @@ from tests.helpers import make_answers
 
 
 def test_question_set_shape():
-    assert set(QUESTIONS) == {"for_evie", "route", "complete", "has_event", "skill", "remember_to"}
+    assert set(QUESTIONS) == {"for_evie", "route", "complete", "has_event", "skill", "remember_to", "need_calendar",
+                              "need_tasks", "need_projects", "need_screen", "need_web", "hard_question", "long_job"}
     assert QUESTIONS["skill"]["criteria"] is SKILLS and "other" in SKILLS
     assert set(QUESTIONS["remember_to"]["criteria"]) == {"task", "event", "fact", "reminder"}
     assert QUESTIONS["route"]["type"] == "choice"
@@ -67,3 +68,13 @@ def test_missing_or_unknown_skill_is_none():
     raw = make_answers()
     raw["skill"] = {"type": "choice", "choice": "launch_rockets", "confidence": 1.0}
     assert parse_decision(raw).skill is None
+
+
+
+def test_packs_hard_and_long_job_are_read():
+    from evie.switchboard.decision import parse_decision
+    from tests.helpers import make_answers
+    a = make_answers() | {"need_calendar": {"noul": 0.9}, "need_web": {"noul": 0.2}, "need_tasks": {"noul": 0.6},
+                          "hard_question": {"noul": 0.8}, "long_job": {"noul": 0.1}}
+    d = parse_decision(a)
+    assert d.packs == ("calendar", "tasks") and d.hard == 0.8 and d.long_job == 0.1

@@ -411,6 +411,7 @@ def build_deps(s: Settings) -> Deps:
     from evie.facts import FactStore
     from evie.narrator import Narrator
     from evie.remember import Remember, Todoist
+    from evie.context_packs import Packs, ProjectIndex, WebSearch
     from evie.countdown import Countdown
     from evie.memory import Conversation
     from evie.skills.catalog import Skills
@@ -461,8 +462,11 @@ def build_deps(s: Settings) -> Deps:
     todoist = Todoist(s.todoist_key)
     skills.tasks = TaskSkills(todoist, jev, skills)
     remember = Remember(talker, hands, todoist, FactStore(), cal, skills, timers=timers)
+    brain: Brain | None = None
+    packs = Packs(cal, hands, todoist, projects=ProjectIndex(), web=WebSearch(groq),
+                  screen=lambda: brain.scene() if brain else {})
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember,
-                  countdown=countdown, conversation=conversation)
+                  countdown=countdown, conversation=conversation, packs=packs)
     stt = Transcriber(s, backend=s.stt_backend)
     open_mic, voiceid = build_ears(stt, brain, mouth, bus)
 

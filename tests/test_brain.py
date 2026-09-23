@@ -782,3 +782,71 @@ async def test_overheard_chatter_never_enters_the_conversation(tmp_path):
     b._conv = Conversation(tmp_path)
     await b.hear("mom can you drive me", "isaac", addressed=False)
     assert b._conv.lines() == []
+
+
+# -- Phase 3.5 T11/T12: context packs, the big model, filler lines ----------------------------
+class PackSwitchboard(FakeSwitchboard):
+    def __init__(self, packs=(), hard=0.0):
+        super().__init__("act", "answer", "answer")
+        self.packs, self.hard = packs, hard
+
+    async def handle(self, ctx):
+        self.contexts.append(ctx)
+        d = Decision(0.9, "answer", 1.0, {"answer": 1.0}, 0.9, 0.0, 300.0, 0.0, packs=self.packs, hard=self.hard)
+        return Outcome(ctx, d, Verdict(Action.ACT, "answer"))
+
+
+class FakePacks:
+    def __init__(self):
+        self.asked = []
+
+    async def gather(self, names, text):
+        self.asked.append(set(names))
+        await asyncio.sleep(0.01)
+        return {n: f"{n} facts" for n in names}
+
+
+class HardTalker(FakeTalker):
+    def __init__(self, delay=0.0):
+        super().__init__()
+        self.delay = delay
+
+    async def reply(self, utterance, facts, hard=False):
+        self.calls.append(("reply", utterance, facts, hard))
+        await asyncio.sleep(self.delay)
+        return "Here's why." if hard else "It's 4pm."
+
+
+async def test_plain_question_keeps_the_fast_draft():
+    b, p = brain(PackSwitchboard())
+    b._packs = FakePacks()
+    await b.hear("how are you")
+    assert b._packs.asked == [] and len(p["talker"].calls) == 1
+
+
+async def test_jev_and_rails_pick_the_packs_and_the_answer_is_redone_with_them():
+    b, p = brain(PackSwitchboard(packs=("projects",)))
+    b._packs = FakePacks()
+    b._talker = p["talker"] = HardTalker()
+    await b.hear("what's on my to do list and how's my igem work going")
+    assert b._packs.asked == [{"projects", "tasks"}]
+    facts = p["talker"].calls[-1][2]
+    assert facts["projects"] == "projects facts" and facts["tasks"] == "tasks facts"
+
+
+async def test_web_questions_say_let_me_look_that_up_first():
+    b, p = brain(PackSwitchboard(packs=("web",)))
+    b._packs = FakePacks()
+    b._talker = p["talker"] = HardTalker()
+    await b.hear("who won the ipl final")
+    assert p["mouth"].said[0] == "Let me look that up." and p["mouth"].said[-1] == "It's 4pm."
+
+
+async def test_hard_questions_go_to_the_big_model_with_a_let_me_think():
+    b, p = brain(PackSwitchboard(hard=0.9))
+    b._packs = FakePacks()
+    b._talker = p["talker"] = HardTalker(delay=0.05)
+    b.THINK_AFTER_S = 0.01
+    out = await b.hear("why is the derivative of sin cos")
+    assert p["talker"].calls[-1][3] is True and out["said"] == "Here's why."
+    assert p["mouth"].said == ["Let me think.", "Here's why."]

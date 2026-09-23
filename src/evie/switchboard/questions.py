@@ -101,3 +101,22 @@ QUESTIONS = {
         "criteria": REMEMBER_TO,
     },
 }
+
+
+# Which knowledge the answer needs (evie/context_packs.py). Asked in the same call, in parallel.
+PACK_QUESTIONS = {
+    "need_calendar": "Would answering or doing this need Isaac's calendar (his schedule, classes, events, free time)?",
+    "need_tasks": "Would answering this need Isaac's to-do list (tasks, homework, what's due)?",
+    "need_projects": "Is Isaac asking about his own projects, notes, goals or subjects, or what he has been working "
+                     "on? No for his to-do list, his calendar, the time, general knowledge, maths and small talk.",
+    "need_screen": "Is this about what's on Isaac's screen right now (this page, this tab, this video, this email)?",
+    "need_web": "Can this ONLY be answered with fresh information from the internet that changes over time "
+                "(news, sports results, weather, prices, recent events)? No for the time or date, Isaac's own "
+                "schedule, tasks or projects, maths, and general knowledge that doesn't change.",
+    "hard_question": "Would a good answer need careful reasoning: a multi-step maths or physics problem, an "
+                     "explanation of how or why something works, or advice weighing trade-offs? Simple facts, "
+                     "the time and small talk are not hard.",
+    "long_job": "If this is real work for Evie to do in the background, will it take more than a minute?",
+}
+for _k, _v in PACK_QUESTIONS.items():
+    QUESTIONS[_k] = {"type": "noul", "instructions": _v}

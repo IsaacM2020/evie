@@ -13,7 +13,9 @@ TARGETS = {
     "latency_p95_ms": ("<=", 900),
     "skill_accuracy": (">=", 0.90),
     "remember_to_accuracy": (">=", 0.90),
+    "pack_accuracy": (">=", 0.85),
 }
+COSTLY_PACKS = {"web", "projects"}  # slow or big: picking them when not needed costs real time
 
 
 _NUM = {w: str(i) for i, w in enumerate("zero one two three four five six seven eight nine".split())}
@@ -60,7 +62,7 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
     pos = [r for r in results if should_act(r)]
     fails: dict[str, list[str]] = {k: [] for k in
                                    ("false_action", "false_clarify", "missed_command", "route", "complete", "event",
-                                    "skill", "remember_to")}
+                                    "skill", "remember_to", "packs")}
     for r in neg:
         if r["action"] == "act":
             fails["false_action"].append(r["id"])
@@ -69,7 +71,7 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
     for r in pos:
         if r["action"] == "ignore":
             fails["missed_command"].append(r["id"])
-    n_complete = n_event = n_skill = n_rem = 0
+    n_complete = n_event = n_skill = n_rem = n_pack = 0
     for r in judged:
         d, e = r["decision"], r["expect"]
         if e.get("skill"):
@@ -81,6 +83,12 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
             ok = e["remember_to"] if isinstance(e["remember_to"], list) else [e["remember_to"]]
             if d.get("remember_to") not in ok:
                 fails["remember_to"].append(r["id"])
+        if e.get("packs") is not None:
+            from evie.context_packs import rails
+            n_pack += 1
+            got, want = set(d.get("packs") or ()) | rails(r.get("utterance", "")), set(e["packs"])
+            if not want <= got or (got - want) & COSTLY_PACKS - set(e.get("packs_ok_extra", [])):
+                fails["packs"].append(r["id"])
         if d["route"] != e["route"]:
             fails["route"].append(r["id"])
         if e.get("complete") is not None:
@@ -105,6 +113,7 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
         "latency_p95_ms": round(lat[min(len(lat) - 1, int(len(lat) * 0.95))]) if lat else None,
         "skill_accuracy": _ratio(n_skill - len(fails["skill"]), n_skill),
         "remember_to_accuracy": _ratio(n_rem - len(fails["remember_to"]), n_rem),
+        "pack_accuracy": _ratio(n_pack - len(fails["packs"]), n_pack),
         "cost_usd": round(sum(r["decision"]["cost_usd"] for r in judged), 6),
     }
     return metrics, fails

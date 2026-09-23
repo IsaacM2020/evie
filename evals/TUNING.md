@@ -113,3 +113,7 @@ Two questions added to the one Jev call: `skill` (13 fast skills + other) and `r
 - Groq whisper-large-v3-turbo (warm connection): WER 0.054, p50 324 ms, p95 528 ms
 - Both hear "Pause" as "Force" and "Play" as "Flay" on this voice: a hard first consonant, not a
   clipping bug (pad added). Real open-mic baseline waits for the debug recorder (Isaac's day of use).
+
+## Phase 3.5 T11: context packs (2026-09-24)
+- Baseline (all nouls at 0.5): pack_accuracy 0.556. Jev over-picked web ("what time is it") and projects ("is anything due").
+- Tweak 1: sharper need_web / need_projects wording ("ONLY answerable with fresh internet info", "No for his to-do list, calendar, time, maths") + bars web 0.8, projects 0.7 → pack_accuracy 0.944, p50 393 ms (no latency cost from 7 extra nouls).

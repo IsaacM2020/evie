@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 from evie.calendar_store import TZ, CalendarStore
+from evie.context_packs import named_days, rails
 from evie.events import EventBus
 from evie.jev import JevError
 from evie.jobs import Busy
@@ -79,15 +80,18 @@ def strip_wake(text: str) -> str:
 
 
 class Brain:
+    THINK_AFTER_S = 1.2  # the big model says "Let me think." if it hasn't answered by then
+    HARD_AT = 0.7
     def __init__(self, sb, talker, mouth, runner, narrator, calendar: CalendarStore, bus: EventBus, jev,
                  turns_log: Path | None = TURNS_LOG, clock: Callable[[], float] = time.monotonic,
-                 skills=None, remember=None, countdown=None, conversation=None):
+                 skills=None, remember=None, countdown=None, conversation=None, packs=None):
         self._sb, self._talker, self._mouth = sb, talker, mouth
         self._runner, self._narrator, self._cal = runner, narrator, calendar
         self._bus, self._jev, self._log, self._clock = bus, jev, turns_log, clock
         self._skills, self._remember = skills, remember
         self._countdown = countdown  # a pending "say stop to cancel" (event delete, 3b sends)
         self._conv = conversation  # today's turns with Isaac (evie.memory), for follow-ups
+        self._packs = packs  # context packs (evie.context_packs): the knowledge each answer needs
         self._turns: deque[str] = deque(maxlen=MAX_TURNS)
         self._pending: Pending | None = None
         self._last_reply_at: float | None = None
@@ -265,7 +269,7 @@ class Brain:
                 pending.asked = self._clip("for_me")
             return pending.asked
         if route == "answer":
-            return self._say(await draft if draft else await self._talker.reply(text, self._facts()))
+            return await self._answer(text, draft, decision)
         if route == "deep_job":
             return await self._start_job(text)
         if route == "job_control":
@@ -275,6 +279,31 @@ class Brain:
         if route == "remember" and self._remember:
             return await self._remember_it(text, decision, speaker)
         return self._clip("not_yet")
+
+    async def _answer(self, text: str, draft: asyncio.Task | None, decision) -> str:
+        """The draft (started before Jev decided) is used when the answer needs nothing extra.
+        Otherwise: gather exactly the packs Jev and the rails picked, and for a hard question use
+        the big model. Web lookups and slow thinking get a short line first, never silence."""
+        names = set(decision.packs if decision else ()) | rails(text)
+        far_day = bool(named_days(text, datetime.now(TZ).date())) and "calendar" in names
+        extra = names - {"calendar"} or ({"calendar"} if far_day else set())
+        hard = bool(decision and decision.hard >= self.HARD_AT)
+        if not extra and not hard and draft is not None:
+            return self._say(await draft)
+        if draft is not None:
+            draft.cancel()
+        if "web" in extra:
+            self._say("Let me look that up.")
+        facts = self._facts()
+        if extra and self._packs is not None:
+            facts |= await self._packs.gather(extra | ({"calendar"} if "calendar" in names else set()), text)
+        if not hard:
+            return self._say(await self._talker.reply(text, facts))
+        task = asyncio.create_task(self._talker.reply(text, facts, hard=True))
+        done, _ = await asyncio.wait({task}, timeout=self.THINK_AFTER_S)
+        if not done:
+            self._say("Let me think.")
+        return self._say(await task)
 
     async def _remember_it(self, text: str, decision, speaker: str) -> str:
         try:
