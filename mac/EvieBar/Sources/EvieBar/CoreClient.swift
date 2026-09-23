@@ -75,6 +75,21 @@ struct CoreClient {
         _ = try? await post("hands/result", body: data, type: "application/json", timeout: 5)
     }
 
+    /// The debug recorder (keeps Isaac's open-mic sentences for 7 days so the ears can be tuned).
+    func recorder(set on: Bool? = nil) async -> Bool? {
+        var req = URLRequest(url: base.appendingPathComponent("recorder"))
+        req.timeoutInterval = 3
+        if let on {
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["on": on])
+        }
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return obj["on"] as? Bool
+    }
+
     func postCalendar(_ body: Data) async -> Bool {
         (try? await post("calendar", body: body, type: "application/json", timeout: 5)) != nil
     }

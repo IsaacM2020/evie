@@ -50,10 +50,22 @@ class EventIn(BaseModel):
     end: AwareDatetime
     all_day: bool = False
     calendar: str = ""
+    id: str = ""
+
+
+class CalendarInfoIn(BaseModel):
+    id: str = ""
+    title: str
+    source: str = ""
+    writable: bool = False
+    used: bool = True
+    account: str = ""
+    events: int = 0
 
 
 class CalendarIn(BaseModel):
     events: list[EventIn]
+    calendars: list[CalendarInfoIn] | None = None
 
 
 class ModeIn(BaseModel):
@@ -115,6 +127,7 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         app.state.jev_ok = None
         app.state.ready = {"stt_ready": False, "voice_ready": False}
         app.state.enrolling = False
+        app.state.app_clients = 0  # the menu bar app's live /ws connections
         if d.warm:
             app.state.ready = await d.warm()
         if probe:
@@ -145,7 +158,8 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         d: Deps = app.state.d
         out = {"ok": True, "version": __version__, "jev_ok": app.state.jev_ok, **app.state.ready,
                "calendar_fresh": not d.calendar.stale(datetime.now(TZ)),
-               "job": _job_dict(d.runner.current) if d.runner else None}
+               "job": _job_dict(d.runner.current) if d.runner else None,
+               "app_online": app.state.app_clients > 0}
         if d.open_mic and d.voiceid:
             out |= {"ears_mode": d.open_mic.modes.mode, "voiceprint": d.voiceid.print.status()}
         return out
@@ -231,6 +245,7 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         d: Deps = app.state.d
         await sock.accept()
         q = d.bus.subscribe()
+        app.state.app_clients += 1
         try:
             await sock.send_json({"kind": "hello", "t": time.time(),
                                   "job": _job_dict(d.runner.current) if d.runner else None})
@@ -239,6 +254,7 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
+            app.state.app_clients -= 1
             d.bus.unsubscribe(q)
 
     @app.post("/hands/result")
@@ -333,15 +349,19 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
     @app.post("/calendar")
     async def calendar(body: CalendarIn) -> dict:
         events = [CalEvent(**e.model_dump()) for e in body.events]
-        app.state.d.calendar.update(events, at=datetime.now(TZ))
+        cals = None if body.calendars is None else [c.model_dump() for c in body.calendars]
+        app.state.d.calendar.update(events, at=datetime.now(TZ), calendars=cals)
         return {"ok": True, "count": len(events)}
 
     @app.get("/debug/calendar")
     async def debug_calendar() -> dict:
         today = datetime.now(TZ).date()
         cal = app.state.d.calendar
-        return {"today": cal.summary(today), "tomorrow": cal.summary(today + timedelta(days=1)),
-                "stale": cal.stale(datetime.now(TZ))}
+        return {"now": cal.now_line(datetime.now(TZ)), "today": cal.summary(today),
+                "tomorrow": cal.summary(today + timedelta(days=1)), "stale": cal.stale(datetime.now(TZ)),
+                "reading": [f"{c['title']} ({c['source']} {c['account'][:6]}, {c['events']} events)"
+                            for c in cal.calendars if c["used"]],
+                "ignored": [f"{c['title']} ({c['source']})" for c in cal.calendars if not c["used"]]}
 
     return app
 
@@ -353,7 +373,9 @@ def build_deps(s: Settings) -> Deps:
     from evie.facts import FactStore
     from evie.narrator import Narrator
     from evie.remember import Remember, Todoist
+    from evie.countdown import Countdown
     from evie.skills.catalog import Skills
+    from evie.skills.events import EventSkills
     from evie.skills.music import SpotifySearch
     from evie.skills.parse import say_duration
     from evie.skills.system import System, installed_apps
@@ -390,9 +412,12 @@ def build_deps(s: Settings) -> Deps:
     spotify = SpotifySearch(s.spotify_id, s.spotify_secret)
     timers = Timers(lambda t: mouth.say(f"Your {say_duration(int(t.seconds))} timer's done.", kind="reply"))
     skills = Skills(hands, talker, jev, System(), spotify, timers, apps=installed_apps)
+    countdown = Countdown()
+    skills.events = EventSkills(hands, talker, jev, cal, skills, countdown)
     todoist = Todoist(s.todoist_key)
     remember = Remember(talker, hands, todoist, FactStore(), cal, skills)
-    brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember)
+    brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember,
+                  countdown=countdown)
     stt = Transcriber(s, backend=s.stt_backend)
     open_mic, voiceid = build_ears(stt, brain, mouth, bus)
 

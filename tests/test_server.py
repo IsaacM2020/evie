@@ -81,7 +81,7 @@ def test_status_before_any_decision():
     with client() as c:
         body = c.get("/status").json()
     assert body == {"ok": True, "version": "0.1.0", "jev_ok": None, "stt_ready": False,
-                    "voice_ready": False, "calendar_fresh": False, "job": None}
+                    "voice_ready": False, "calendar_fresh": False, "job": None, "app_online": False}
 
 
 def test_decide_returns_outcome_and_marks_jev_ok():
@@ -300,3 +300,11 @@ def test_debug_recorder_switch(tmp_path):
         assert c.get("/recorder").json() == {"on": False, "segments": 0}
         assert c.post("/recorder", json={"on": True}).json()["on"] is True
     assert SegmentRecorder(tmp_path).enabled is True
+
+
+def test_app_online_while_the_app_is_connected():
+    with client() as c:
+        with c.websocket_connect("/ws") as ws:
+            ws.receive_json()  # hello
+            assert c.get("/status").json()["app_online"] is True
+        assert c.get("/status").json()["app_online"] is False

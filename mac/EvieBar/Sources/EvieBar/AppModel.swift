@@ -42,6 +42,7 @@ final class AppModel: ObservableObject {
     @Published var enrollStartClips = 0
     @Published var shadowLog: [ShadowRow] = []
     @Published var pillNote = ""
+    @Published var recording: Bool? = nil  // nil: the core has no open mic, so no recorder
     @Published var showPill = UserDefaults.standard.object(forKey: "showPill") as? Bool ?? true
 
     private let core = CoreClient()
@@ -283,6 +284,7 @@ final class AppModel: ObservableObject {
         if let s {
             earsMode = s.earsMode
             if let v = s.voiceprint { voiceprint = v }
+            recording = s.earsMode == nil ? nil : await core.recorder()
         }
         syncEars()
         let trusted = AXIsProcessTrusted()
@@ -337,6 +339,10 @@ final class AppModel: ObservableObject {
     }
 
     func openCalendarSettings() { openSettings("Privacy_Calendars") }
+
+    func setRecording(_ on: Bool) async {
+        recording = await core.recorder(set: on) ?? recording
+    }
 
     func setLaunchAtLogin(_ on: Bool) {
         do {

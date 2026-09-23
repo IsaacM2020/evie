@@ -22,6 +22,7 @@ PERSONA = (
 # Plain-English labels: with a bare "now:" key the model didn't realise it knew the time.
 FACT_LABELS = {
     "now": "Current date and time",
+    "calendar_now": "Isaac's calendar right now (worked out exactly, trust it)",
     "calendar_today": "Isaac's calendar today",
     "calendar_tomorrow": "Isaac's calendar tomorrow",
     "calendar_week": "Isaac's calendar for the rest of the week",

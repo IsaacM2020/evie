@@ -134,13 +134,15 @@ struct PanelView: View {
 
     private var footer: some View {
         HStack {
-            Toggle("Open at login", isOn: Binding(
-                get: { model.launchAtLogin },
-                set: { model.setLaunchAtLogin($0) }
-            ))
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .font(.caption)
+            // Open at login is launchd's job now (ops/com.isaac.evie.app.plist: starts at login,
+            // comes back after a crash). This switch keeps sentences to tune the ears instead.
+            if let rec = model.recording {
+                Toggle("Record for tuning", isOn: Binding(get: { rec }, set: { on in Task { await model.setRecording(on) } }))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .font(.caption)
+                    .help("Keeps your open-mic sentences on this Mac for 7 days so Claude can measure the ears. Never other people's.")
+            }
             Toggle("Pill", isOn: Binding(get: { model.showPill }, set: { model.setShowPill($0) }))
                 .toggleStyle(.switch)
                 .controlSize(.mini)

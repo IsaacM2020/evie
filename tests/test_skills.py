@@ -88,9 +88,10 @@ def skills(tmp_path, hands=None, talker=None, system=None, spotify=None, jev=Non
     return s, fired
 
 
-def test_every_skill_has_a_risk_and_phase_3_is_all_safe():
+def test_every_skill_has_a_risk_and_only_deletes_are_risky():
     assert set(RISK) == set(SKILLS)
-    assert all(RISK[k] in ("read_only", "reversible") for k in SKILLS if k != "other")
+    assert all(RISK[k] in ("read_only", "reversible") for k in SKILLS if k not in ("other", "event_delete"))
+    assert RISK["event_delete"] == "deletes"
 
 
 def test_risky_actions_need_isaacs_own_voice():

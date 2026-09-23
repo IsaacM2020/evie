@@ -26,6 +26,30 @@ enum SelfTest {
         let body = (try? CalEventDTO.payload([ev])).flatMap { String(data: $0, encoding: .utf8) } ?? ""
         check(body.contains(#""all_day":false"#) && body.contains(#""start":"2026-09-24T01:00:00Z""#),
               "calendar payload is snake_case with UTC ISO dates")
+        let cals = [CalInfo(id: "1", title: "Home", source: "iCloud", writable: true),
+                    CalInfo(id: "2", title: "Isaac", source: "Google", writable: true),
+                    CalInfo(id: "3", title: "2026-28 Chemistry", source: "Google", writable: false),
+                    CalInfo(id: "4", title: "Dipanjan stuff", source: "iCloud", writable: true),
+                    CalInfo(id: "5", title: "Chemistry", source: "Google", writable: true),
+                    CalInfo(id: "6", title: "Isaac M Cubing", source: "Google", writable: true),
+                    CalInfo(id: "7", title: "TOK Class of 2028", source: "Google", writable: false),
+                    CalInfo(id: "8", title: "English A: Lang & Lit", source: "Google", writable: false),
+                    CalInfo(id: "9", title: "Grade 11IB _Physics_2026-27", source: "Google", writable: false),
+                    CalInfo(id: "10", title: "Food", source: "Google", writable: true)]
+        check(CalendarPick.read(cals).map(\.id) == ["2", "3", "7", "8", "9"] && CalendarPick.writeTarget(cals)?.id == "2",
+              "calendar: Isaac + Classroom only (no old timetable, cubing, iCloud), writes to Google Isaac")
+        var twins = cals
+        twins.append(CalInfo(id: "11", title: "Isaac", source: "Google", writable: true, events: 26))
+        check(CalendarPick.writeTarget(twins)?.id == "11", "calendar: of two 'Isaac' calendars, writes to the busy one")
+        check(CalendarPick.writeTarget(cals.filter { $0.source == "iCloud" }) == nil
+              && CalendarPick.writeTarget(cals.filter { $0.title == "Food" || $0.source == "iCloud" }) == nil
+              && CalendarPick.read(cals.filter { $0.source == "iCloud" }).count == 2,
+              "calendar: no Google means no writes (never iCloud), reads stay on")
+        let withId = (try? CalEventDTO.payload([CalEventDTO(id: "e1", title: "Sax", start: Date(timeIntervalSince1970: 0),
+                                                            end: Date(timeIntervalSince1970: 60), allDay: false,
+                                                            calendar: "Isaac")], calendars: cals))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        check(withId.contains(#""id":"e1""#) && withId.contains(#""calendars":["#), "calendar: payload has ids + calendars")
         func ptt(_ inputs: [PTTInput]) -> [PTTAction] {
             var p = PushToTalk()
             return inputs.map { p.handle($0) }

@@ -66,6 +66,8 @@ final class Hands {
         case "spotify_state": return await spotifyState()
         case "calendar_add": return calendarAdd(a)
         case "calendar_delete": return calendarDelete(a["id"]?.string ?? "")
+        case "calendar_move": return calendarMove(a)
+        case "calendar_query": return calendarQuery(a)
         default: return HandsOutcome(ok: false, detail: "I don't know how to \(op) yet")
         }
     }
@@ -125,16 +127,20 @@ final class Hands {
 
     // MARK: Calendar
 
+    private static let iso = ISO8601DateFormatter()
+
+    private var calendarAccess: Bool { EKEventStore.authorizationStatus(for: .event) == .fullAccess }
+
     private func calendarAdd(_ a: [String: JSONValue]) -> HandsOutcome {
-        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
-            return HandsOutcome(ok: false, detail: "Calendar access is off")
-        }
-        let iso = ISO8601DateFormatter()
+        guard calendarAccess else { return HandsOutcome(ok: false, detail: "Calendar access is off") }
         guard let title = a["title"]?.string, !title.isEmpty,
-              let start = a["start"]?.string.flatMap(iso.date(from:)),
-              let end = a["end"]?.string.flatMap(iso.date(from:)), end > start,
-              let cal = store.defaultCalendarForNewEvents else {
+              let start = a["start"]?.string.flatMap(Self.iso.date(from:)),
+              let end = a["end"]?.string.flatMap(Self.iso.date(from:)), end > start else {
             return HandsOutcome(ok: false, detail: "that event didn't make sense")
+        }
+        // Google "Isaac" only, never the Mac's default (which may be the old iCloud one).
+        guard let target = CalendarPick.writeTarget(CalendarPick.infos(store)), let cal = store.calendar(withIdentifier: target.id) else {
+            return HandsOutcome(ok: false, detail: "your Google calendar isn't on this Mac")
         }
         let e = EKEvent(eventStore: store)
         e.title = title
@@ -150,13 +156,58 @@ final class Hands {
         return HandsOutcome(ok: true, detail: "added", data: ["id": e.eventIdentifier ?? "", "calendar": cal.title])
     }
 
+    private func calendarMove(_ a: [String: JSONValue]) -> HandsOutcome {
+        guard calendarAccess else { return HandsOutcome(ok: false, detail: "Calendar access is off") }
+        guard let id = a["id"]?.string, let e = store.event(withIdentifier: id) else {
+            return HandsOutcome(ok: false, detail: "event not found")
+        }
+        guard let start = a["start"]?.string.flatMap(Self.iso.date(from:)),
+              let end = a["end"]?.string.flatMap(Self.iso.date(from:)), end > start else {
+            return HandsOutcome(ok: false, detail: "that time didn't make sense")
+        }
+        guard e.calendar?.allowsContentModifications ?? false else {
+            return HandsOutcome(ok: false, detail: "that calendar is read only")
+        }
+        let old = (Self.iso.string(from: e.startDate), Self.iso.string(from: e.endDate))
+        e.startDate = start
+        e.endDate = end
+        do {
+            try store.save(e, span: .thisEvent)
+        } catch {
+            return HandsOutcome(ok: false, detail: "Calendar wouldn't move it")
+        }
+        return HandsOutcome(ok: true, detail: "moved", data: ["id": e.eventIdentifier ?? id, "old_start": old.0,
+                                                               "old_end": old.1])
+    }
+
+    // Any day or range, beyond the 14 days the feed pushes ("what's on 14 October").
+    private func calendarQuery(_ a: [String: JSONValue]) -> HandsOutcome {
+        guard calendarAccess else { return HandsOutcome(ok: false, detail: "Calendar access is off") }
+        guard let start = a["start"]?.string.flatMap(Self.iso.date(from:)),
+              let end = a["end"]?.string.flatMap(Self.iso.date(from:)), end > start,
+              end.timeIntervalSince(start) <= 400 * 86400 else {
+            return HandsOutcome(ok: false, detail: "that range didn't make sense")
+        }
+        let all = store.calendars(for: .event)
+        let ids = Set(CalendarPick.read(all.map(CalendarPick.info)).map(\.id))
+        let cals = all.filter { ids.contains($0.calendarIdentifier) }
+        let events = cals.isEmpty ? [] : store.events(matching: store.predicateForEvents(withStart: start, end: end,
+                                                                                          calendars: cals))
+        return HandsOutcome(ok: true, detail: "\(events.count) events",
+                            data: ["events": CalEventDTO.eventsJSON(events.map(CalEventDTO.init))])
+    }
+
     private func calendarDelete(_ id: String) -> HandsOutcome {
+        guard calendarAccess else { return HandsOutcome(ok: false, detail: "Calendar access is off") }
         guard let e = store.event(withIdentifier: id) else { return HandsOutcome(ok: false, detail: "event not found") }
+        // What it was, so "undo that" can put it back.
+        let was = ["title": e.title ?? "", "start": Self.iso.string(from: e.startDate),
+                   "end": Self.iso.string(from: e.endDate), "all_day": e.isAllDay ? "true" : "false"]
         do {
             try store.remove(e, span: .thisEvent)
         } catch {
             return HandsOutcome(ok: false, detail: "Calendar wouldn't remove it")
         }
-        return HandsOutcome(ok: true, detail: "removed")
+        return HandsOutcome(ok: true, detail: "removed", data: was)
     }
 }

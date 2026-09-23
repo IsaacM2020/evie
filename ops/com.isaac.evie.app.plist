@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.isaac.evie.app</string>
+  <!-- The menu bar app owns the mic, keys, Calendar and hands. Start it at login and bring it
+       back if it crashes. Quitting it from the menu (a clean exit) is respected. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/isaac/Applications/Evie.app/Contents/MacOS/EvieBar</string>
+  </array>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+  </dict>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>/Users/isaac/Library/Logs/Evie/app.log</string>
+  <key>StandardErrorPath</key><string>/Users/isaac/Library/Logs/Evie/app.log</string>
+</dict>
+</plist>

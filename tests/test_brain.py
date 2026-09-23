@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -150,7 +150,7 @@ async def test_answer_uses_time_calendar_and_job_facts():
                  calendar=cal)
     await b.hear("what's on today")
     kind, _, facts = p["talker"].calls[0]
-    assert kind == "reply" and "9:00 Math" in facts["calendar_today"]
+    assert kind == "reply" and "9:00-10:00 Math" in facts["calendar_today"]
     assert facts["job"].startswith("Working on: fix the chase bug") and facts["now"]
     assert p["mouth"].said == ["It's 4pm."]
 
@@ -349,7 +349,7 @@ async def test_answer_facts_include_the_rest_of_the_week():
     b, p = brain(FakeSwitchboard("act", "answer", "answer"), calendar=cal)
     await b.hear("what's on friday")
     week = p["talker"].calls[0][2]["calendar_week"]
-    assert f"{day4:%A}: 11:00 Physics" in week
+    assert f"{day4:%A}: 11:00-12:00 Physics" in week
 
 
 class Clock:
@@ -654,3 +654,55 @@ async def test_a_broken_remember_still_answers():
     b._remember = BrokenRemember()
     out = await b.hear("evie remember the dentist")
     assert out["said"] == "Couldn't save that, try again."
+
+
+async def test_answer_facts_have_a_right_now_line():
+    cal = CalendarStore()
+    now = datetime.now(TZ)
+    cal.update([CalEvent("Deep work", now - timedelta(minutes=5), now + timedelta(minutes=55), False, "Isaac")], at=now)
+    b, p = brain(FakeSwitchboard("act", "answer", "answer"), calendar=cal)
+    await b.hear("what am I doing right now")
+    facts = p["talker"].calls[0][2]
+    assert facts["calendar_now"].startswith("Right now: Deep work until")
+
+
+async def test_answer_facts_warn_when_the_calendar_is_stale():
+    cal = CalendarStore()
+    cal.update([], at=datetime.now(TZ) - timedelta(hours=1))
+    b, p = brain(FakeSwitchboard("act", "answer", "answer"), calendar=cal)
+    await b.hear("what's on today")
+    assert "may be out of date" in p["talker"].calls[0][2]["calendar_today"]
+
+
+async def test_stop_calls_off_a_pending_delete_before_anything_else():
+    from evie.countdown import Countdown
+    cd = Countdown(seconds=5)
+    ran = []
+
+    async def delete():
+        ran.append(1)
+
+    sb = SeqSwitchboard()
+    b, p = brain_c(sb, runner=FakeRunner(running="x"))  # even with a job running and her quiet
+    p["mouth"] = b._mouth = StopMouth()
+    b._countdown = cd
+    cd.start(delete)
+    out = await b.hear("stop")
+    assert out["reason"] == "cancelled" and not cd.pending and p["runner"].stopped == 0
+    assert p["mouth"].said == ["Okay, cancelled."] and sb.contexts == []
+
+
+async def test_risky_skill_from_the_open_mic_needs_isaacs_voice():
+    from evie.switchboard.decision import Decision
+    b, p = brain(FakeSwitchboard("act", "quick_action", "quick_action"))
+
+    class Skills:
+        ran = []
+
+        async def run(self, skill, text):
+            self.ran.append(skill)
+
+    b._skills = Skills()
+    d = Decision(0.9, "quick_action", 1.0, {}, 0.9, 0.0, 0, 0, skill="event_delete", skill_conf=0.9)
+    said = await b._quick("delete my sax class", d, speaker="unknown", addressed=False)
+    assert Skills.ran == [] and "talk key" in said

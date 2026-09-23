@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 @main
@@ -12,6 +13,13 @@ struct EvieBarApp: App {
             MainActor.assumeIsolated { Snapshot.run(to: CommandLine.arguments[i + 1]) }
             exit(0)
         }
+        // launchd starts Evie at login and after a crash. A second copy (the old login item, a
+        // double-click) would fight over the mic and keys, so it bows out quietly.
+        let me = NSRunningApplication.current
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .filter { $0.processIdentifier != me.processIdentifier }
+        if !others.isEmpty { exit(0) }
+        if SMAppService.mainApp.status == .enabled { try? SMAppService.mainApp.unregister() }
     }
 
     var body: some Scene {

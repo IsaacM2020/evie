@@ -9,7 +9,7 @@ ROUTES = {
                     "or speech from someone else or a video",
     "quick_action": "One quick thing on the computer: play, pause or skip music, ask what song is "
                     "playing, change volume, open an app or website, set or cancel a timer, undo the "
-                    "last thing Evie did, send a short message",
+                    "last thing Evie did, move or delete a calendar event, send a short message",
     "answer": "A question Evie answers by talking: the time, the date, maths, a fact, "
               "what is on Isaac's calendar",
     "deep_job": "Real work that takes minutes: fixing or writing code, researching a topic, "
@@ -37,6 +37,8 @@ SKILLS = {
     "timer_set": "Start a timer or countdown",
     "timer_cancel": "Cancel or stop a timer",
     "undo": "Undo or reverse the last thing Evie did",
+    "event_move": "Move or reschedule something already on Isaac's calendar to another time or day",
+    "event_delete": "Delete, remove or cancel something already on Isaac's calendar",
     "other": "Anything else, for example sending a message, muting the microphone, changing a "
              "setting, or a multi-step task on the computer",
 }

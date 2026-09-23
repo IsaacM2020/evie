@@ -19,6 +19,7 @@ from evie.calendar_store import TZ, CalendarStore
 from evie.events import EventBus
 from evie.jev import JevError
 from evie.jobs import Busy
+from evie.skills.catalog import RISK, allowed
 from evie.switchboard.context import Context
 from evie.switchboard.policy import Action
 from evie.voice import ACKS
@@ -79,11 +80,12 @@ def strip_wake(text: str) -> str:
 class Brain:
     def __init__(self, sb, talker, mouth, runner, narrator, calendar: CalendarStore, bus: EventBus, jev,
                  turns_log: Path | None = TURNS_LOG, clock: Callable[[], float] = time.monotonic,
-                 skills=None, remember=None):
+                 skills=None, remember=None, countdown=None):
         self._sb, self._talker, self._mouth = sb, talker, mouth
         self._runner, self._narrator, self._cal = runner, narrator, calendar
         self._bus, self._jev, self._log, self._clock = bus, jev, turns_log, clock
         self._skills, self._remember = skills, remember
+        self._countdown = countdown  # a pending "say stop to cancel" (event delete, 3b sends)
         self._turns: deque[str] = deque(maxlen=MAX_TURNS)
         self._pending: Pending | None = None
         self._last_reply_at: float | None = None
@@ -95,6 +97,12 @@ class Brain:
         shadow: open mic trial run. Decide and log what she WOULD do, do nothing."""
         if shadow:
             return await self._shadow(text, speaker)
+        # A delete (or a send) waiting on "say stop to cancel": stop calls it off, nothing else.
+        if speaker != "other" and is_stop(text) and self._countdown is not None and self._countdown.cancel():
+            self._mouth.stop()
+            self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "cancelled", "route": None})
+            return {"text": text, "action": "act", "reason": "cancelled", "route": None,
+                    "said": self._say("Okay, cancelled.")}
         # "Stop" means "stop talking" unless she's silent and a job is running: then it's
         # about the job, and job control (Jev) decides.
         if speaker != "other" and is_stop(text) and (getattr(self._mouth, "speaking", False)
@@ -187,7 +195,7 @@ class Brain:
         if draft and not (o.verdict.action == Action.ACT and route == "answer"):
             draft.cancel()
             draft = None
-        said = await self._act(o.verdict, route, text, draft, speaker, o.decision)
+        said = await self._act(o.verdict, route, text, draft, speaker, o.decision, addressed)
         t_said = time.perf_counter()
         if said:
             self._turns.append(f'Isaac: "{text}" / Evie: "{said}"')
@@ -207,7 +215,7 @@ class Brain:
                 "route": route, "said": said}
 
     async def _act(self, verdict, route: str | None, text: str, draft: asyncio.Task | None = None,
-                   speaker: str = "isaac", decision=None) -> str | None:
+                   speaker: str = "isaac", decision=None, addressed: bool = True) -> str | None:
         if verdict.action == Action.IGNORE:
             return None
         if verdict.action == Action.CLARIFY:
@@ -226,7 +234,7 @@ class Brain:
         if route == "job_control":
             return await self._job_control(text)
         if route == "quick_action" and self._skills:
-            return await self._quick(text, decision)
+            return await self._quick(text, decision, speaker, addressed)
         if route == "remember" and self._remember:
             return await self._remember_it(text, decision, speaker)
         return self._clip("not_yet")
@@ -242,9 +250,11 @@ class Brain:
             return self._say(r.ask)
         return self._say(r.said)
 
-    async def _quick(self, text: str, decision) -> str:
+    async def _quick(self, text: str, decision, speaker: str = "isaac", addressed: bool = True) -> str:
         """A fast skill if Jev is sure which one; otherwise Claude Code, the general hands."""
         skill = decision.skill if decision else None
+        if skill and not allowed(RISK.get(skill, "unknown"), speaker, addressed):
+            return self._say("That one needs your voice. Say it again, or use the talk key.")
         if skill and skill != "other" and decision.skill_conf >= SKILL_CONF_MIN:
             done = await self._skills.run(skill, strip_wake(text))
             if done.said is not None:
@@ -291,8 +301,11 @@ class Brain:
             today = self._cal.summary(now.date())
             tomorrow = self._cal.summary(now.date() + timedelta(days=1))
             week = " | ".join(self._cal.summary(now.date() + timedelta(days=d)) for d in range(2, 8))
-        facts = {"now": now.strftime("%a %-d %b %Y, %H:%M"), "calendar_today": today,
-                 "calendar_tomorrow": tomorrow, "calendar_week": week, "job": self._runner.status_line()}
+            if self._cal.stale(now):  # the app stopped pushing: say so rather than sound sure
+                today += " (may be out of date, the Evie app hasn't synced lately)"
+        facts = {"now": now.strftime("%a %-d %b %Y, %H:%M"), "calendar_now": self._cal.now_line(now),
+                 "calendar_today": today, "calendar_tomorrow": tomorrow, "calendar_week": week,
+                 "job": self._runner.status_line()}
         if self._remember and self._remember.facts.recent():
             facts["things_isaac_told_evie"] = " | ".join(self._remember.facts.recent())
         return facts

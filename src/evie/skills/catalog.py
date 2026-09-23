@@ -28,6 +28,7 @@ RISK = {
     "music_next": "reversible", "music_previous": "reversible", "now_playing": "read_only",
     "volume": "reversible", "open_app": "reversible", "open_website": "reversible",
     "timer_set": "reversible", "timer_cancel": "reversible", "undo": "reversible", "other": "unknown",
+    "event_move": "reversible", "event_delete": "deletes",
 }
 
 MUSIC_Q = ('What music does Isaac want played? Return {"query": string, "kind": "track" | "artist" | '
@@ -65,6 +66,7 @@ class Skills:
         self._hands, self._talker, self._jev = hands, talker, jev
         self._sys, self._search, self.timers = system, spotify, timers
         self._apps, self._log = apps, log
+        self.events = None  # EventSkills (move / delete calendar events), wired in by the server
         self._undo_stack: deque[Callable[[], Awaitable[str]]] = deque(maxlen=10)
 
     def remember_undo(self, fn: Callable[[], Awaitable[str]]) -> None:
@@ -210,6 +212,13 @@ class Skills:
 
     async def _timer_cancel(self, text: str) -> Done:
         return Done("Timer cancelled.") if self.timers.cancel() else Done("No timer running.", ok=False)
+
+    # -- calendar events (skills/events.py) -------------------------------------------------
+    async def _event_move(self, text: str) -> Done:
+        return await self.events.move(text) if self.events else Done(None)
+
+    async def _event_delete(self, text: str) -> Done:
+        return await self.events.delete(text) if self.events else Done(None)
 
     async def _undo(self, text: str) -> Done:
         if not self._undo_stack:
