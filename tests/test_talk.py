@@ -132,3 +132,26 @@ async def test_groq_warm_is_a_head_request():
     route = respx.head("https://api.groq.com/openai/v1/models").respond(200)
     await GroqClient(S).warm()
     assert route.call_count == 1
+
+
+from evie.talk import fill_math
+
+
+def test_fill_math_computes_bracketed_expressions():
+    assert fill_math("That's [[0.18*240]].") == "That's 43.2."
+    assert fill_math("[[17*23]] exactly") == "391 exactly"
+    assert fill_math("About [[1000/3]] each") == "About 333.33 each"
+    assert fill_math("[[(2+3)**2 % 7]]") == "4"
+
+
+def test_fill_math_refuses_anything_but_arithmetic():
+    assert fill_math("[[__import__('os').system('ls')]]") == "that"
+    assert fill_math("[[1/0]]") == "that"
+    assert fill_math("[[9**9**9]]") == "that"  # too big: never hang Evie
+
+
+@respx.mock
+async def test_reply_prompt_asks_for_bracketed_maths_and_fills_it():
+    route = respx.post(URL).mock(return_value=ok("It's [[0.18*240]]."))
+    assert await talker().reply("what's 18 percent of 240", {}) == "It's 43.2."
+    assert "[[" in json.loads(route.calls[0].request.content)["messages"][0]["content"]
