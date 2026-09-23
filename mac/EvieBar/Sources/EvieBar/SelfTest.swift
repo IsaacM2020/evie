@@ -30,14 +30,25 @@ enum SelfTest {
             var p = PushToTalk()
             return inputs.map { p.handle($0) }
         }
-        check(ptt([.fnDown(at: 0), .fnUp(at: 0.1)]) == [.startRecording, .cancel], "ptt: quick tap cancels")
-        check(ptt([.fnDown(at: 0), .fnUp(at: 1.2)]) == [.startRecording, .stopAndSend], "ptt: hold sends")
-        check(ptt([.fnDown(at: 0), .otherKey, .fnUp(at: 1)]) == [.startRecording, .cancel, .none],
+        check(ptt([.keyDown(at: 0), .keyUp(at: 0.1)]) == [.startRecording, .cancel], "ptt: quick tap cancels")
+        check(ptt([.keyDown(at: 0), .keyUp(at: 1.2)]) == [.startRecording, .stopAndSend], "ptt: hold sends")
+        check(ptt([.keyDown(at: 0), .otherKey, .keyUp(at: 1)]) == [.startRecording, .cancel, .none],
               "ptt: Fn+arrow cancels, release does nothing")
-        check(ptt([.fnDown(at: 0), .fnDown(at: 0.5), .fnUp(at: 1)]) == [.startRecording, .none, .stopAndSend],
+        check(ptt([.keyDown(at: 0), .keyDown(at: 0.5), .keyUp(at: 1)]) == [.startRecording, .none, .stopAndSend],
               "ptt: repeated down ignored")
-        check(ptt([.fnUp(at: 1), .otherKey]) == [.none, .none], "ptt: up/other without down do nothing")
-        check(ptt([.fnDown(at: 0), .fnUp(at: 0.25)]) == [.startRecording, .stopAndSend], "ptt: exactly 0.25s sends")
+        check(ptt([.keyUp(at: 1), .otherKey]) == [.none, .none], "ptt: up/other without down do nothing")
+        check(ptt([.keyDown(at: 0), .keyUp(at: 0.25)]) == [.startRecording, .stopAndSend], "ptt: exactly 0.25s sends")
+        func chord(_ raws: [UInt]) -> [[Chord.Out]] {
+            var c = Chord()
+            return raws.map { c.update(raw: $0) }
+        }
+        let lc = Chord.leftControl, lo = Chord.leftOption, lcmd = Chord.leftCommand
+        check(chord([lc, lc | lo, lc, 0]) == [[], [.talkDown], [.talkUp], []], "chord: left ⌃⌥ held = talk")
+        check(chord([lc | lo, lc | lo | lcmd, lc | lo, 0, lc | lo]) == [[.talkDown], [.talkCancel, .liveToggle], [], [], [.talkDown]],
+              "chord: ⌃⌥⌘ cancels the talk, toggles live once, no talk until released")
+        check(chord([lc | lo | lcmd, lc | lo | lcmd, 0, lc | lo | lcmd]) == [[.liveToggle], [], [], [.liveToggle]],
+              "chord: live toggles once per press")
+        check(chord([lc | 0x40, 0x2000 | lo]) == [[], []], "chord: right ⌥ (Ripple) or right ⌃ never trigger")
         let jobEv = try? CoreJSON.decoder.decode(CoreEvent.self, from: Data(
             #"{"kind":"job_event","t":1.5,"id":"ab12","line":"Ran: pytest","extra":[1,2]}"#.utf8))
         check(jobEv?.kind == "job_event" && jobEv?.line == "Ran: pytest" && jobEv?.id == "ab12", "decode job_event")

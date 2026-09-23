@@ -55,13 +55,13 @@ struct PanelView: View {
         case "speaking": return "Talking"
         case "working": return "Working on a job"
         case "offline": return "Core offline"
-        default: return model.jevOk == false ? "Can't reach Jev" : "Hold 🌐 to talk"
+        default: return model.jevOk == false ? "Can't reach Jev" : "Hold ⌃⌥ to talk · ⌃⌥⌘ Live"
         }
     }
 
     @ViewBuilder private var warnings: some View {
         if !model.axTrusted {
-            Warning(text: "Allow Accessibility for 🌐 to work") { model.openSettings("Privacy_Accessibility") }
+            Warning(text: "Allow Accessibility for ⌃⌥ to work") { model.openSettings("Privacy_Accessibility") }
         }
         if model.micDenied {
             Warning(text: "Microphone is off") { model.openSettings("Privacy_Microphone") }
@@ -381,7 +381,7 @@ struct OpenMicCard: View {
         switch model.earsMode {
         case "shadow": return "Listening on trial: she only notes what she would have done."
         case "live": return "Listening for you. Other voices are ignored on the Mac."
-        default: return vp.ready ? "Hold 🌐 to talk. Shadow first, then Live." : "Hold 🌐 to talk. Teach her your voice to unlock Live."
+        default: return vp.ready ? "Hold ⌃⌥ to talk, ⌃⌥⌘ flips Live on or off." : "Hold ⌃⌥ to talk. Teach her your voice to unlock Live."
         }
     }
 
@@ -393,7 +393,7 @@ struct OpenMicCard: View {
         let done = max(0, vp.clips - model.enrollStartClips)
         let i = min(done, Self.sentences.count - 1)
         return VStack(alignment: .leading, spacing: 6) {
-            Text(done >= Self.sentences.count ? "All done. Tap Done." : "Hold 🌐 and read this out loud (\(done + 1) of \(Self.sentences.count))")
+            Text(done >= Self.sentences.count ? "All done. Tap Done." : "Hold ⌃⌥ and read this out loud (\(done + 1) of \(Self.sentences.count))")
                 .font(.caption).foregroundStyle(.secondary)
             if done < Self.sentences.count {
                 Text(Self.sentences[i]).font(.body.weight(.medium)).fixedSize(horizontal: false, vertical: true)

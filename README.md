@@ -1,6 +1,6 @@
 # Evie
 
-Isaac's voice-run operating system. Hold 🌐 (Fn), talk, let go. Plan: ~/IsaacOS/projects/evie/jarvis-plan-2026-09-23.md
+Isaac's voice-run operating system. Hold left ⌃⌥ (Control + Option), talk, let go. Left ⌃⌥⌘ flips the Live open mic on and off. Plan: ~/IsaacOS/projects/evie/jarvis-plan-2026-09-23.md
 
 ## Run
 - Core: `ops/install-core.sh` (launchd keeps it alive; logs in ~/Library/Logs/Evie/core.log, one line per turn in turns.jsonl)

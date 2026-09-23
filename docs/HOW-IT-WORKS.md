@@ -368,3 +368,7 @@ Open mic on Live. Isaac, at his desk, no key: **"what's on friday"**.
 - **Bare "evie mute" goes to Claude Code** (Jev says "other" at 0.72): slow but not wrong. "Mute my mic" correctly goes to Claude Code too.
 - **Messages are not a fast skill.** WhatsApp has no API; sending as Isaac comes with Fluid (3b), with a read-back and a 3 s "stop" window on the pill.
 - **Spotify playback and Calendar writes were checked by tests, not live.** Isaac's demo is the live check (and the one-time "Evie wants to control Spotify" prompt).
+
+# Change log
+
+- **2026-09-23, keys + pill crash.** The talk key moved from 🌐 (Fn) to **hold left ⌃⌥**, and **left ⌃⌥⌘** flips the Live open mic on and off (left keys only, so Right Option stays Ripple's). `Chord` in `PushToTalk.swift` reads the left/right bits of the modifier flags. The pill crashed the app: its window was set to resize itself to fit its text, and a text change ("Listening…") started an endless resize → layout → resize loop (stack overflow, 2 crash reports). The pill is now a fixed 400×60 transparent window with the capsule on the left, SwiftUI is never allowed to size it, and a `DragPanel` starts the window drag itself (SwiftUI was swallowing the mouse, which is why it couldn't be moved).

@@ -48,6 +48,7 @@ final class AppModel: ObservableObject {
     private var calendarFeed: CalendarFeed?
     private var eventFeed: EventFeed?
     private var ptt = PushToTalk()
+    private var chord = Chord()
     private let recorder = Recorder()
     private var monitors: [Any] = []
     private let ears = Ears()
@@ -137,7 +138,7 @@ final class AppModel: ObservableObject {
         voiceprint = e.voiceprint
     }
 
-    // MARK: hold Fn to talk
+    // MARK: hold left ⌃⌥ to talk, left ⌃⌥⌘ for Live
 
     private func installKeyMonitors() {
         // Reading keys in other apps needs Accessibility; this asks once (the grant sticks because
@@ -159,12 +160,35 @@ final class AppModel: ObservableObject {
     }
 
     private func handleKey(_ e: NSEvent) {
-        let input: PTTInput
-        if e.type == .flagsChanged && e.keyCode == 63 {  // 63 = Fn / Globe
-            input = e.modifierFlags.contains(.function) ? .fnDown(at: e.timestamp) : .fnUp(at: e.timestamp)
-        } else {
-            input = .otherKey
+        guard e.type == .flagsChanged else {
+            // A real key while the talk chord is held: that was a ⌃⌥ shortcut, not speech.
+            if chord.talking { runPTT(.otherKey) }
+            return
         }
+        for out in chord.update(raw: UInt(e.modifierFlags.rawValue)) {
+            switch out {
+            case .talkDown: runPTT(.keyDown(at: e.timestamp))
+            case .talkUp: runPTT(.keyUp(at: e.timestamp))
+            case .talkCancel: runPTT(.otherKey)
+            case .liveToggle: Task { await toggleLive() }
+            }
+        }
+    }
+
+    /// Left ⌃⌥⌘: Live open mic on, or off again.
+    func toggleLive() async {
+        let target = earsMode == "live" ? "off" : "live"
+        await setEarsMode(target)
+        if earsMode == target {
+            (target == "live" ? Earcon.liveOn : Earcon.liveOff).play()
+            note(target == "live" ? "Live mic on" : "Live mic off", for: 3)
+        } else {
+            let left = max(0, 8 - voiceprint.clips)
+            note(voiceprint.ready ? (error ?? "Couldn't switch the mic") : "Hold ⌃⌥ and talk \(left) more times so I learn your voice", for: 5)
+        }
+    }
+
+    private func runPTT(_ input: PTTInput) {
         switch ptt.handle(input) {
         case .startRecording:
             guard online, !micDenied, recorder.start() else { ptt = PushToTalk(); return }
@@ -326,12 +350,14 @@ final class AppModel: ObservableObject {
 
 // Instant, local feedback on the key itself: nothing waits on the network or the core.
 enum Earcon {
-    case listening, gotIt
+    case listening, gotIt, liveOn, liveOff
 
     private static let sounds: [Earcon: NSSound] = {
         var m: [Earcon: NSSound] = [:]
         if let s = NSSound(named: "Tink") { s.volume = 0.25; m[.listening] = s }
         if let s = NSSound(named: "Pop") { s.volume = 0.3; m[.gotIt] = s }
+        if let s = NSSound(named: "Hero") { s.volume = 0.3; m[.liveOn] = s }
+        if let s = NSSound(named: "Bottle") { s.volume = 0.3; m[.liveOff] = s }
         return m
     }()
 
