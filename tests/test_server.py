@@ -81,7 +81,8 @@ def test_status_before_any_decision():
     with client() as c:
         body = c.get("/status").json()
     assert body == {"ok": True, "version": "0.1.0", "jev_ok": None, "stt_ready": False,
-                    "voice_ready": False, "calendar_fresh": False, "job": None, "app_online": False}
+                    "voice_ready": False, "calendar_fresh": False, "job": None, "app_online": False,
+                    "ears_offline": False}
 
 
 def test_decide_returns_outcome_and_marks_jev_ok():

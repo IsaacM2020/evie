@@ -19,7 +19,7 @@ class Settings:
     groq_model: str = "qwen/qwen3.8-27b"  # ~220 ms on Groq with thinking off (2026-09-23)
     groq_url: str = "https://api.groq.com/openai/v1"
     groq_timeout_s: float = 4.0
-    stt_backend: str = "local"
+    stt_backend: str = "groq"  # local MLX Whisper is the automatic fallback
     spotify_id: str = ""  # optional: music search (client credentials, no login)
     spotify_secret: str = ""
     todoist_key: str = ""  # optional: "remind me to..." tasks

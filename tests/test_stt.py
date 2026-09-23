@@ -101,3 +101,67 @@ async def test_transcribe_pcm_wraps_audio_as_wav():
     t = Transcriber(S, backend="local", local_fn=m)
     assert await t.transcribe_pcm(np.zeros(16000, dtype=np.float32)) == "hi there"
     assert len(m.paths) == 1
+
+
+# -- Phase 3.5: cloud ears first, local only as a fallback ------------------------------------
+GROQ_STT = "https://api.groq.com/openai/v1/audio/transcriptions"
+
+
+def test_groq_is_the_default_backend():
+    assert Settings(openrouter_key="x").stt_backend == "groq"
+
+
+@respx.mock
+async def test_groq_request_carries_isaacs_vocabulary_as_a_prompt():
+    route = respx.post(GROQ_STT).respond(200, json={"text": "open todoist"})
+    await Transcriber(S, backend="groq", local_fn=FakeModel()).transcribe(wav(1.0))
+    body = route.calls[0].request.content
+    assert b'name="prompt"' in body and b"Todoist" in body and b"IsaacOS" in body
+
+
+@respx.mock
+async def test_groq_down_falls_back_to_local_and_says_so():
+    import httpx
+    respx.post(GROQ_STT).mock(side_effect=httpx.ConnectError("offline"))
+    m = FakeModel(" pause the music")
+    t = Transcriber(S, backend="groq", local_fn=m)
+    assert await t.transcribe(wav(1.0)) == "pause the music"
+    assert len(m.paths) == 1 and t.offline is True
+
+
+@respx.mock
+async def test_groq_error_status_falls_back_too():
+    respx.post(GROQ_STT).respond(503)
+    m = FakeModel(" hi")
+    t = Transcriber(S, backend="groq", local_fn=m)
+    assert await t.transcribe(wav(1.0)) == "hi" and t.offline is True
+
+
+@respx.mock
+async def test_back_online_clears_the_offline_flag():
+    import httpx
+    respx.post(GROQ_STT).mock(side_effect=[httpx.ConnectError("x"), httpx.Response(200, json={"text": "ok"})])
+    t = Transcriber(S, backend="groq", local_fn=FakeModel(" x"))
+    await t.transcribe(wav(1.0))
+    await t.transcribe(wav(1.0))
+    assert t.offline is False
+
+
+async def test_groq_backend_warm_never_loads_local_whisper():
+    m = FakeModel()
+    t = Transcriber(S, backend="groq", local_fn=m)
+    await t.warm()
+    assert m.paths == []
+
+
+async def test_local_model_is_unloaded_after_ten_idle_minutes():
+    unloaded = []
+    clock = [1000.0]
+    t = Transcriber(S, backend="local", local_fn=FakeModel(), unload_fn=lambda: unloaded.append(1),
+                    clock=lambda: clock[0])
+    await t.transcribe(wav(1.0))
+    clock[0] += 599
+    assert t.maybe_unload() is False
+    clock[0] += 2
+    assert t.maybe_unload() is True and unloaded == [1]
+    assert t.maybe_unload() is False  # already gone

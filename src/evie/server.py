@@ -159,7 +159,8 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         out = {"ok": True, "version": __version__, "jev_ok": app.state.jev_ok, **app.state.ready,
                "calendar_fresh": not d.calendar.stale(datetime.now(TZ)),
                "job": _job_dict(d.runner.current) if d.runner else None,
-               "app_online": app.state.app_clients > 0}
+               "app_online": app.state.app_clients > 0,
+               "ears_offline": bool(getattr(d.stt, "offline", False))}
         if d.open_mic and d.voiceid:
             out |= {"ears_mode": d.open_mic.modes.mode, "voiceprint": d.voiceid.print.status()}
         return out
@@ -431,6 +432,9 @@ def build_deps(s: Settings) -> Deps:
         timers.restore()
         return {"stt_ready": True, "voice_ready": True}
 
+    async def unload_idle() -> None:  # the local fallback Whisper only stays loaded while it's used
+        await asyncio.get_running_loop().run_in_executor(None, stt.maybe_unload)
+
     async def close() -> None:
         timers.close()
         await spotify.aclose()
@@ -440,7 +444,8 @@ def build_deps(s: Settings) -> Deps:
         await stt.aclose()
 
     return Deps(sb=sb, calendar=cal, bus=bus, brain=brain, mouth=mouth, stt=stt, runner=runner,
-                warm=warm, close=close, pings=[jev.warm, groq.warm], open_mic=open_mic, voiceid=voiceid,
+                warm=warm, close=close, pings=[jev.warm, groq.warm, stt.warm, unload_idle], open_mic=open_mic,
+                voiceid=voiceid,
                 hands=hands)
 
 
