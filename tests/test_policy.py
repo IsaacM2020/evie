@@ -46,8 +46,8 @@ def test_missing_detail_clarifies():
 
 
 def test_unknown_speaker_needs_more_confidence():
-    assert decide(D(for_evie=0.8), "isaac").action is Action.ACT
-    assert decide(D(for_evie=0.8), "unknown").action is Action.CLARIFY
+    assert decide(D(for_evie=0.75), "isaac").action is Action.ACT
+    assert decide(D(for_evie=0.75), "unknown").action is Action.CLARIFY
 
 
 def test_low_route_confidence_clarifies():

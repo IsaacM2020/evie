@@ -18,7 +18,7 @@ class Action(str, Enum):
 @dataclass(frozen=True)
 class Thresholds:
     ignore_below: float = 0.35
-    act_at: float = 0.75
+    act_at: float = 0.70
     answer_act_at: float = 0.60
     unknown_speaker_penalty: float = 0.10
     route_conf_min: float = 0.60
