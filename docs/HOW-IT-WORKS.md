@@ -45,7 +45,7 @@ Because Jev can only answer inside those types, it can't invent a route that doe
 | `evals/TUNING.md` | Every tuning change and its numbers |
 | `ops/` | launchd agent + installer |
 | `mac/EvieBar/` | The Swift menu bar app. `mac/build.sh` builds it into `~/Applications/Evie.app` |
-| `tests/` | 46 offline tests + 1 live test |
+| `tests/` | 50 offline tests + 1 live test |
 
 ## One sentence, traced end to end
 
