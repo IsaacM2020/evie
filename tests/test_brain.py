@@ -410,7 +410,8 @@ async def test_answer_to_a_missing_detail_question_is_merged():
     b, p = brain_c(sb)
     await b.hear("evie play that song")
     await b.hear("espresso", "unknown", addressed=False)
-    assert sb.contexts[1].utterance == "evie play that song. espresso" and sb.contexts[1].addressed
+    assert sb.contexts[1].utterance == 'evie play that song. Evie asked "Which song?", Isaac answered "espresso".'
+    assert sb.contexts[1].addressed
 
 
 async def test_pending_question_expires():
@@ -615,7 +616,8 @@ async def test_remember_asks_what_time_then_uses_the_answer():
     first = await b.hear("evie i have the dentist wednesday")
     second = await b.hear("4pm", "unknown", addressed=False)
     assert first["said"] == "What time?"
-    assert rem.runs[1] == ("event", "i have the dentist wednesday. 4pm") and second["said"].startswith("Added")
+    assert rem.runs[1] == ("event", 'i have the dentist wednesday. Evie asked "What time?", Isaac answered "4pm".')
+    assert second["said"].startswith("Added")
 
 
 async def test_remembered_facts_reach_her_answers():
@@ -706,3 +708,59 @@ async def test_risky_skill_from_the_open_mic_needs_isaacs_voice():
     d = Decision(0.9, "quick_action", 1.0, {}, 0.9, 0.0, 0, 0, skill="event_delete", skill_conf=0.9)
     said = await b._quick("delete my sax class", d, speaker="unknown", addressed=False)
     assert Skills.ran == [] and "talk key" in said
+
+
+
+# -- Phase 3.5: follow-ups survive noise -------------------------------------------------------
+class AnswerJev:
+    """Jev judging "is this Isaac answering Evie's question?" from a script of probabilities."""
+
+    def __init__(self, *ps):
+        self.ps, self.asked = list(ps), []
+
+    async def ask(self, state, questions):
+        self.asked.append(state)
+        return JevResult({"answers": {"type": "noul", "noul": self.ps.pop(0)}}, 200.0, 0.0)
+
+
+async def test_a_fragment_before_the_yes_no_longer_eats_the_question():
+    # 21:19:33 on 2026-09-23: a 42-char fragment used up "Was that for me?" 2 s before the yes.
+    sb = SeqSwitchboard(("clarify", "unsure it was for me", "quick_action"),
+                        ("ignore", "not for Evie", "not_for_evie"), ("act", "answer", "answer"))
+    b, p = brain_c(sb)
+    await b.hear("set a timer for 30 seconds", "isaac", addressed=False)
+    await b.hear("oh and the other thing", "isaac", addressed=False)
+    out = await b.hear("yes it's for you", "isaac", addressed=False)
+    assert sb.contexts[2].utterance == "set a timer for 30 seconds" and sb.contexts[2].addressed
+    assert out["action"] == "act"
+
+
+async def test_chatter_during_a_what_time_question_is_not_taken_as_the_answer():
+    sb = SeqSwitchboard(("clarify", "missing detail", "remember"), ("ignore", "not for Evie", "not_for_evie"),
+                        ("act", "remember", "remember"))
+    b, p = brain_c(sb, jev=AnswerJev(0.05, 0.95))
+    await b.hear("evie remember i have the dentist wednesday")
+    await b.hear("mom where are my keys", "isaac", addressed=False)
+    await b.hear("4pm", "isaac", addressed=False)
+    assert sb.contexts[1].utterance == "mom where are my keys"
+    assert sb.contexts[2].utterance.startswith("evie remember i have the dentist wednesday. Evie asked")
+    assert 'Isaac answered "4pm"' in sb.contexts[2].utterance
+
+
+async def test_a_new_real_command_clears_the_question():
+    sb = SeqSwitchboard(("clarify", "unsure it was for me", "quick_action"), ("act", "answer", "answer"),
+                        ("act", "answer", "answer"))
+    b, p = brain_c(sb)
+    await b.hear("pause", "isaac", addressed=False)
+    await b.hear("what's the weather like", "isaac", addressed=True)  # talk key: a new request
+    await b.hear("yes", "isaac", addressed=False)
+    assert sb.contexts[2].utterance == "yes"
+
+
+async def test_her_name_first_in_isaacs_voice_marks_it_as_named():
+    sb = SeqSwitchboard(("act", "answer", "answer"))
+    b, p = brain_c(sb)
+    await b.hear("Evie, what files are on my desktop", "isaac", addressed=False)
+    assert sb.contexts[0].named is True
+    await b.hear("Evie, what time is it", "unknown", addressed=False)
+    assert sb.contexts[1].named is False  # only Isaac's matched voice gets the benefit

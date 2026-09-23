@@ -36,7 +36,7 @@ class Switchboard:
             d = parse_decision(res.answers, res.latency_ms, res.cost_usd)
         except (JevError, ValueError, KeyError, TypeError) as e:
             return Outcome(ctx, None, Verdict(Action.IGNORE, f"jev unavailable: {e}"))
-        return Outcome(ctx, d, decide(d, ctx.speaker, self._t, addressed=ctx.addressed))
+        return Outcome(ctx, d, decide(d, ctx.speaker, self._t, addressed=ctx.addressed, named=ctx.named))
 
     async def aclose(self) -> None:
         await self._jev.aclose()

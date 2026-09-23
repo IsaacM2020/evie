@@ -69,6 +69,7 @@ class Pending:
     text: str  # what he said that made her ask
     speaker: str
     at: float
+    asked: str = ""  # what she asked ("What time?")
 
 
 def strip_wake(text: str) -> str:
@@ -111,16 +112,23 @@ class Brain:
         answered = await self._answer_pending(text, speaker)
         if answered is not None:
             return answered
-        return await self._turn(text, speaker, addressed)
+        waiting = self._pending
+        named = not addressed and speaker == "isaac" and bool(_WAKE.match(text))
+        out = await self._turn(text, speaker, addressed, named=named)
+        # A new real request replaces her question; chatter, echo and fragments don't.
+        if self._pending is waiting and out.get("action") == "act":
+            self._pending = None
+        return out
 
-    def _context(self, text: str, speaker: str, addressed: bool) -> Context:
+    def _context(self, text: str, speaker: str, addressed: bool, named: bool = False) -> Context:
         job = self._runner.current
         since = None if self._last_reply_at is None else self._clock() - self._last_reply_at
         scene = self.scene()
         return Context(utterance=text, speaker=speaker, recent=tuple(self._turns),
                        in_call=bool(scene.get("in_call", False)), front_app=str(scene.get("front_app", "")),
                        active_jobs=(job.goal,) if job else (), addressed=addressed,
-                       followup_s=since if (not addressed and since is not None and since <= FOLLOWUP_S) else None)
+                       followup_s=since if (not addressed and since is not None and since <= FOLLOWUP_S) else None,
+                       named=named)
 
     def _stop(self, text: str) -> dict:
         self._mouth.stop()
@@ -131,14 +139,18 @@ class Brain:
         return {"text": text, "action": "act", "reason": "stop", "route": None, "said": None}
 
     async def _answer_pending(self, text: str, speaker: str) -> dict | None:
-        """If Evie just asked something, treat this sentence as the answer (short answers like
-        "yes" or "4pm" are too short for voice ID, so anyone but a known other voice counts)."""
-        p, self._pending = self._pending, None
-        if p is None or self._clock() - p.at > PENDING_S or _WAKE.match(text):
+        """If Evie just asked something, is this the answer? A yes/no or a real answer is used up;
+        anything else (an echo, a fragment, Isaac talking to someone) leaves her question waiting,
+        until a new real request replaces it or 15 s pass (2026-09-23: a stray fragment 2 s before
+        the "yes" used to eat the question)."""
+        p = self._pending
+        if p is None:
+            return None
+        if self._clock() - p.at > PENDING_S or _WAKE.match(text):
+            self._pending = None
             return None
         if speaker == "other":
-            self._pending = p  # not Isaac: keep waiting for him
-            return None
+            return None  # not Isaac: keep waiting for him
         words = _norm(text)
         if p.kind == "for_me":
             if p.speaker != "isaac" and speaker != "isaac":
@@ -146,12 +158,30 @@ class Brain:
                 # can say yes (a TV can't answer "yes" for another TV line).
                 return None
             if _YES.match(words):
+                self._pending = None
                 return await self._turn(p.text, p.speaker, addressed=True)
             if _NO.match(words):
+                self._pending = None
                 self._write_log({"t": time.time(), "text": text, "action": "ignore", "reason": "not for me"})
                 return {"text": text, "action": "ignore", "reason": "not for me", "route": None, "said": None}
-            return None  # neither: he moved on, handle it fresh
-        return await self._turn(f"{p.text}. {text}", p.speaker, addressed=True)
+            return None  # neither: handle it fresh, the question keeps waiting
+        if not await self._answers(p, text):
+            return None
+        self._pending = None
+        merged = f'{p.text}. Evie asked "{p.asked}", Isaac answered "{text}".' if p.asked else f"{p.text}. {text}"
+        return await self._turn(merged, p.speaker, addressed=True)
+
+    async def _answers(self, p: Pending, text: str) -> bool:
+        """Jev: is this Isaac answering her question, or something else? Unsure means yes."""
+        q = {"answers": {"type": "noul", "instructions": (
+            f'Evie just asked Isaac: "{p.asked or "a question"}" about his request "{p.text}". Is the latest '
+            "speech Isaac answering that question (a time, a name, a choice, a detail), rather than "
+            "talking to someone else or saying something unrelated?")}}
+        try:
+            res = await self._jev.ask(f'Latest speech: "{text}"', q)
+            return float(res.answers["answers"]["noul"]) >= 0.5
+        except (JevError, KeyError, TypeError, ValueError):
+            return True
 
     async def _shadow(self, text: str, speaker: str) -> dict:
         ctx = self._context(text, speaker, addressed=False)
@@ -167,12 +197,12 @@ class Brain:
         return {"text": text, "action": o.verdict.action.value, "reason": o.verdict.reason, "route": route,
                 "said": None, "shadow": True, "would": would}
 
-    async def _turn(self, text: str, speaker: str, addressed: bool) -> dict:
+    async def _turn(self, text: str, speaker: str, addressed: bool, named: bool = False) -> dict:
         t0 = time.perf_counter()
         if addressed:
             self._bus.publish("heard", text=text)
             self._bus.publish("state", state="thinking")
-        ctx = self._context(text, speaker, addressed)
+        ctx = self._context(text, speaker, addressed, named)
         # Speed: when Isaac is talking to Evie, draft the spoken answer while Jev decides.
         # If Jev picks "answer" the words are ready; otherwise the draft is dropped.
         draft = asyncio.create_task(self._talker.reply(text, self._facts())) if addressed else None
@@ -220,13 +250,15 @@ class Brain:
             return None
         if verdict.action == Action.CLARIFY:
             kind = "for_me" if verdict.reason == "unsure it was for me" else "detail"
-            self._pending = Pending(kind, text, speaker, self._clock())
+            pending = self._pending = Pending(kind, text, speaker, self._clock())
             if verdict.reason == "missing detail":
-                return self._say(await self._talker.clarify(text, "a detail is missing"))
-            if verdict.reason == "unsure what you meant":
-                return self._say(await self._talker.clarify(
+                pending.asked = self._say(await self._talker.clarify(text, "a detail is missing"))
+            elif verdict.reason == "unsure what you meant":
+                pending.asked = self._say(await self._talker.clarify(
                     text, "it's unclear whether he wants an answer, a job done, or something else"))
-            return self._clip("for_me")
+            else:
+                pending.asked = self._clip("for_me")
+            return pending.asked
         if route == "answer":
             return self._say(await draft if draft else await self._talker.reply(text, self._facts()))
         if route == "deep_job":
@@ -246,7 +278,7 @@ class Brain:
             log.exception("remember failed")
             return self._say("Couldn't save that, try again.")
         if r.ask:  # e.g. "What time?": his next sentence is merged in and this runs again
-            self._pending = Pending("detail", text, speaker, self._clock())
+            self._pending = Pending("detail", text, speaker, self._clock(), asked=r.ask)
             return self._say(r.ask)
         return self._say(r.said)
 

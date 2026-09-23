@@ -24,6 +24,7 @@ class Thresholds:
     route_conf_min: float = 0.60
     incomplete_below: float = 0.40
     event_at: float = 0.80
+    named_ignore_below: float = 0.30
 
 
 @dataclass(frozen=True)
@@ -39,11 +40,18 @@ NEEDS_DETAIL = {"quick_action", "deep_job", "remember"}
 UNKNOWN_CANT_DO = {"quick_action", "deep_job", "remember", "job_control"}
 
 
-def decide(d: Decision, speaker: str, t: Thresholds = Thresholds(), addressed: bool = False) -> Verdict:
+def decide(d: Decision, speaker: str, t: Thresholds = Thresholds(), addressed: bool = False,
+           named: bool = False) -> Verdict:
     followup = d.has_event >= t.event_at
     if speaker == "other":
         return Verdict(Action.IGNORE, "not Isaac's voice", followup)
     if addressed:
+        return _addressed(d, t, followup)
+    if named and speaker == "isaac":
+        # "Evie, ..." in Isaac's own matched voice: treat it like the talk key unless Jev is sure
+        # he was only talking ABOUT her ("Evie is so slow today").
+        if d.for_evie < t.named_ignore_below or (d.route == "not_for_evie" and d.route_confidence >= 0.8):
+            return Verdict(Action.IGNORE, "not for Evie", followup)
         return _addressed(d, t, followup)
     if d.route == "not_for_evie" or d.for_evie < t.ignore_below:
         return Verdict(Action.IGNORE, "not for Evie", followup)

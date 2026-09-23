@@ -103,3 +103,16 @@ def test_open_mic_unknown_voice_still_gets_answers():
 
 def test_unknown_voice_on_the_talk_key_is_fine():
     assert decide(D(route="quick_action"), "unknown", addressed=True).action is Action.ACT
+
+
+
+def test_named_by_isaac_acts_on_a_lukewarm_for_evie():
+    # 21:10:55: "Evie, what files are on my desktop" got "Was that for me?"
+    d = D(for_evie=0.6, route="deep_job", conf=0.9)
+    assert decide(d, "isaac", named=True).action == Action.ACT
+    assert decide(d, "isaac").action == Action.CLARIFY
+
+
+def test_named_but_clearly_about_her_is_still_ignored():
+    d = D(for_evie=0.15, route="not_for_evie", conf=0.9)
+    assert decide(d, "isaac", named=True).action == Action.IGNORE

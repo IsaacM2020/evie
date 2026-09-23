@@ -35,6 +35,7 @@ class Context:
     active_jobs: tuple[str, ...] = ()
     addressed: bool = False  # Isaac held the talk key or typed to Evie: definitely for her
     followup_s: float | None = None  # open mic: seconds since Evie last answered Isaac
+    named: bool = False  # open mic: Isaac's matched voice started with "Evie, ..."
 
 
 def _clip(text: str, limit: int) -> str:
@@ -51,6 +52,8 @@ def render_state(ctx: Context) -> str:
     ]
     if ctx.addressed:
         lines.append("Isaac held Evie's talk key while saying this, so it is meant for Evie.")
+    elif ctx.named:
+        lines.append("Isaac (his own voice) started this by saying Evie's name.")
     elif ctx.followup_s is not None:
         lines.append(f"Evie answered Isaac {ctx.followup_s:.0f} seconds ago, so a short follow-up "
                      "question may be for her.")
