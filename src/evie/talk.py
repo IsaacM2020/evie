@@ -2,6 +2,7 @@
 import ast
 import asyncio
 import json
+import math
 import operator
 import re
 
@@ -9,6 +10,7 @@ import logging
 
 import httpx
 
+from evie import capabilities
 from evie.config import Settings
 
 log = logging.getLogger("evie.talk")
@@ -20,8 +22,11 @@ PERSONA = (
     "Everything you write is spoken out loud, so use plain words: no markdown, no lists, no emoji, "
     "no em dashes. Be casual and warm, like a sharp friend. Two short sentences at most. "
     "Never do arithmetic in your head: write the expression inside double brackets and it will be "
-    "replaced with the exact result, for example \"That's [[0.18*240]].\""
+    "replaced with the exact result, for example \"That's [[0.18*240]].\" You can use sqrt, log (base 10), "
+    "ln, factorial, pi, e, and sin/cos/tan which take DEGREES (sinr/cosr/tanr take radians); if it's "
+    "unclear whether he means degrees or radians, use degrees and say so."
 )
+CANT_COMPUTE = "I couldn't work that one out exactly, sorry."
 
 
 # Plain-English labels: with a bare "now:" key the model didn't realise it knew the time.
@@ -119,12 +124,37 @@ _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, as
 _MATH = re.compile(r"\[\[(.+?)\]\]")
 
 
+def _factorial(n):
+    if n != int(n) or n < 0 or n > 170:
+        raise ValueError("factorial out of range")
+    return math.factorial(int(n))
+
+
+# Trig takes DEGREES by default (school maths: "cos 60" means 60 degrees); sinr/cosr/tanr take radians.
+_FUNCS = {
+    "sin": lambda x: math.sin(math.radians(x)), "cos": lambda x: math.cos(math.radians(x)),
+    "tan": lambda x: math.tan(math.radians(x)),
+    "sinr": math.sin, "cosr": math.cos, "tanr": math.tan,
+    "asin": math.asin, "acos": math.acos, "atan": math.atan,  # radians: wrap in degrees() for an angle
+    "degrees": math.degrees, "radians": math.radians,
+    "sqrt": math.sqrt, "log": math.log10, "ln": math.log, "log2": math.log2, "exp": math.exp,
+    "abs": abs, "round": round, "factorial": _factorial, "floor": math.floor, "ceil": math.ceil,
+}
+_CONSTS = {"pi": math.pi, "e": math.e}
+
+
+class MathError(ValueError):
+    pass
+
+
 def _calc(node):
-    """Numbers and + - * / // % ** only. Anything else (names, calls) raises."""
+    """Numbers, + - * / // % **, a few named functions and pi/e. Anything else raises."""
     if isinstance(node, ast.Expression):
         return _calc(node.body)
-    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
         return node.value
+    if isinstance(node, ast.Name) and node.id in _CONSTS:
+        return _CONSTS[node.id]
     if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
         return _OPS[type(node.op)](_calc(node.operand))
     if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
@@ -132,22 +162,36 @@ def _calc(node):
         if isinstance(node.op, ast.Pow) and (abs(right) > 100 or abs(left) > 1e6):
             raise ValueError("too big")
         return _OPS[type(node.op)](left, right)
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _FUNCS
+            and not node.keywords and 1 <= len(node.args) <= 2):
+        return _FUNCS[node.func.id](*[_calc(a) for a in node.args])
     raise ValueError(f"not arithmetic: {ast.dump(node)[:40]}")
 
 
 def _fmt(x) -> str:
     if isinstance(x, float) and not x.is_integer():
-        return f"{round(x, 2):g}"
+        r = round(x, 2)
+        return f"{r:g}" if r != 0 or x == 0 else f"{x:.2g}"
     return f"{int(x):,}".replace(",", "") if abs(x) < 1e15 else f"{x:g}"
 
 
+_BARE_CALL = re.compile(r"\b(" + "|".join(sorted(_FUNCS, key=len, reverse=True)) + r")\s+(-?[\d.]+|pi|e)\b")
+
+
+def _tidy(expr: str) -> str:
+    """How models actually write maths: "cos 60", "sin 30°", "2^10"."""
+    expr = expr.replace("°", "").replace("^", "**").replace("×", "*").replace("÷", "/")
+    return _BARE_CALL.sub(r"\1(\2)", expr).strip()
+
+
 def fill_math(text: str) -> str:
-    """Replace [[expression]] with its exact value, computed by code, not by the model."""
+    """Replace [[expression]] with its exact value, computed by code, not by the model.
+    Raises MathError if any expression can't be computed (she then says so, never "that")."""
     def one(m):
         try:
-            return _fmt(_calc(ast.parse(m.group(1).strip(), mode="eval")))
-        except (ValueError, SyntaxError, ZeroDivisionError, OverflowError, TypeError):
-            return "that"
+            return _fmt(_calc(ast.parse(_tidy(m.group(1)), mode="eval")))
+        except (ValueError, SyntaxError, ZeroDivisionError, OverflowError, TypeError) as e:
+            raise MathError(m.group(1)) from e
     return _MATH.sub(one, text)
 
 
@@ -182,11 +226,15 @@ class Talker:
             return {}
         return out if isinstance(out, dict) else {}
 
-    async def _say(self, user: str) -> str:
+    async def _say(self, user: str, model: str | None = None, reasoning: str | None = None) -> str:
         try:
-            return clean(fill_math(await self._groq.chat(PERSONA, user))) or FALLBACK
+            raw = await self._groq.chat(PERSONA + "\n\n" + capabilities.sheet(), user, model=model, reasoning=reasoning)
         except TalkError:
             return FALLBACK
+        try:
+            return clean(fill_math(raw)) or FALLBACK
+        except MathError:
+            return CANT_COMPUTE
 
     async def reply(self, utterance: str, facts: dict) -> str:
         lines = "\n".join(f"- {FACT_LABELS.get(k, k)}: {v}" for k, v in facts.items() if v)

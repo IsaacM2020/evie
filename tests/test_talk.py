@@ -145,9 +145,44 @@ def test_fill_math_computes_bracketed_expressions():
 
 
 def test_fill_math_refuses_anything_but_arithmetic():
-    assert fill_math("[[__import__('os').system('ls')]]") == "that"
-    assert fill_math("[[1/0]]") == "that"
-    assert fill_math("[[9**9**9]]") == "that"  # too big: never hang Evie
+    from evie.talk import MathError
+    for bad in ("[[__import__('os').system('ls')]]", "[[1/0]]", "[[9**9**9]]", "[[open('x')]]", "[[x+1]]"):
+        with pytest.raises(MathError):
+            fill_math(bad)
+
+
+def test_fill_math_does_trig_in_degrees_and_more():
+    # 2026-09-23: "what's cos 60" came out as "That's that." (no trig in the evaluator)
+    assert fill_math("[[cos(60)]]") == "0.5"
+    assert fill_math("[[sin(30)]] and [[tan(45)]]") == "0.5 and 1"
+    assert fill_math("[[cosr(pi)]]") == "-1"
+    assert fill_math("[[sqrt(2)]]") == "1.41"
+    assert fill_math("[[log(1000)]] [[ln(e)]] [[factorial(5)]]") == "3 1 120"
+    assert fill_math("[[degrees(asin(0.5))]]") == "30"
+    assert fill_math("[[round(2/3, 3)]]") == "0.67"
+
+
+def test_fill_math_rejects_huge_factorials():
+    from evie.talk import MathError
+    with pytest.raises(MathError):
+        fill_math("[[factorial(5000)]]")
+
+
+@respx.mock
+async def test_a_sum_she_cant_compute_is_said_honestly_not_that():
+    respx.post(URL).mock(return_value=ok("That's [[foo(3)]]."))
+    assert await talker().reply("what's foo 3", {}) == "I couldn't work that one out exactly, sorry."
+
+
+@respx.mock
+async def test_reply_and_clarify_know_what_evie_can_do():
+    route = respx.post(URL).mock(return_value=ok("Sure."))
+    t = talker()
+    await t.reply("can you check my calendar", {})
+    await t.clarify("add it", "a detail is missing")
+    for call in route.calls:
+        content = json.loads(call.request.content)["messages"][0]["content"]
+        assert "read and change Isaac's calendar" in content and "can't yet" in content
 
 
 @respx.mock
@@ -199,3 +234,10 @@ async def test_quick_groq_call_is_never_duplicated():
     route = respx.post(URL).mock(return_value=ok("hi"))
     assert await GroqClient(S, hedge_after_s=0.5).chat("sys", "user") == "hi"
     assert route.call_count == 1
+
+
+def test_fill_math_reads_how_models_actually_write_it():
+    assert fill_math("[[cos 60]]") == "0.5"
+    assert fill_math("[[sin 30°]]") == "0.5"
+    assert fill_math("[[2^10]]") == "1024"
+    assert fill_math("[[sqrt 16 + 1]]") == "5"
