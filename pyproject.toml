@@ -17,6 +17,8 @@ dependencies = [
   "websockets>=17.1",
   "pocket-tts>=3.1.0",
   "sounddevice>=0.5.6",
+  "sherpa-onnx>=1.13.8",
+  "sherpa-onnx-core==1.13.8",
 ]
 
 [project.scripts]
