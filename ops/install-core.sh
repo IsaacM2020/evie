@@ -3,6 +3,8 @@ set -euo pipefail
 mkdir -p ~/Library/Logs/Evie
 cp "$(dirname "$0")/com.isaac.evie.core.plist" ~/Library/LaunchAgents/
 launchctl bootout "gui/$(id -u)/com.isaac.evie.core" 2>/dev/null || true
+# bootout returns before the old core has fully exited; bootstrapping too early fails with "5: Input/output error"
+for i in $(seq 1 20); do launchctl print "gui/$(id -u)/com.isaac.evie.core" >/dev/null 2>&1 || break; sleep 0.5; done
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.isaac.evie.core.plist
 for i in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fsS http://127.0.0.1:8765/status; then echo; echo "core up"; exit 0; fi
