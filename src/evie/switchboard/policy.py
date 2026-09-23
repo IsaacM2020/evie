@@ -17,7 +17,7 @@ class Action(str, Enum):
 
 @dataclass(frozen=True)
 class Thresholds:
-    ignore_below: float = 0.35
+    ignore_below: float = 0.50
     act_at: float = 0.70
     answer_act_at: float = 0.60
     unknown_speaker_penalty: float = 0.10

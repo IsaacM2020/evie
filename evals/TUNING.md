@@ -16,3 +16,4 @@ Jev determinism: baseline run twice, 0 action flips, probabilities move by about
 | 2 | `for_evie`: name + command is for Evie even in a call; mentioning her is not | 0 | **0.036** | 1.0 | 0.964 | 0.952 | 0.963 | 679 | 1 (i04 now ignored) | yes |
 | 3 | `route_conf_min` 0.70 → 0.60 | 0 | 0.036 | 1.0 | 0.964 | 0.952 | 0.963 | - | 3 (e06 fixed; b01,b08 jitter at 0.71-0.76 vs act_at) | yes |
 | 4 | `act_at` 0.75 → 0.70 (bare commands like 'pause' sat at 0.71-0.76); policy test moved to 0.75 | 0 | 0.071 | 1.0 | 0.946 | 0.952 | 0.963 | 527 | 3 (b01,b08 now act; c11 jitter: route coin-flip at conf 0.30) | yes |
+| 5 | `ignore_below` 0.35 → 0.50 (real commands never below 0.71; Isaac's non-Evie speech 0.26-0.59) | 0 | 0.036 | 1.0 | 0.946 | 0.952 | 0.963 | 852 | 1 (c11 now ignored + follow-up) | yes |
