@@ -133,7 +133,7 @@ Cost: about **$0.04 per 1,000 sentences** (full 70-case run = $0.0026). Jev is c
 
 **STT (speech to text).** Whisper is a model that turns audio into text. `mlx-whisper` runs it on the M4's GPU, so your voice never leaves the Mac. We use the small English model: 0.3s per sentence, vs 1.2s for the big one.
 
-**TTS (text to speech).** Kokoro is a small (82M parameter) voice model that runs locally on CPU. About 0.7s to render a short sentence. The three most common lines ("On it.", "Was that for me?", "Can't do that one yet.") are rendered once at startup, so they play instantly.
+**TTS (text to speech).** Kyutai **Pocket TTS** (voice "alba", 24 kHz) runs locally on CPU and *streams*: the first audio chunk is ready ~30 ms after a line starts, and it's written straight to the speakers while the rest is still being made (it generates ~8x faster than real time). The three most common lines ("On it.", "Was that for me?", "Can't do that one yet.") are rendered once at startup. (Phase 1 first shipped with Kokoro, which rendered whole sentences in ~0.7 s; swapped the same day.)
 
 **Agent SDK.** Anthropic's Python library that drives Claude Code the same way you do in the terminal, but from code. We get a stream of messages (tool calls, text, final result), which is what the narrator listens to.
 
@@ -141,7 +141,7 @@ Cost: about **$0.04 per 1,000 sentences** (full 70-case run = $0.0026). Jev is c
 
 **TCC (macOS permissions).** macOS asks the *app* for Mic, Calendar and Accessibility (needed to see the Fn key while other apps are in front). That's why the Swift app owns those three and the Python core never asks for anything. Signing with your Apple Development cert gives the app a stable identity, so the grants survive rebuilds.
 
-**Barge-in.** Pressing Fn while Evie is talking kills the audio instantly (`afplay` is a process we can kill).
+**Barge-in.** Pressing Fn while Evie is talking stops her within 50 ms: audio is written in 50 ms slices and a cancel flag is checked between slices.
 
 ## Who does what
 
@@ -149,8 +149,8 @@ Cost: about **$0.04 per 1,000 sentences** (full 70-case run = $0.0026). Jev is c
 |---|---|---|
 | Ears + eyes | Swift app | Fn key, mic recording, Calendar, the panel |
 | Reflex | Jev | for_evie / route / complete / event (Phase 0), plus `job_op` and `worth_saying` |
-| Words | Groq `gpt-oss-20b` | answers, clarifying questions, narration lines, job summaries |
-| Voice | Kokoro (local) | text to audio, one line at a time |
+| Words | Groq `qwen/qwen3.8-27b`, thinking off (~220 ms) | answers, clarifying questions, narration lines, job summaries, JSON details |
+| Voice | Pocket TTS (local, streaming) | text to audio, first sound ~30 ms after a line starts |
 | Hands | Claude Code (Agent SDK) | the actual work, one job at a time |
 | Rules | plain Python | who can command, thresholds, 10s narration gap, rm guard |
 
@@ -160,7 +160,7 @@ Cost: about **$0.04 per 1,000 sentences** (full 70-case run = $0.0026). Jev is c
 |---|---|
 | `src/evie/calendar_store.py` | Keeps the calendar snapshot the app pushes; "Tomorrow: 9:00 Math, 14:30 iGEM" |
 | `src/evie/talk.py` | Groq client + Talker (reply / clarify / narrate / summarize) + `clean()` so text is safe to speak |
-| `src/evie/voice.py` | Kokoro `Synth` + `Mouth`, the speech queue (replies first, old narrations dropped, stop = barge-in) |
+| `src/evie/voice.py` | `PocketVoice` (streaming) + `SpeakerOut` (50 ms slices) + `Mouth`, the speech queue (replies first, old narrations dropped, stop = barge-in) |
 | `src/evie/stt.py` | `Transcriber`: local Whisper (Groq as a switch), skips clips under 0.3s, fixes "Eevee" to "Evie" |
 | `src/evie/jobs.py` | `JobRunner` for Claude Code, the rm/sudo/force-push guard, and `describe()` (tool call to one short line) |
 | `src/evie/narrator.py` | Asks Jev "worth saying?" per job step, plus the gap/cap rules; speaks the summary at the end |
@@ -195,7 +195,21 @@ You hold 🌐 and say: **"Evie, look through the Evie repo for functions longer 
 - **Mid-job instructions are queued as the next turn**, not injected mid-stream. The SDK's response stream ends at the first result; injecting mid-stream risked waiting forever for a result that never comes. Cost: "also add a test" runs right after the current step finishes.
 - **The rm guard is a Claude Code hook, not a prompt.** A prompt can be ignored; a PreToolUse hook blocks the command before it runs. Tested live: the job tried `rm keep.txt` and the file survived.
 
-## Numbers (2026-09-23)
+## The speed pass (same day, after Isaac's "make it almost instant")
+
+| change | saved |
+|---|---|
+| Pocket TTS streams to the speakers instead of Kokoro rendering whole lines | ~0.7 s → ~30 ms to first sound |
+| Groq Qwen 3.8 27B with thinking off instead of gpt-oss-20b | ~220 ms per line |
+| **Speculative draft**: when Isaac held the key, Groq starts writing the answer *while* Jev decides; if Jev picks anything but "answer", the draft is thrown away | Groq's time hides under Jev's |
+| **Keep-warm**: a HEAD ping to Jev and Groq every 20 s keeps the TLS connections open | the ~500 ms cold-call penalty |
+| **Earcons**: "Tink" on Fn down, "Pop" on release, played by the app itself | feels instant even before anything else happens |
+| **Maths by code**: Groq writes `[[0.18*240]]`, a safe evaluator fills in 43.2 (Qwen once said 54.32) | wrong numbers |
+| **Memory fix**: launchd ran `uv run`, which left the real Python orphaned on every restart (7 copies, ~2 GB each). The plist now runs `.venv/bin/evie-core` directly, the installer kills strays, and the MLX cache is capped at 64 MB | ~13 GB of RAM; one core now sits at ~1.1-1.4 GB |
+
+Result: audio arriving at the core → first sound went from **2.5-3 s to 0.73-1.4 s**.
+
+## Numbers (2026-09-23, before the speed pass)
 
 | what | result |
 |---|---|
@@ -212,5 +226,145 @@ You hold 🌐 and say: **"Evie, look through the Evie repo for functions longer 
 - **Narration was silent in all three demos.** Short jobs (20-160 s) mostly run tool steps, which are rightly skipped. The "3-5 useful narrations" bar needs a real multi-minute job to judge.
 - **If Jev can't be reached, Evie says nothing** (the Phase 0 safety rule). During one demo a network drop made three questions in a row go silent. That needs a decision: see the Phase 1 wrap-up.
 - **One job at a time.** A second deep_job gets "Still on X. Say stop first."
-- **quick_action and remember** answer "Can't do that one yet" until Phase 3.
-- **Speaker is still always "me"** in voice mode. Voice ID is Phase 2.
+- ~~quick_action and remember~~: done in Phase 3.
+- ~~Speaker is always "me"~~: voice ID arrived in Phase 2.
+
+# Phase 2: open ears
+
+## The big idea in 5 lines
+
+1. With the open mic on, the app streams the mic to the core all the time (16 kHz, 32 ms frames). No key needed.
+2. A **VAD** finds where sentences start and stop. A **voice ID** model checks who's talking: someone else's words are dropped right there, before Whisper and long before anything reaches the cloud.
+3. Isaac's (and unclear) sentences go to Whisper, then to Jev *without* the "he held the key" hint, so Jev and the policy decide whether it was for Evie at all.
+4. Evie talks like a person now: "Was that for me?" → "yeah" runs it; "Which song?" → "Espresso" fills it in; "and Friday?" right after an answer counts as a follow-up; "stop" works instantly with no network.
+5. It ships in **shadow mode** first: she decides everything and logs "would have done X" in the panel and the pill, but does nothing, until Isaac flips it to Live.
+
+## Background concepts
+
+**VAD (voice activity detection).** Silero VAD (2 MB, via sherpa-onnx) answers one question per 32 ms frame: is someone talking? Well under 1 ms per frame on the CPU.
+
+**Endpointing, and cheating time.** A sentence ends after 600 ms of silence (shorter cuts people off mid-thought). But at 250 ms of silence the Segmenter emits a **Peek**: voice ID and Whisper start on the sentence-so-far. If Isaac keeps talking, the early work is thrown away (Resume). If he doesn't, the End arrives and the early result is simply reused. That hides Whisper's ~300 ms inside the silence Evie had to wait for anyway.
+
+**Speaker embeddings.** WeSpeaker ResNet34 (26 MB) turns any clip into 256 numbers that describe the *voice*, not the words. Two clips of the same person point the same way. Cosine similarity: 1.0 = identical, ~0.45 = typical stranger.
+
+**The voiceprint learns from the talk key.** Every clip where Isaac held 🌐 is certainly him, so each one (1.5 s or longer) is added to his voiceprint automatically. After 8 clips (or 30 s) it's ready. There's also a "Teach my voice" card with 6 sentences to read. Only the 256 numbers are stored, never audio.
+
+**Echo.** Her own voice comes out of the speakers and into the mic. While she talks (and 0.4 s after), a sentence only counts if voice ID says Isaac *and* it doesn't sound like what she's saying (fuzzy text match). If Isaac talks over her, she stops, like a person would.
+
+## Who does what (new)
+
+| Part | Where | Job |
+|---|---|---|
+| Ears | Swift `Ears` | AVAudioEngine → 16 kHz int16 → 512-sample frames → `/ws/ears`, plus which app is in front (call apps = in a call) |
+| Sentences | `ears.Segmenter` + `Vad` | Start / Peek / Resume / End / Drop |
+| Who | `voiceid.VoiceId` | isaac (≥ 0.65) / unknown / other (< 0.45) |
+| Pipeline | `open_mic.OpenMic` | voice ID → drop others → Whisper → guards → Brain (addressed=False) |
+| Conversation | `brain.Brain` | pending question, follow-up window, stop, shadow |
+| Rail | `switchboard.policy` | an **unknown** voice on the open mic can get answers but can't make Evie *do* anything |
+
+## File map (new in Phase 2)
+
+| File | Job |
+|---|---|
+| `src/evie/ears.py` | `Segmenter` (pure state machine), `Vad`, wav/pcm helpers |
+| `src/evie/voiceid.py` | `VoicePrint` (json of embeddings), `VoiceId` (bars in one dataclass), `SpeakerEmbedder` |
+| `src/evie/open_mic.py` | `OpenMic`, `ModeStore` (off / shadow / live), `is_echo` |
+| `ops/get-ears-models.sh` | downloads the two models into App Support |
+| `mac/.../Ears.swift` | mic streaming + `FramePacker` |
+| `mac/.../Pill.swift` | the floating glass pill (drag it anywhere, never takes focus) |
+| `mac/.../MenuIcon.swift` | Evie's own menu bar mark, drawn in code: ring + what she's doing |
+| `evals/run_ears.py` | VAD + voice ID eval on synthetic voices, no Whisper or Jev |
+
+## One sentence, traced end to end
+
+Open mic on Live. Isaac, at his desk, no key: **"what's on friday"**.
+
+1. `Ears` sends 32 ms frames. The VAD flips to speech; after 3 speech frames the Segmenter says **Start** (with 300 ms of pre-roll so the first syllable isn't lost).
+2. He stops talking. The VAD lets go ~190 ms later. At 250 ms of silence: **Peek**. In the background, voice ID says `isaac (0.74)` and Whisper returns "What's on Friday?".
+3. At 600 ms of silence: **End**, and nothing new was said, so the Peek's result is reused.
+4. Guards: the key wasn't held, Evie isn't talking. `Brain.hear(text, "isaac", addressed=False)`.
+5. Jev sees the state *without* "he held the talk key", but with "Evie answered Isaac 6 seconds ago, so a short follow-up may be for her" (he'd just asked about tomorrow). for_evie 0.9, route answer → ACT.
+6. The answer's facts include the whole week from the Mac's calendar, and Groq writes the line.
+
+## Why each choice beat the alternatives
+
+- **The core does the listening logic, the app only streams.** The app has the mic permission; the core has the models. Keeping VAD, voice ID and Whisper in one process means one memory budget (about +60 MB over Phase 1) and one place to test.
+- **sherpa-onnx over Resemblyzer / SpeechBrain.** Those pull in librosa or torchaudio (hundreds of MB). sherpa-onnx is a 2 MB wheel plus its runtime, and does both VAD and speaker embeddings.
+- **Drop other voices *before* Whisper.** Faster, and other people's words never leave the Mac.
+- **Unknown can't act.** Voice ID has a grey zone. In it, Evie will answer a question but won't play, open, remember or run anything. She asks "Was that for me?", and only Isaac's matched voice can say yes to that.
+- **Shadow first.** The spec's ship gate is "near-zero false triggers on real recordings". A day of "would have done" rows is exactly that recording set, and costs nothing.
+- **Overheard chatter isn't kept as text.** Sentences that weren't for Evie are logged with their verdict but without their words.
+
+## Numbers (2026-09-23)
+
+| what | result |
+|---|---|
+| Ears eval: sentence found as exactly one segment | 32 / 32 |
+| Voice ID, synthetic "Isaac" vs 7 other voices (bar 0.65) | strangers let in: **0 / 20**; Isaac accepted 10 / 12 (short commands score lowest) |
+| End of speech → End event | ~800 ms (VAD lets go ~190 ms late + 600 ms wait); Peek at ~450 ms |
+| Text evals with 10 open-mic cases (85 total) | false_action **0**, all targets pass |
+| Memory | one core, 1.1-1.4 GB |
+
+## Known limits
+
+- **Voice ID bars come from synthetic voices.** Their margin is thin (closest stranger 0.62 vs bar 0.65). Real people differ more; the bar gets re-tuned from Isaac's real numbers after the shadow day (core.log logs every similarity).
+- **"In a call" only knows call apps in front** (Zoom, FaceTime, Teams, Webex), not a Meet tab.
+- **Short answers can't be voice-matched** ("yes", "4pm" are under 1 s), so while a question is pending, any voice that isn't clearly someone else can answer it, unless the original sentence was itself from an unclear voice.
+
+# Phase 3: fast hands + remember
+
+## The big idea in 5 lines
+
+1. The one Jev call now also answers **which skill** (13 fast skills + "other") and **where a remember goes** (task / event / fact). Same call, answered in parallel, so no extra time.
+2. Plain code reads the details it can: "volume 30", "ten minutes", "open vs code". Groq only fills in free text (a song, a web address, an event's date) as JSON.
+3. Things that need macOS permissions run in the **Evie app** ("the hands"): Spotify via AppleScript, Calendar via EventKit. The core sends a `do` command, the app sends back the result.
+4. Every action is checked (did the volume change? is that song playing?), logged to `actions.jsonl`, and most can be undone ("undo that").
+5. Anything that isn't a fast skill, or that Jev isn't sure about, goes to **Claude Code**, the general hands.
+
+## The skills
+
+| skill | how | checked by |
+|---|---|---|
+| play a song / artist / playlist | Spotify Web API search (the app's own key, no login, no Premium) → app tells Spotify `play track <uri>` | current track = that uri |
+| pause / resume / next / previous / what's playing | app → AppleScript → Spotify | player state |
+| volume (number, up/down, mute) | `osascript set volume` in the core (no permission needed) | reads it back |
+| open an app | Jev picks from the **real list of installed apps** (it can't invent one); `open -a` | app is running |
+| open a website / search | Groq → URL; only `http(s)` with a real host name gets opened | - |
+| timers | asyncio in the core, saved to disk, survive restarts | - |
+| undo | last 10 actions: volume back, event deleted, task deleted, fact forgotten, timer cancelled | - |
+| remember → task | Todoist API v1, due date in Isaac's words ("tomorrow at 5") | Todoist returns an id |
+| remember → event | Groq → date + time; code checks it's real, future, < 1 year; app → EventKit; clash check | EventKit returns an id |
+| remember → fact | local `facts.jsonl`; the latest 20 go into every answer | - |
+
+## One sentence, traced end to end
+
+"**Evie, I have the dentist next Wednesday.**"
+
+1. Jev (one call, ~400 ms): route `remember`, remember_to `event`, complete **0.2** (no time). Policy → CLARIFY "missing detail".
+2. Groq writes the question: "What time on Wednesday?" The Brain stores a **pending question** (15 s).
+3. Isaac: "**4pm**". Too short for voice ID (unknown), but it's an answer to her question, so it's merged: "I have the dentist next Wednesday. 4pm", addressed.
+4. Jev: remember → event, complete now high → ACT. Groq returns `{"title": "Dentist", "date": "2026-09-30", "time": "16:00"}`. Code checks it and builds 16:00-17:00 SGT.
+5. Core → app: `do calendar_add` (id, expires in 5 s). The app saves it with EventKit and posts back the event id. The clash check finds iGEM 15:30-17:30.
+6. "**Added Dentist, Wednesday 30 Sep at 4pm. Heads up, it overlaps iGEM.**" And "undo that" would delete it.
+
+## Why each choice beat the alternatives
+
+- **Skill + destination in the same Jev call.** A second call would add ~350 ms to every action. Measured: the one call stayed at p50 ~400 ms / p95 ~550 ms.
+- **The app is the hands.** macOS gives Automation and Calendar permissions to apps, not to a launchd Python process. osascript is started *by* Evie.app, so macOS asks "Evie wants to control Spotify" once, and it sticks. This is also the channel Fluid (3b) will use.
+- **Ids and expiry on every command.** A reconnecting app never replays "play" or "add event", and a late result never lands on the wrong command.
+- **Spotify search with client credentials + AppleScript playback.** No Isaac login, no 7-day token, no Premium requirement.
+- **Unsure goes to Claude Code.** A wrong fast skill (muting the speakers when he said "mute my mic") is worse than a slower right answer.
+
+## Numbers (2026-09-23)
+
+| what | result |
+|---|---|
+| Evals, 128 cases (43 new skill/remember) | false_action **0**, recall 1.0, route 0.977, complete 0.958, skill **0.968**, remember_to **0.917**, p50 410 / p95 554 ms |
+| Tests | 372 offline + 17 live (Spotify search, Todoist add+delete, ears models, …) |
+| App selftest | 22 checks |
+
+## Known limits
+
+- **Bare "evie mute" goes to Claude Code** (Jev says "other" at 0.72): slow but not wrong. "Mute my mic" correctly goes to Claude Code too.
+- **Messages are not a fast skill.** WhatsApp has no API; sending as Isaac comes with Fluid (3b), with a read-back and a 3 s "stop" window on the pill.
+- **Spotify playback and Calendar writes were checked by tests, not live.** Isaac's demo is the live check (and the one-time "Evie wants to control Spotify" prompt).
