@@ -48,5 +48,12 @@ class JevClient:
             return JevResult(answers, ms, float(data.get("usage", {}).get("cost", 0.0)))
         raise last
 
+    async def warm(self) -> None:
+        """Keep the TLS connection open (a cold call is ~500 ms slower). Never raises."""
+        try:
+            await self._http.head(self._s.jev_url)
+        except httpx.HTTPError:
+            pass
+
     async def aclose(self) -> None:
         await self._http.aclose()

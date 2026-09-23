@@ -4,6 +4,7 @@ Switchboard (Jev) gives the verdict. This file maps each verdict + route to an a
 speak an answer, ask a question, start a Claude Code job, control the running job, or stay
 quiet. Everything that happens goes onto the event bus so the menu bar panel can show it.
 """
+import asyncio
 import json
 import logging
 import re
@@ -62,12 +63,23 @@ class Brain:
         job = self._runner.current
         ctx = Context(utterance=text, speaker=speaker, recent=tuple(self._turns),
                       active_jobs=(job.goal,) if job else (), addressed=addressed)
-        o = await self._sb.handle(ctx)
+        # Speed: when Isaac is talking to Evie, draft the spoken answer while Jev decides.
+        # If Jev picks "answer" the words are ready; otherwise the draft is dropped.
+        draft = asyncio.create_task(self._talker.reply(text, self._facts())) if addressed else None
+        try:
+            o = await self._sb.handle(ctx)
+        except BaseException:
+            if draft:
+                draft.cancel()
+            raise
         # On ACT the policy's pick wins (it can differ from Jev's top route when addressed).
         route = o.verdict.reason if o.verdict.action == Action.ACT else (o.decision.route if o.decision else None)
         t_verdict = time.perf_counter()
         self._bus.publish("verdict", action=o.verdict.action.value, reason=o.verdict.reason, route=route)
-        said = await self._act(o.verdict, route, text)
+        if draft and not (o.verdict.action == Action.ACT and route == "answer"):
+            draft.cancel()
+            draft = None
+        said = await self._act(o.verdict, route, text, draft)
         t_said = time.perf_counter()
         if said:
             self._turns.append(f'Isaac: "{text}" / Evie: "{said}"')
@@ -82,7 +94,7 @@ class Brain:
         return {"text": text, "action": o.verdict.action.value, "reason": o.verdict.reason,
                 "route": route, "said": said}
 
-    async def _act(self, verdict, route: str | None, text: str) -> str | None:
+    async def _act(self, verdict, route: str | None, text: str, draft: asyncio.Task | None = None) -> str | None:
         if verdict.action == Action.IGNORE:
             return None
         if verdict.action == Action.CLARIFY:
@@ -93,7 +105,7 @@ class Brain:
                     text, "it's unclear whether he wants an answer, a job done, or something else"))
             return self._clip("for_me")
         if route == "answer":
-            return self._say(await self._talker.reply(text, self._facts()))
+            return self._say(await draft if draft else await self._talker.reply(text, self._facts()))
         if route == "deep_job":
             return await self._start_job(text)
         if route == "job_control":

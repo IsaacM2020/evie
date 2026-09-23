@@ -62,6 +62,13 @@ class GroqClient:
             return text
         raise last
 
+    async def warm(self) -> None:
+        """Keep the TLS connection open so Evie's first answer isn't slow. Never raises."""
+        try:
+            await self._http.head(f"{self._s.groq_url}/models")
+        except httpx.HTTPError:
+            pass
+
     async def aclose(self) -> None:
         await self._http.aclose()
 

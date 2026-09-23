@@ -125,3 +125,10 @@ def test_clean_keeps_underscores_inside_names():
 
 def test_clean_strips_underscore_emphasis():
     assert clean("That's _really_ done") == "That's really done"
+
+
+@respx.mock
+async def test_groq_warm_is_a_head_request():
+    route = respx.head("https://api.groq.com/openai/v1/models").respond(200)
+    await GroqClient(S).warm()
+    assert route.call_count == 1

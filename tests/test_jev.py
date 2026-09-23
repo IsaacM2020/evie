@@ -52,3 +52,10 @@ async def test_missing_answer_raises():
     respx.post(URL).respond(200, json={"answers": {}, "usage": {}})
     with pytest.raises(JevError, match="missing answers"):
         await JevClient(S).ask("s", Q)
+
+
+@respx.mock
+async def test_warm_sends_a_cheap_head_and_never_raises():
+    route = respx.head("https://openrouter.ai/api/v1/systemone").mock(side_effect=httpx.ConnectError("down"))
+    await JevClient(S).warm()
+    assert route.call_count == 1

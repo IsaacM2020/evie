@@ -22,8 +22,15 @@ _NAME_FIXES = re.compile(r"\beevee\b", re.IGNORECASE)
 
 
 def _mlx_transcribe(path: str) -> str:
+    import mlx.core as mx
     import mlx_whisper  # heavy import, only when local Whisper actually runs
-    return mlx_whisper.transcribe(path, path_or_hf_repo=MODEL)["text"]
+    # MLX keeps GPU scratch buffers cached after each run: ~1.6 GB for small.en. Capping the
+    # cache and clearing it after each sentence keeps it ~0.9 GB for ~20 ms (measured 2026-09-23).
+    mx.set_cache_limit(64 * 1024 * 1024)
+    try:
+        return mlx_whisper.transcribe(path, path_or_hf_repo=MODEL)["text"]
+    finally:
+        mx.clear_cache()
 
 
 def _seconds(audio: bytes) -> float:

@@ -3,10 +3,11 @@
 App -> core over HTTP: audio (/voice), typed text (/hear), calendar snapshots (/calendar).
 Core -> app over one WebSocket (/ws): everything that happens, live.
 """
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Awaitable, Callable, Literal
 
@@ -62,7 +63,19 @@ class Deps:
     stt: object | None = None
     runner: object | None = None
     warm: Callable[[], Awaitable[dict]] | None = None
+    pings: list = field(default_factory=list)  # keep-warm callables
     close: Callable[[], Awaitable[None]] | None = None
+
+
+async def keep_warm(pings: list[Callable[[], Awaitable[None]]], interval_s: float = 20.0) -> None:
+    """Every interval, touch each API connection so it never goes cold."""
+    while True:
+        for ping in pings:
+            try:
+                await ping()
+            except Exception:
+                log.debug("keep-warm ping failed", exc_info=True)
+        await asyncio.sleep(interval_s)
 
 
 def _job_dict(job) -> dict | None:
@@ -84,7 +97,10 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         if probe:
             o = await d.sb.handle(Context(utterance="what time is it", speaker="isaac"))
             app.state.jev_ok = o.decision is not None
+        warmer = asyncio.create_task(keep_warm(d.pings)) if d.pings else None
         yield
+        if warmer:
+            warmer.cancel()
         if d.runner:
             await d.runner.shutdown()
         if d.close:
@@ -201,7 +217,8 @@ def build_deps(s: Settings) -> Deps:
     sb = Switchboard(jev)
     bus = EventBus()
     cal = CalendarStore()
-    talker = Talker(GroqClient(s))
+    groq = GroqClient(s)
+    talker = Talker(groq)
     voice = PocketVoice()
 
     def on_say(text: str) -> None:
@@ -236,7 +253,7 @@ def build_deps(s: Settings) -> Deps:
         await stt.aclose()
 
     return Deps(sb=sb, calendar=cal, bus=bus, brain=brain, mouth=mouth, stt=stt, runner=runner,
-                warm=warm, close=close)
+                warm=warm, close=close, pings=[jev.warm, groq.warm])
 
 
 def main() -> None:

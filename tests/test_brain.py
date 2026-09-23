@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime
 
@@ -290,3 +291,50 @@ async def test_unsure_what_you_meant_asks_a_real_question():
     b, p = brain(FakeSwitchboard("clarify", "unsure what you meant", "answer"))
     await b.hear("the igem thing")
     assert p["talker"].calls[0][0] == "clarify" and p["mouth"].clips == []
+
+
+class SlowSwitchboard(FakeSwitchboard):
+    def __init__(self, *a, log=None, **kw):
+        super().__init__(*a, **kw)
+        self.log = log
+
+    async def handle(self, ctx):
+        self.log.append("jev start")
+        await asyncio.sleep(0.05)
+        self.log.append("jev done")
+        return await super().handle(ctx)
+
+
+class LoggingTalker(FakeTalker):
+    def __init__(self, log):
+        super().__init__()
+        self.log = log
+
+    async def reply(self, utterance, facts):
+        self.log.append("groq start")
+        return await super().reply(utterance, facts)
+
+
+async def test_answer_is_drafted_while_jev_decides():
+    log = []
+    b, p = brain(SlowSwitchboard("act", "answer", "answer", log=log))
+    b._talker = LoggingTalker(log)
+    await b.hear("what's on tomorrow")
+    assert log.index("groq start") < log.index("jev done")
+    assert p["mouth"].said == ["It's 4pm."]
+
+
+async def test_drafted_answer_is_dropped_when_jev_picks_a_job():
+    log = []
+    b, p = brain(SlowSwitchboard("act", "deep_job", "deep_job", log=log))
+    b._talker = LoggingTalker(log)
+    await b.hear("fix the chase bug")
+    assert p["mouth"].said == [] and p["mouth"].clips == ["on_it"]
+
+
+async def test_no_draft_for_speech_not_addressed_to_evie():
+    log = []
+    b, _ = brain(SlowSwitchboard("ignore", "not for Evie", "not_for_evie", log=log))
+    b._talker = LoggingTalker(log)
+    await b.hear("mom I've got the dentist", addressed=False)
+    assert "groq start" not in log

@@ -96,10 +96,12 @@ final class AppModel: ObservableObject {
         switch ptt.handle(input) {
         case .startRecording:
             guard online, !micDenied, recorder.start() else { ptt = PushToTalk(); return }
+            Earcon.listening.play()
             state = "listening"
             Task { await core.voiceStart() }
         case .stopAndSend:
             guard let wav = recorder.stop() else { state = "idle"; return }
+            Earcon.gotIt.play()
             state = "thinking"
             Task {
                 if await core.voice(wav) == nil { error = "Couldn't reach Evie's core." }
@@ -222,5 +224,23 @@ final class AppModel: ObservableObject {
             self.error = "Couldn't change Open at login"
         }
         launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+}
+
+// Instant, local feedback on the key itself: nothing waits on the network or the core.
+enum Earcon {
+    case listening, gotIt
+
+    private static let sounds: [Earcon: NSSound] = {
+        var m: [Earcon: NSSound] = [:]
+        if let s = NSSound(named: "Tink") { s.volume = 0.25; m[.listening] = s }
+        if let s = NSSound(named: "Pop") { s.volume = 0.3; m[.gotIt] = s }
+        return m
+    }()
+
+    func play() {
+        guard let s = Earcon.sounds[self] else { return }
+        s.stop()
+        s.play()
     }
 }
