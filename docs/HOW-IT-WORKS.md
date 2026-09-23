@@ -1,4 +1,8 @@
-# How Evie's brain works (Phase 0)
+# How Evie works
+
+Phase 0 (the decider) is first; Phase 1 (voice + deep work) is below it.
+
+# Phase 0: the decider
 
 ## The big idea in 5 lines
 
@@ -38,7 +42,6 @@ Because Jev can only answer inside those types, it can't invent a route that doe
 | `src/evie/switchboard/policy.py` | The rules: probabilities in, act/clarify/ignore out |
 | `src/evie/switchboard/__init__.py` | `Switchboard.handle()`, which glues the above together. If Jev fails, Evie does nothing |
 | `src/evie/server.py` | Local web server on `127.0.0.1:8765`: `GET /status`, `POST /decide` |
-| `src/evie/gcal.py` | Read-only Google Calendar. Re-logs in by itself if the token dies |
 | `evals/cases.jsonl` | The 70 labelled test sentences |
 | `evals/metrics.py` | Scoring + targets |
 | `evals/run.py` | Runs every case against live Jev, prints the report, saves the run, shows "flips" vs the last run |
@@ -109,8 +112,105 @@ Cost: about **$0.04 per 1,000 sentences** (full 70-case run = $0.0026). Jev is c
 
 ## Known limits
 
-- **Typed input only.** Voice (Whisper) arrives in Phase 1.
 - **Speaker is a manual picker** ("Me / Someone else"). Real voice ID comes in Phase 2. Until then, "only Isaac commands" is only as good as that picker.
 - **The 70 sentences are written by us, not recorded.** Real transcripts will be messier. Phase 2 adds real recordings of Spanish class, mom, YouTube, etc.
 - **Watch `c09`:** "play the one from yesterday", said to someone asking about car music, scores 0.75 "for Evie". Only the missing-detail rule stops it from acting. It's the first thing to re-test with real audio.
 - **Holdout soft spots:** "also add a test for it" (with a job running) gets "was that for me?" instead of just doing it.
+
+---
+
+# Phase 1: talk while it works
+
+## The big idea in 5 lines
+
+1. Hold 🌐 (Fn), talk, let go. The menu bar app records your voice and sends the WAV to the core.
+2. The core turns it into text (local Whisper), asks Jev what to do (Phase 0's switchboard, unchanged), and acts.
+3. Real work goes to **Claude Code running in the background** (Agent SDK, in ~/IsaacOS with all your context). Evie says "On it." right away.
+4. While the job runs, you can keep talking: ask questions, check on it, add instructions, or stop it. Jev decides which job steps are worth saying out loud.
+5. When the job finishes, Groq squeezes the result into two spoken sentences.
+
+## Background concepts
+
+**STT (speech to text).** Whisper is a model that turns audio into text. `mlx-whisper` runs it on the M4's GPU, so your voice never leaves the Mac. We use the small English model: 0.3s per sentence, vs 1.2s for the big one.
+
+**TTS (text to speech).** Kokoro is a small (82M parameter) voice model that runs locally on CPU. About 0.7s to render a short sentence. The three most common lines ("On it.", "Was that for me?", "Can't do that one yet.") are rendered once at startup, so they play instantly.
+
+**Agent SDK.** Anthropic's Python library that drives Claude Code the same way you do in the terminal, but from code. We get a stream of messages (tool calls, text, final result), which is what the narrator listens to.
+
+**WebSocket.** A connection that stays open so the core can *push* events to the app the moment they happen (heard, verdict, said, job step). HTTP can only answer when asked.
+
+**TCC (macOS permissions).** macOS asks the *app* for Mic, Calendar and Accessibility (needed to see the Fn key while other apps are in front). That's why the Swift app owns those three and the Python core never asks for anything. Signing with your Apple Development cert gives the app a stable identity, so the grants survive rebuilds.
+
+**Barge-in.** Pressing Fn while Evie is talking kills the audio instantly (`afplay` is a process we can kill).
+
+## Who does what
+
+| Part | Where | Job |
+|---|---|---|
+| Ears + eyes | Swift app | Fn key, mic recording, Calendar, the panel |
+| Reflex | Jev | for_evie / route / complete / event (Phase 0), plus `job_op` and `worth_saying` |
+| Words | Groq `gpt-oss-20b` | answers, clarifying questions, narration lines, job summaries |
+| Voice | Kokoro (local) | text to audio, one line at a time |
+| Hands | Claude Code (Agent SDK) | the actual work, one job at a time |
+| Rules | plain Python | who can command, thresholds, 10s narration gap, rm guard |
+
+## File map (new in Phase 1)
+
+| File | Job |
+|---|---|
+| `src/evie/calendar_store.py` | Keeps the calendar snapshot the app pushes; "Tomorrow: 9:00 Math, 14:30 iGEM" |
+| `src/evie/talk.py` | Groq client + Talker (reply / clarify / narrate / summarize) + `clean()` so text is safe to speak |
+| `src/evie/voice.py` | Kokoro `Synth` + `Mouth`, the speech queue (replies first, old narrations dropped, stop = barge-in) |
+| `src/evie/stt.py` | `Transcriber`: local Whisper (Groq as a switch), skips clips under 0.3s, fixes "Eevee" to "Evie" |
+| `src/evie/jobs.py` | `JobRunner` for Claude Code, the rm/sudo/force-push guard, and `describe()` (tool call to one short line) |
+| `src/evie/narrator.py` | Asks Jev "worth saying?" per job step, plus the gap/cap rules; speaks the summary at the end |
+| `src/evie/brain.py` | One sentence in: verdict, then act (answer / job / job control / clarify / not yet). Logs timing |
+| `src/evie/events.py` | The event bus the WebSocket reads |
+| `src/evie/server.py` | `/voice`, `/voice/start`, `/hear`, `/job`, `/job/stop`, `/calendar`, `/ws`, plus Phase 0's `/decide` |
+| `mac/.../PushToTalk.swift` | The Fn state machine (tap or Fn+arrow = cancel) |
+| `mac/.../Recorder.swift` | Mic to 16 kHz WAV |
+| `mac/.../EventFeed.swift` | WebSocket client, reconnects every 2s |
+| `mac/.../CalendarFeed.swift` | EventKit, next 8 days, pushed every 5 min + on change + when the core restarts |
+| `evals/narration.jsonl`, `evals/run_narration.py` | 25 labelled job steps for the narrator |
+
+## One sentence, traced end to end
+
+You hold 🌐 and say: **"Evie, look through the Evie repo for functions longer than 40 lines…"** (real run, demo 3).
+
+1. **Fn down.** `PushToTalk` returns `startRecording`. The app starts `Recorder` and calls `POST /voice/start`, which stops anything Evie is saying and publishes `state: listening`. The icon turns into a mic.
+2. **Fn up** (held ≥ 0.25s). `stopAndSend`: the WAV goes to `POST /voice`.
+3. **Whisper**, 507 ms: "Look through the EV repo for functions longer than 40 lines…" (it dropped the "Evie," and misheard the name, which is fine).
+4. **Jev switchboard**, ~630 ms: route `deep_job`, confident, complete. Policy says ACT.
+5. **Brain**: plays the cached "On it." clip (instant), strips the wake word, and calls `runner.start(goal)`. Total from audio arriving to "On it." queued: **1.14 s**.
+6. **Claude Code** starts in ~/IsaacOS. Each tool call becomes a line: "Ran: cd ~/Elemental/Water/evie && …". The narrator asks Jev whether each line is worth saying: 0.16, 0.13, 0.10… all routine, so she stays quiet.
+7. **You ask mid-job**: "Evie, what's on tomorrow?" → answer route → Groq gets the real calendar from the app's EventKit snapshot → "Tomorrow's all-day Vedant's birthday, then school at 8…" spoken 1.5 s later, while the job keeps running.
+8. **Job done** at 41 s. Groq summary: "Got the rundown, Isaac. We'll split create_app first, then tackle PanelView." Spoken as a reply. The panel's job card clears.
+
+## Why each choice beat the alternatives
+
+- **App owns permissions, core owns the brain.** A background Python process can't show macOS permission popups properly, and ad-hoc signing forgets grants every build. The app is signed once and asks once.
+- **Whisper small.en vs large-v3-turbo vs Groq.** Measured on the same 3s clip: 315 ms / 1190 ms / 340-760 ms. Turbo alone blew the 1s "On it." budget; Groq's time swings with the network. Small.en is local, private and steady.
+- **Cached ack clips.** Rendering "On it." takes ~0.7s. Rendering it once at startup makes the ack free.
+- **Jev decides narration, not Groq.** Jev answers a yes/no in ~0.4s for $0.00003 and can't ramble. Groq only writes the words once Jev says yes. Plain rules (10 s gap, max 6 per job) stop her chattering even if Jev is keen.
+- **Mid-job instructions are queued as the next turn**, not injected mid-stream. The SDK's response stream ends at the first result; injecting mid-stream risked waiting forever for a result that never comes. Cost: "also add a test" runs right after the current step finishes.
+- **The rm guard is a Claude Code hook, not a prompt.** A prompt can be ignored; a PreToolUse hook blocks the command before it runs. Tested live: the job tried `rm keep.txt` and the file survived.
+
+## Numbers (2026-09-23)
+
+| what | result |
+|---|---|
+| Phase 0 eval, all 72 cases (after one Phase 1 tweak) | false_action **0**, recall 1.0, route 0.972, complete 0.923, event 0.943, p95 640 ms |
+| Narration eval, 25 steps | accuracy 0.96, false-yes 0.0, recall 0.889 |
+| Audio arrives → "On it." queued | 1.14 s, 1.27 s, 1.14 s (Whisper 460-560 ms + Jev 570-800 ms). Target was ≤ 1.0 s: **just missed** |
+| Typed question → spoken answer starts | ~1.9 s (Jev + Groq + Kokoro render) |
+| Mid-job answer from the calendar | 1.5 s |
+| Tests | 158 offline + 12 live |
+
+## Known limits
+
+- **"On it." takes ~1.15 s, not under 1 s.** Jev is slower in real use (~600 ms) than in evals (~400 ms). The next lever is a tiny "got it" click when Fn is released.
+- **Narration was silent in all three demos.** Short jobs (20-160 s) mostly run tool steps, which are rightly skipped. The "3-5 useful narrations" bar needs a real multi-minute job to judge.
+- **If Jev can't be reached, Evie says nothing** (the Phase 0 safety rule). During one demo a network drop made three questions in a row go silent. That needs a decision: see the Phase 1 wrap-up.
+- **One job at a time.** A second deep_job gets "Still on X. Say stop first."
+- **quick_action and remember** answer "Can't do that one yet" until Phase 3.
+- **Speaker is still always "me"** in voice mode. Voice ID is Phase 2.
