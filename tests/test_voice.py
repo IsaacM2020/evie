@@ -154,3 +154,22 @@ async def test_on_quiet_fires_once_when_queue_drains():
     await settle()
     assert quiet == [1]
     await m.aclose()
+
+
+class BrokenOncePlayer(FakePlayer):
+    async def play(self, path):
+        if not self.played:
+            self.played.append("boom")
+            raise OSError("afplay missing")
+        await super().play(path)
+
+
+async def test_player_crash_does_not_kill_the_mouth():
+    p = BrokenOncePlayer()
+    m = mouth(player=p)
+    m.say("first")
+    m.say("second")
+    m.start()
+    await settle()
+    assert p.played == ["boom", "second"] and not m.speaking
+    await m.aclose()

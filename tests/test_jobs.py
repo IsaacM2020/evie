@@ -18,6 +18,13 @@ from evie.jobs import Busy, JobRunner, bash_hook, describe, guard_bash
     ("git push --force origin main", True),
     ("git push -f", True),
     ("git reset --hard HEAD~3", True),
+    ("\\rm a.txt", True),
+    ("command rm a.txt", True),
+    ("env rm -rf build", True),
+    ("FOO=1 nohup rm a", True),
+    ("bash -c \"rm -rf build\"", True),
+    ("sh -c 'cd x && rm y'", True),
+    ("bash -c 'echo hi'", False),
     ("trash a.txt", False),
     ("git push origin main", False),
     ("echo rm is blocked", False),
@@ -219,3 +226,27 @@ async def test_live_guard_blocks_rm_inside_claude_code(tmp_path):
     await r.start("Run exactly this Bash command and nothing else: rm keep.txt . Then tell me what happened.")
     await asyncio.wait_for(r.wait(), timeout=120)
     assert (tmp_path / "keep.txt").exists()
+
+
+class SlowCloseClient(FakeClient):
+    def __init__(self, turns):
+        super().__init__(turns)
+        self.closing = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def __aexit__(self, *exc):
+        self.closing.set()
+        await self.release.wait()
+        self.closed = True
+
+
+async def test_instruction_during_wrap_up_is_refused_not_lost():
+    rec = Recorder()
+    c = SlowCloseClient([[text("done"), result("all done")]])
+    r = runner(c, rec)
+    job = await r.start("x")
+    await c.closing.wait()
+    assert await r.add_instruction("also add a test") is False
+    c.release.set()
+    await r.wait()
+    assert job.status == "done" and c.queries == ["x"]

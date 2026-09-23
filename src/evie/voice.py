@@ -134,6 +134,8 @@ class Mouth:
             self.speaking = self._spoke = True
             try:
                 await self._player.play(path)
+            except Exception:  # a broken player must never leave Evie mute for good
+                log.exception("couldn't play %r", line.text)
             finally:
                 self.speaking = False
                 if line.clip is None:

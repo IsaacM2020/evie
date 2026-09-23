@@ -52,9 +52,17 @@ async def test_5xx_then_ok_retries():
 
 
 @respx.mock
-async def test_timeout_gives_fallback():
-    respx.post(URL).mock(side_effect=httpx.ReadTimeout("slow"))
+async def test_timeout_gives_fallback_without_a_second_wait():
+    route = respx.post(URL).mock(side_effect=httpx.ReadTimeout("slow"))
     assert await talker().clarify("evie play that song", "missing detail") == FALLBACK
+    assert route.call_count == 1  # one 4s wait, not two
+
+
+@respx.mock
+async def test_connect_error_retries_once():
+    route = respx.post(URL).mock(side_effect=[httpx.ConnectError("blip"), ok("Hi.")])
+    assert await talker().reply("hi", {}) == "Hi."
+    assert route.call_count == 2
 
 
 @respx.mock

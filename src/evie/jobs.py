@@ -26,15 +26,25 @@ WORKER_NOTE = (
 
 _SEGMENT = re.compile(r"&&|\|\||;|\||\n|\$\(|`")
 _ENV = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_WRAPPERS = {"command", "builtin", "env", "nohup", "time", "exec"}  # run the next word as the program
+_SHELLS = {"bash", "sh", "zsh"}
 
 
 def guard_bash(command: str) -> str | None:
     """Return why a shell command is blocked, or None if it's fine."""
     for seg in _SEGMENT.split(command):
         words = [w for w in seg.strip().split() if not _ENV.match(w)]
+        while words and words[0] in _WRAPPERS:
+            words = [w for w in words[1:] if not _ENV.match(w)]
         if not words:
             continue
-        prog = Path(words[0]).name
+        prog = Path(words[0].lstrip("\\")).name  # \rm skips aliases but is still rm
+        if prog in _SHELLS and "-c" in words:
+            inner = " ".join(words[words.index("-c") + 1:]).strip("'\"")
+            reason = guard_bash(inner)
+            if reason:
+                return reason
+            continue
         if prog == "sudo":
             return "sudo is blocked for Evie jobs."
         if prog == "rm" or (prog == "xargs" and "rm" in words[1:]) or \
@@ -148,6 +158,10 @@ class JobRunner:
                     self._queued = []
                     job.status = "running"
                     await client.query(text)
+                # Finished before the client closes (which takes a moment), so an "also…" said
+                # now is refused ("nothing running") instead of accepted and silently dropped.
+                if job.status == "running":
+                    job.status = "done"
         except asyncio.CancelledError:
             job.status = "stopped"
             raise

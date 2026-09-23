@@ -45,7 +45,9 @@ class GroqClient:
         for _ in range(2):
             try:
                 r = await self._http.post(f"{self._s.groq_url}/chat/completions", json=body, headers=headers)
-            except httpx.TransportError as e:  # includes timeouts
+            except httpx.TimeoutException as e:  # already waited the full budget: give up
+                raise TalkError(f"timeout: {e!r}") from e
+            except httpx.TransportError as e:  # a quick blip (e.g. connect failed): one retry
                 last = TalkError(f"network: {e!r}")
                 continue
             if r.status_code >= 500:
