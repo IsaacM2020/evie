@@ -53,3 +53,8 @@ def test_active_jobs_clipped_and_capped():
     jobs = line.removeprefix("Evie is currently working on: ").split("; ")
     assert len(jobs) == 3
     assert all(len(j) <= MAX_RECENT_CHARS for j in jobs)
+
+
+def test_addressed_is_told_to_jev():
+    assert "held Evie's talk key" in render_state(Context(utterance="edit the cricket files", addressed=True))
+    assert "talk key" not in render_state(Context(utterance="edit the cricket files"))

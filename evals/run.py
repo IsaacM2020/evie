@@ -38,6 +38,7 @@ def to_context(c: dict) -> Context:
         front_app=c.get("front_app", ""),
         recent=tuple(c.get("recent", [])),
         active_jobs=tuple(c.get("jobs", [])),
+        addressed=c.get("addressed", False),
     )
 
 

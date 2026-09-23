@@ -54,15 +54,17 @@ class Brain:
         self._bus, self._jev, self._log = bus, jev, turns_log
         self._turns: deque[str] = deque(maxlen=MAX_TURNS)
 
-    async def hear(self, text: str, speaker: str = "isaac") -> dict:
+    async def hear(self, text: str, speaker: str = "isaac", addressed: bool = True) -> dict:
+        """addressed: Isaac held the talk key or typed to Evie (always true until Phase 2's open mic)."""
         t0 = time.perf_counter()
         self._bus.publish("heard", text=text)
         self._bus.publish("state", state="thinking")
         job = self._runner.current
         ctx = Context(utterance=text, speaker=speaker, recent=tuple(self._turns),
-                      active_jobs=(job.goal,) if job else ())
+                      active_jobs=(job.goal,) if job else (), addressed=addressed)
         o = await self._sb.handle(ctx)
-        route = o.decision.route if o.decision else None
+        # On ACT the policy's pick wins (it can differ from Jev's top route when addressed).
+        route = o.verdict.reason if o.verdict.action == Action.ACT else (o.decision.route if o.decision else None)
         t_verdict = time.perf_counter()
         self._bus.publish("verdict", action=o.verdict.action.value, reason=o.verdict.reason, route=route)
         said = await self._act(o.verdict, route, text)
@@ -86,6 +88,9 @@ class Brain:
         if verdict.action == Action.CLARIFY:
             if verdict.reason == "missing detail":
                 return self._say(await self._talker.clarify(text, "a detail is missing"))
+            if verdict.reason == "unsure what you meant":
+                return self._say(await self._talker.clarify(
+                    text, "it's unclear whether he wants an answer, a job done, or something else"))
             return self._clip("for_me")
         if route == "answer":
             return self._say(await self._talker.reply(text, self._facts()))

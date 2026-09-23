@@ -57,3 +57,34 @@ def test_low_route_confidence_clarifies():
 def test_thresholds_are_injectable():
     strict = Thresholds(act_at=0.95)
     assert decide(D(for_evie=0.9), "isaac", strict).action is Action.CLARIFY
+
+
+def Dp(for_evie, probs, complete=0.9):
+    route = max(probs, key=probs.get)
+    return Decision(for_evie, route, probs[route], probs, complete, 0.0, 250.0, 0.0)
+
+
+def test_addressed_skips_the_is_it_for_me_gate():
+    # "How's the iGEM website looking" said while holding the talk key: for_evie 0.62
+    v = decide(Dp(0.62, {"answer": 0.9, "not_for_evie": 0.1}), "isaac", addressed=True)
+    assert v.action is Action.ACT and v.reason == "answer"
+
+
+def test_addressed_uses_best_real_route_when_jev_says_not_for_evie():
+    v = decide(Dp(0.3, {"not_for_evie": 0.5, "deep_job": 0.45, "answer": 0.05}), "isaac", addressed=True)
+    assert v.action is Action.ACT and v.reason == "deep_job"
+
+
+def test_addressed_but_route_unclear_asks_what_he_meant():
+    v = decide(Dp(0.8, {"answer": 0.4, "deep_job": 0.35, "quick_action": 0.25}), "isaac", addressed=True)
+    assert v.action is Action.CLARIFY and v.reason == "unsure what you meant"
+
+
+def test_addressed_still_needs_detail():
+    v = decide(Dp(0.9, {"quick_action": 1.0}, complete=0.1), "isaac", addressed=True)
+    assert v.action is Action.CLARIFY and v.reason == "missing detail"
+
+
+def test_addressed_never_overrides_another_speaker():
+    v = decide(Dp(0.9, {"deep_job": 1.0}), "other", addressed=True)
+    assert v.action is Action.IGNORE

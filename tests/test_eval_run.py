@@ -18,3 +18,9 @@ def test_to_context_maps_fields():
     ctx = to_context(case)
     assert ctx.speaker == "isaac" and ctx.in_call and ctx.front_app == "Zoom"
     assert ctx.recent == ("a",) and ctx.active_jobs == ("fixing x",)
+
+
+def test_to_context_reads_addressed():
+    from evals.run import to_context
+    assert to_context({"utterance": "x", "addressed": True}).addressed is True
+    assert to_context({"utterance": "x"}).addressed is False

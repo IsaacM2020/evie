@@ -12,7 +12,8 @@ ROUTES = {
     "answer": "A question Evie answers by talking: the time, the date, maths, a fact, "
               "what is on Isaac's calendar",
     "deep_job": "Real work that takes minutes: fixing or writing code, researching a topic, "
-                "editing files or documents, multi-step tasks",
+                "editing files or documents, multi-step tasks, or checking on one of Isaac's own "
+                "projects, websites or files",
     "job_control": "About a task Evie is already working on: asking how it is going, stopping it, "
                    "or adding an instruction to it. While Evie is working on something, a follow-up "
                    "that starts with 'also' or 'and' adds to that task",

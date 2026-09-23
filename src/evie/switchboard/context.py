@@ -33,6 +33,7 @@ class Context:
     front_app: str = ""
     recent: tuple[str, ...] = ()
     active_jobs: tuple[str, ...] = ()
+    addressed: bool = False  # Isaac held the talk key or typed to Evie: definitely for her
 
 
 def _clip(text: str, limit: int) -> str:
@@ -47,6 +48,8 @@ def render_state(ctx: Context) -> str:
         f"Speaker of the latest speech: {SPEAKER_DESC[ctx.speaker]}",
         f"Isaac is in a video call or online class: {'yes' if ctx.in_call else 'no'}",
     ]
+    if ctx.addressed:
+        lines.append("Isaac held Evie's talk key while saying this, so it is meant for Evie.")
     if ctx.front_app:
         lines.append(f"App in front: {ctx.front_app}")
     if ctx.active_jobs:

@@ -36,10 +36,12 @@ class Verdict:
 NEEDS_DETAIL = {"quick_action", "deep_job", "remember"}
 
 
-def decide(d: Decision, speaker: str, t: Thresholds = Thresholds()) -> Verdict:
+def decide(d: Decision, speaker: str, t: Thresholds = Thresholds(), addressed: bool = False) -> Verdict:
     followup = d.has_event >= t.event_at
     if speaker == "other":
         return Verdict(Action.IGNORE, "not Isaac's voice", followup)
+    if addressed:
+        return _addressed(d, t, followup)
     if d.route == "not_for_evie" or d.for_evie < t.ignore_below:
         return Verdict(Action.IGNORE, "not for Evie", followup)
     bar = t.answer_act_at if d.route == "answer" else t.act_at
@@ -50,3 +52,17 @@ def decide(d: Decision, speaker: str, t: Thresholds = Thresholds()) -> Verdict:
     if d.route in NEEDS_DETAIL and d.complete < t.incomplete_below:
         return Verdict(Action.CLARIFY, "missing detail")
     return Verdict(Action.ACT, d.route)
+
+
+def _addressed(d: Decision, t: Thresholds, followup: bool) -> Verdict:
+    """Isaac held the talk key (or typed to Evie), so it IS for her. Jev only picks the route."""
+    probs = {r: p for r, p in d.route_probs.items() if r != "not_for_evie"}
+    total = sum(probs.values())
+    if not probs or total <= 0:
+        return Verdict(Action.CLARIFY, "unsure what you meant", followup)
+    route = max(probs, key=probs.get)
+    if probs[route] / total < t.route_conf_min:
+        return Verdict(Action.CLARIFY, "unsure what you meant", followup)
+    if route in NEEDS_DETAIL and d.complete < t.incomplete_below:
+        return Verdict(Action.CLARIFY, "missing detail", followup)
+    return Verdict(Action.ACT, route, followup)

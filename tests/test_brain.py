@@ -261,3 +261,32 @@ async def test_live_job_op(said, op):
                         JOB_OP_Q)
     await jev.aclose()
     assert res.answers["job_op"]["choice"] == op
+
+
+class PolicyPickedSwitchboard(FakeSwitchboard):
+    """Jev's top route was not_for_evie, but the policy (addressed) picked deep_job."""
+
+    async def handle(self, ctx):
+        self.contexts.append(ctx)
+        d = Decision(0.3, "not_for_evie", 0.5, {"not_for_evie": 0.5, "deep_job": 0.45}, 0.9, 0.0, 300.0, 0.0)
+        return Outcome(ctx, d, Verdict(Action.ACT, "deep_job"))
+
+
+async def test_act_uses_the_route_the_policy_picked():
+    b, p = brain(PolicyPickedSwitchboard())
+    out = await b.hear("please edit the cricket files")
+    assert p["runner"].started == ["please edit the cricket files"] and out["route"] == "deep_job"
+
+
+async def test_voice_and_typed_input_count_as_addressed():
+    sb = FakeSwitchboard("act", "answer", "answer")
+    b, _ = brain(sb)
+    await b.hear("hows the igem website looking")
+    await b.hear("overheard thing", addressed=False)
+    assert [c.addressed for c in sb.contexts] == [True, False]
+
+
+async def test_unsure_what_you_meant_asks_a_real_question():
+    b, p = brain(FakeSwitchboard("clarify", "unsure what you meant", "answer"))
+    await b.hear("the igem thing")
+    assert p["talker"].calls[0][0] == "clarify" and p["mouth"].clips == []

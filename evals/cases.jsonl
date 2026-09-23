@@ -70,3 +70,6 @@
 {"id":"i04","cat":"mention","utterance":"yeah evie can do that","speaker":"isaac","recent":["can your ai book appointments"],"expect":{"for_evie":false,"route":"not_for_evie","complete":null,"has_event":false}}
 {"id":"k01","cat":"direct","utterance":"evie hows it going","speaker":"isaac","expect":{"for_evie":true,"route":"answer","complete":null,"has_event":false}}
 {"id":"k02","cat":"job","utterance":"evie also tell me how many tests there are in total","speaker":"isaac","jobs":["look through the evie repo for functions longer than 40 lines"],"expect":{"for_evie":true,"route":"job_control","complete":null,"has_event":false}}
+{"id":"k04","cat":"direct","utterance":"hows the igem website looking like","speaker":"isaac","addressed":true,"expect":{"for_evie":true,"route":"deep_job","complete":true,"has_event":false}}
+{"id":"k05","cat":"direct","utterance":"how is the igem website looking like right now","speaker":"isaac","addressed":true,"expect":{"for_evie":true,"route":"deep_job","complete":true,"has_event":false}}
+{"id":"k06","cat":"direct","utterance":"please edit the cricket files","speaker":"isaac","addressed":true,"expect":{"for_evie":true,"route":"deep_job","complete":null,"has_event":false}}
