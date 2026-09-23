@@ -1,67 +1,75 @@
-"""Evie's mouth: Kokoro turns text into audio, and Mouth plays it one line at a time.
+"""Evie's mouth: Pocket TTS streams audio straight to the speakers while it's still being made.
 
-Replies jump ahead of job narrations, old narrations get dropped instead of said late, and
-stop() (Isaac pressing the talk key) cuts her off mid-sentence.
+First sound ~30 ms after a line starts (Pocket makes speech ~8x faster than real time on the
+M4), so nothing is rendered to a file first. Replies jump ahead of job narrations, stale
+narrations get dropped, and stop() (Isaac pressing the talk key) cuts her off mid-word.
 """
 import asyncio
 import logging
-import tempfile
+import threading
 import time
-import wave
 from collections import deque
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Callable, Literal, Protocol
+from typing import Callable, Iterable, Iterator, Literal, Protocol
+
+import numpy as np
 
 log = logging.getLogger("evie.voice")
 
-KOKORO_DIR = Path.home() / "Library/Application Support/Evie/kokoro"
 ACKS = {"on_it": "On it.", "for_me": "Was that for me?", "not_yet": "Can't do that one yet."}
+VOICE = "alba"  # Pocket TTS predefined voice
 
 
-class Synth:
-    def __init__(self, model_dir: Path = KOKORO_DIR, voice: str = "af_heart", speed: float = 1.1):
-        from kokoro_onnx import Kokoro  # heavy import, only when a real voice is needed
-        self._k = Kokoro(str(model_dir / "kokoro-v1.0.onnx"), str(model_dir / "voices-v1.0.bin"))
-        self._voice, self._speed = voice, speed
-        self._dir = Path(tempfile.mkdtemp(prefix="evie-voice-"))
-        self._n = 0
+class PocketVoice:
+    """Kyutai Pocket TTS on CPU. Not thread safe: only the Mouth's player thread calls it."""
 
-    def render(self, text: str) -> Path:
-        import numpy as np
-        samples, rate = self._k.create(text, voice=self._voice, speed=self._speed, lang="en-us")
-        self._n += 1
-        path = self._dir / f"say-{self._n}.wav"
-        with wave.open(str(path), "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(rate)
-            w.writeframes((np.clip(samples, -1, 1) * 32767).astype("<i2").tobytes())
-        return path
+    def __init__(self, voice: str = VOICE):
+        from pocket_tts import TTSModel  # heavy import (torch), only when the real voice is needed
+        self._m = TTSModel.load_model()
+        self._state = self._m.get_state_for_audio_prompt(voice)
+        self.rate = self._m.sample_rate
 
-    def prepare_clips(self) -> dict[str, Path]:
+    def chunks(self, text: str) -> Iterator[np.ndarray]:
+        for c in self._m.generate_audio_stream(self._state, text):
+            yield c.numpy().astype(np.float32)
+
+    def render(self, text: str) -> np.ndarray:
+        return np.concatenate(list(self.chunks(text)))
+
+    def prepare_clips(self) -> dict[str, np.ndarray]:
         return {name: self.render(text) for name, text in ACKS.items()}
 
 
-class Player(Protocol):
-    async def play(self, path: Path) -> None: ...
-    def kill(self) -> None: ...
+class Out(Protocol):
+    def play(self, chunks: Iterable[np.ndarray] | np.ndarray, cancel: threading.Event,
+             on_start: Callable[[], None] | None = None) -> bool: ...
 
 
-class AfPlayer:
-    """Plays a file with macOS's afplay, in a process we can kill for barge-in."""
+class SpeakerOut:
+    """Writes float32 audio to the default output as it arrives; cancel stops it within ~50 ms."""
 
-    def __init__(self) -> None:
-        self._proc: asyncio.subprocess.Process | None = None
+    SLICE = 1200  # 50 ms at 24 kHz: how often cancel is checked
 
-    async def play(self, path: Path) -> None:
-        self._proc = await asyncio.create_subprocess_exec("afplay", str(path))
-        await self._proc.wait()
-        self._proc = None
+    def __init__(self, rate: int):
+        self.rate = rate
 
-    def kill(self) -> None:
-        if self._proc and self._proc.returncode is None:
-            self._proc.terminate()
+    def play(self, chunks, cancel, on_start=None) -> bool:
+        import sounddevice as sd
+        if isinstance(chunks, np.ndarray):
+            chunks = [chunks]
+        started = False
+        with sd.OutputStream(samplerate=self.rate, channels=1, dtype="float32", latency="low") as s:
+            for chunk in chunks:
+                for i in range(0, len(chunk), self.SLICE):
+                    if cancel.is_set():
+                        s.abort()
+                        return False
+                    if not started:
+                        started = True
+                        if on_start:
+                            on_start()
+                    s.write(chunk[i:i + self.SLICE].reshape(-1, 1))
+        return True
 
 
 @dataclass
@@ -70,19 +78,19 @@ class _Line:
     kind: Literal["reply", "narration"]
     created: float
     ttl_s: float | None = None
-    clip: Path | None = field(default=None)
+    clip: np.ndarray | None = field(default=None, repr=False)
 
 
 class Mouth:
-    def __init__(self, synth, player: Player, clock: Callable[[], float] = time.monotonic,
-                 on_say: Callable[[str], None] | None = None, clips: dict[str, Path] | None = None,
-                 on_quiet: Callable[[], None] | None = None):
-        self._synth, self._player, self._clock = synth, player, clock
-        self._on_say, self._on_quiet = on_say, on_quiet
+    def __init__(self, voice, out: Out, clock: Callable[[], float] = time.monotonic,
+                 on_say: Callable[[str], None] | None = None, clips: dict[str, np.ndarray] | None = None,
+                 on_quiet: Callable[[], None] | None = None, on_audio: Callable[[str], None] | None = None):
+        self._voice, self._out, self._clock = voice, out, clock
+        self._on_say, self._on_quiet, self._on_audio = on_say, on_quiet, on_audio
         self._clips = clips or {}
         self._queue: deque[_Line] = deque()
         self._wake = asyncio.Event()
-        self._gen = 0  # bumped by stop(), so a line rendered before a stop never plays after it
+        self._cancel = threading.Event()  # the current line's; stop() sets it
         self._task: asyncio.Task | None = None
         self.speaking = False
         self._spoke = False
@@ -92,7 +100,7 @@ class Mouth:
             self._task = asyncio.create_task(self._run())
 
     def say(self, text: str, kind: Literal["reply", "narration"] = "reply", ttl_s: float | None = None,
-            clip: Path | None = None) -> None:
+            clip: np.ndarray | None = None) -> None:
         line = _Line(text, kind, self._clock(), ttl_s, clip)
         if kind == "reply":
             idx = next((i for i, q in enumerate(self._queue) if q.kind == "narration"), len(self._queue))
@@ -105,9 +113,13 @@ class Mouth:
         self.say(ACKS[name], clip=self._clips.get(name))
 
     def stop(self) -> None:
-        self._gen += 1
         self._queue.clear()
-        self._player.kill()
+        self._cancel.set()
+
+    def _play(self, line: _Line, cancel: threading.Event) -> None:
+        audio = line.clip if line.clip is not None else self._voice.chunks(line.text)
+        on_start = (lambda: self._on_audio(line.text)) if self._on_audio else None
+        self._out.play(audio, cancel, on_start)
 
     async def _run(self) -> None:
         while True:
@@ -121,27 +133,19 @@ class Mouth:
             line = self._queue.popleft()
             if line.ttl_s is not None and self._clock() - line.created > line.ttl_s:
                 continue
-            gen = self._gen
-            try:
-                path = line.clip or await asyncio.to_thread(self._synth.render, line.text)
-            except Exception:
-                log.exception("couldn't render %r", line.text)
-                continue
-            if gen != self._gen:
-                continue
+            self._cancel = cancel = threading.Event()
             if self._on_say:
                 self._on_say(line.text)
             self.speaking = self._spoke = True
             try:
-                await self._player.play(path)
-            except Exception:  # a broken player must never leave Evie mute for good
-                log.exception("couldn't play %r", line.text)
+                await asyncio.to_thread(self._play, line, cancel)
+            except Exception:  # a voice or audio-device failure must never leave Evie mute for good
+                log.exception("couldn't speak %r", line.text)
             finally:
                 self.speaking = False
-                if line.clip is None:
-                    path.unlink(missing_ok=True)
 
     async def aclose(self) -> None:
+        self._cancel.set()
         if self._task:
             self._task.cancel()
             try:

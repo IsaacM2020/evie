@@ -1,39 +1,46 @@
 import asyncio
-from pathlib import Path
+import threading
 
+import numpy as np
 import pytest
 
 from evie.voice import ACKS, Mouth
 
 
-class FakeSynth:
+class FakeVoice:
+    """Stands in for Pocket TTS: 'audio' is just the text, one chunk per word."""
+
     def __init__(self, fail_on=()):
         self.fail_on = set(fail_on)
-        self.rendered = []
+        self.generated: list[str] = []
 
-    def render(self, text: str) -> Path:
+    def chunks(self, text):
         if text in self.fail_on:
-            raise RuntimeError("kokoro blew up")
-        self.rendered.append(text)
-        return Path(f"/tmp/{text}.wav")
+            raise RuntimeError("pocket blew up")
+        self.generated.append(text)
+        for w in text.split():
+            yield w
 
 
-class FakePlayer:
-    def __init__(self, hold=False):
+class FakeOut:
+    def __init__(self, hold=False, crash_first=False):
         self.played: list[str] = []
-        self.killed = 0
         self.hold = hold
-        self._gate = asyncio.Event()
+        self.crash_first = crash_first
+        self.release = threading.Event()
 
-    async def play(self, path: Path) -> None:
-        self.played.append(path.stem)
+    def play(self, chunks, cancel, on_start=None):
+        items = ["<clip>"] if isinstance(chunks, np.ndarray) else list(chunks)
+        if self.crash_first:
+            self.crash_first = False
+            raise OSError("no audio device")
+        if on_start:
+            on_start()
+        self.played.append(" ".join(items))
         if self.hold:
-            await self._gate.wait()
-            self._gate.clear()
-
-    def kill(self) -> None:
-        self.killed += 1
-        self._gate.set()
+            while not cancel.is_set() and not self.release.is_set():
+                cancel.wait(0.01)
+        return not cancel.is_set()
 
 
 class Clock:
@@ -44,110 +51,110 @@ class Clock:
         return self.t
 
 
-async def settle():
-    for _ in range(20):
-        await asyncio.sleep(0)
+async def settle(n=40):
+    for _ in range(n):
+        await asyncio.sleep(0.005)
 
 
-def mouth(synth=None, player=None, clock=None, said=None, clips=None):
-    m = Mouth(synth or FakeSynth(), player or FakePlayer(), clock=clock or Clock(),
-              on_say=(said.append if said is not None else None), clips=clips or {})
-    return m
+def mouth(voice=None, out=None, clock=None, said=None, clips=None, **kw):
+    return Mouth(voice or FakeVoice(), out or FakeOut(), clock=clock or Clock(),
+                 on_say=(said.append if said is not None else None), clips=clips or {}, **kw)
 
 
 async def test_plays_in_order_and_reports_what_was_said():
-    said, p = [], FakePlayer()
-    m = mouth(player=p, said=said)
+    said, out = [], FakeOut()
+    m = mouth(out=out, said=said)
     m.say("one")
     m.say("two")
     m.start()
     await settle()
-    assert p.played == ["one", "two"] and said == ["one", "two"]
+    assert out.played == ["one", "two"] and said == ["one", "two"]
     await m.aclose()
 
 
 async def test_reply_jumps_ahead_of_queued_narrations():
-    p = FakePlayer()
-    m = mouth(player=p)
+    out = FakeOut()
+    m = mouth(out=out)
     m.say("n1", kind="narration")
     m.say("n2", kind="narration")
     m.say("r1", kind="reply")
     m.start()
     await settle()
-    assert p.played == ["r1", "n1", "n2"]
+    assert out.played == ["r1", "n1", "n2"]
     await m.aclose()
 
 
 async def test_stale_narration_is_dropped():
-    p, clock = FakePlayer(), Clock()
-    m = mouth(player=p, clock=clock)
+    out, clock = FakeOut(), Clock()
+    m = mouth(out=out, clock=clock)
     m.say("old news", kind="narration", ttl_s=15)
     clock.t += 16
     m.say("fresh", kind="narration", ttl_s=15)
     m.start()
     await settle()
-    assert p.played == ["fresh"]
+    assert out.played == ["fresh"]
     await m.aclose()
 
 
-async def test_stop_kills_current_and_clears_queue():
-    p = FakePlayer(hold=True)
-    m = mouth(player=p)
+async def test_stop_cuts_her_off_and_clears_queue():
+    out = FakeOut(hold=True)
+    m = mouth(out=out)
     m.say("long answer")
     m.say("next thing")
     m.start()
     await settle()
-    assert m.speaking and p.played == ["long answer"]
+    assert m.speaking and out.played == ["long answer"]
     m.stop()
     await settle()
-    assert p.killed == 1 and p.played == ["long answer"] and not m.speaking
+    assert out.played == ["long answer"] and not m.speaking
     await m.aclose()
 
 
-async def test_synth_failure_is_skipped_and_queue_continues():
-    p = FakePlayer()
-    m = mouth(synth=FakeSynth(fail_on={"bad"}), player=p)
+async def test_voice_failure_is_skipped_and_queue_continues():
+    out = FakeOut()
+    m = mouth(voice=FakeVoice(fail_on={"bad"}), out=out)
     m.say("bad")
     m.say("good")
     m.start()
     await settle()
-    assert p.played == ["good"]
+    assert out.played == ["good"]
     await m.aclose()
 
 
-async def test_play_clip_uses_cached_file_without_rendering():
-    synth, p = FakeSynth(), FakePlayer()
-    m = mouth(synth=synth, player=p, clips={"on_it": Path("/tmp/on_it_cached.wav")})
+async def test_audio_device_crash_does_not_kill_the_mouth():
+    out = FakeOut(crash_first=True)
+    m = mouth(out=out)
+    m.say("first")
+    m.say("second")
+    m.start()
+    await settle()
+    assert out.played == ["second"] and not m.speaking
+    await m.aclose()
+
+
+async def test_play_clip_uses_cached_audio_without_generating():
+    voice, out = FakeVoice(), FakeOut()
+    m = mouth(voice=voice, out=out, clips={"on_it": np.zeros(10, dtype=np.float32)})
     m.play_clip("on_it")
     m.start()
     await settle()
-    assert p.played == ["on_it_cached"] and synth.rendered == []
+    assert out.played == ["<clip>"] and voice.generated == []
     await m.aclose()
 
 
-async def test_play_clip_without_cache_renders_the_ack_text():
-    synth = FakeSynth()
-    m = mouth(synth=synth)
+async def test_play_clip_without_cache_speaks_the_ack_text():
+    voice = FakeVoice()
+    m = mouth(voice=voice)
     m.play_clip("for_me")
     m.start()
     await settle()
-    assert synth.rendered == [ACKS["for_me"]]
+    assert voice.generated == [ACKS["for_me"]]
     await m.aclose()
-
-
-@pytest.mark.live
-def test_live_kokoro_renders_audio():
-    import wave
-
-    from evie.voice import Synth
-    path = Synth().render("hello Isaac")
-    with wave.open(str(path)) as w:
-        assert w.getnframes() / w.getframerate() > 0.3
 
 
 async def test_on_quiet_fires_once_when_queue_drains():
     quiet = []
-    m = Mouth(FakeSynth(), FakePlayer(), clock=Clock(), on_quiet=lambda: quiet.append(1))
+    m = mouth(on_quiet=lambda: quiet.append(1))
     m.say("one")
     m.say("two")
     m.start()
@@ -156,20 +163,22 @@ async def test_on_quiet_fires_once_when_queue_drains():
     await m.aclose()
 
 
-class BrokenOncePlayer(FakePlayer):
-    async def play(self, path):
-        if not self.played:
-            self.played.append("boom")
-            raise OSError("afplay missing")
-        await super().play(path)
-
-
-async def test_player_crash_does_not_kill_the_mouth():
-    p = BrokenOncePlayer()
-    m = mouth(player=p)
-    m.say("first")
-    m.say("second")
+async def test_first_audio_callback_fires_per_line():
+    started = []
+    m = mouth(on_audio=lambda text: started.append(text))
+    m.say("one")
     m.start()
     await settle()
-    assert p.played == ["boom", "second"] and not m.speaking
+    assert started == ["one"]
     await m.aclose()
+
+
+@pytest.mark.live
+def test_live_pocket_first_chunk_is_fast():
+    import time
+
+    from evie.voice import PocketVoice
+    v = PocketVoice()
+    t = time.perf_counter()
+    first = next(iter(v.chunks("Tomorrow you have school at eight.")))
+    assert (time.perf_counter() - t) < 0.3 and len(first) > 0

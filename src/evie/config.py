@@ -16,7 +16,7 @@ class Settings:
     jev_model: str = "jev-1.13"
     jev_url: str = "https://openrouter.ai/api/v1/systemone"
     jev_timeout_s: float = 3.0
-    groq_model: str = "openai/gpt-oss-20b"
+    groq_model: str = "qwen/qwen3.8-27b"  # ~220 ms on Groq with thinking off (2026-09-23)
     groq_url: str = "https://api.groq.com/openai/v1"
     groq_timeout_s: float = 4.0
     stt_backend: str = "local"

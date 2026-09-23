@@ -189,20 +189,20 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
 
 
 def build_deps(s: Settings) -> Deps:
-    """The real thing: Jev, Groq, Kokoro, Whisper, Claude Code, all wired to one event bus."""
+    """The real thing: Jev, Groq, Pocket TTS, Whisper, Claude Code, all wired to one event bus."""
     from evie.brain import Brain
     from evie.jobs import JobRunner
     from evie.narrator import Narrator
     from evie.stt import Transcriber
     from evie.talk import GroqClient, Talker
-    from evie.voice import AfPlayer, Mouth, Synth
+    from evie.voice import Mouth, PocketVoice, SpeakerOut
 
     jev = JevClient(s)
     sb = Switchboard(jev)
     bus = EventBus()
     cal = CalendarStore()
     talker = Talker(GroqClient(s))
-    synth = Synth()
+    voice = PocketVoice()
 
     def on_say(text: str) -> None:
         bus.publish("say", text=text)
@@ -213,7 +213,11 @@ def build_deps(s: Settings) -> Deps:
     def on_quiet() -> None:
         bus.publish("state", state="working" if runner and runner.current else "idle")
 
-    mouth = Mouth(synth, AfPlayer(), on_say=on_say, clips=synth.prepare_clips(), on_quiet=on_quiet)
+    def on_audio(text: str) -> None:  # the moment real sound starts: what Isaac actually hears
+        bus.publish("audio", text=text)
+
+    mouth = Mouth(voice, SpeakerOut(voice.rate), on_say=on_say, clips=voice.prepare_clips(),
+                  on_quiet=on_quiet, on_audio=on_audio)
     narrator = Narrator(jev, talker, mouth, bus)
     runner = JobRunner(narrator.on_event, narrator.on_done)
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev)

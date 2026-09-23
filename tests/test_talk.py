@@ -27,7 +27,8 @@ async def test_reply_sends_model_persona_and_facts():
     req = route.calls[0].request
     body = json.loads(req.content)
     assert req.headers["Authorization"] == "Bearer gsk-test"
-    assert body["model"] == "openai/gpt-oss-20b"
+    assert body["model"] == "qwen/qwen3.8-27b"
+    assert body["reasoning_effort"] == "none" and "include_reasoning" not in body
     assert "Evie" in body["messages"][0]["content"]
     assert "Current date and time: Tue 23 Sep, 16:05" in body["messages"][1]["content"]
     assert "what time is it" in body["messages"][1]["content"]
@@ -42,6 +43,15 @@ async def test_reply_labels_calendar_and_job_facts_in_plain_english():
     assert "Isaac's calendar today: Today: 9:00 Math" in content
     assert "Isaac's calendar tomorrow: x" in content
     assert "Evie's background job: Working on: fix it" in content
+
+
+@respx.mock
+async def test_gpt_oss_hides_its_reasoning():
+    route = respx.post(URL).mock(return_value=ok("ok"))
+    oss = Settings(openrouter_key="sk-or", groq_key="gsk-test", groq_model="openai/gpt-oss-20b")
+    await Talker(GroqClient(oss)).reply("hi", {})
+    body = json.loads(route.calls[0].request.content)
+    assert body["reasoning_effort"] == "low" and body["include_reasoning"] is False
 
 
 @respx.mock

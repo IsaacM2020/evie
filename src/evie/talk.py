@@ -37,8 +37,9 @@ class GroqClient:
             "model": self._s.groq_model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "max_tokens": max_tokens,
-            "reasoning_effort": "low",
-            "include_reasoning": False,
+            # Evie's lines are short: no thinking. gpt-oss can't switch it off, so hide it.
+            **({"reasoning_effort": "low", "include_reasoning": False}
+               if self._s.groq_model.startswith("openai/gpt-oss") else {"reasoning_effort": "none"}),
         }
         headers = {"Authorization": f"Bearer {self._s.groq_key}"}
         last: TalkError | None = None
