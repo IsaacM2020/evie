@@ -412,6 +412,7 @@ def build_deps(s: Settings) -> Deps:
     from evie.narrator import Narrator
     from evie.remember import Remember, Todoist
     from evie.countdown import Countdown
+    from evie.memory import Conversation
     from evie.skills.catalog import Skills
     from evie.skills.events import EventSkills
     from evie.skills.music import SpotifySearch
@@ -455,12 +456,13 @@ def build_deps(s: Settings) -> Deps:
     timers = Timers(lambda t: mouth.say(done_line(t), kind="reply"))
     skills = Skills(hands, talker, jev, System(), spotify, timers, apps=installed_apps)
     countdown = Countdown()
-    skills.events = EventSkills(hands, talker, jev, cal, skills, countdown)
+    conversation = Conversation()
+    skills.events = EventSkills(hands, talker, jev, cal, skills, countdown, conversation=conversation)
     todoist = Todoist(s.todoist_key)
     skills.tasks = TaskSkills(todoist, jev, skills)
     remember = Remember(talker, hands, todoist, FactStore(), cal, skills, timers=timers)
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember,
-                  countdown=countdown)
+                  countdown=countdown, conversation=conversation)
     stt = Transcriber(s, backend=s.stt_backend)
     open_mic, voiceid = build_ears(stt, brain, mouth, bus)
 

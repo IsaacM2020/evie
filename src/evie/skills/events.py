@@ -28,9 +28,10 @@ def _label(e: CalEvent, today: date) -> str:
 
 class EventSkills:
     def __init__(self, hands, talker, jev, calendar: CalendarStore, undo, countdown: Countdown,
-                 now: Callable[[], datetime] = lambda: datetime.now(TZ)):
+                 now: Callable[[], datetime] = lambda: datetime.now(TZ), conversation=None):
         self._hands, self._talker, self._jev, self._cal = hands, talker, jev, calendar
         self._undo, self._countdown, self._now = undo, countdown, now
+        self._conv = conversation  # so "move it to 5" knows what "it" is
 
     def _upcoming(self) -> list[CalEvent]:
         now = self._now()
@@ -52,7 +53,9 @@ class EventSkills:
         q = {"event": {"type": "choice", "instructions": "Which of Isaac's calendar events does he mean?",
                        "criteria": options}}
         try:
-            a = (await self._jev.ask(f'Isaac said: "{text}"', q)).answers["event"]
+            recent = self._conv.lines(4) if self._conv is not None else []
+            state = ("Recent conversation: " + " | ".join(recent) + "\n" if recent else "") + f'Isaac said: "{text}"'
+            a = (await self._jev.ask(state, q)).answers["event"]
         except (JevError, KeyError, TypeError):
             return "unsure"
         choice = a.get("choice")

@@ -764,3 +764,21 @@ async def test_her_name_first_in_isaacs_voice_marks_it_as_named():
     assert sb.contexts[0].named is True
     await b.hear("Evie, what time is it", "unknown", addressed=False)
     assert sb.contexts[1].named is False  # only Isaac's matched voice gets the benefit
+
+
+async def test_answers_see_todays_conversation(tmp_path):
+    from evie.memory import Conversation
+    b, p = brain(FakeSwitchboard("act", "answer", "answer"))
+    b._conv = Conversation(tmp_path)
+    await b.hear("what's on friday")
+    await b.hear("and what about saturday")
+    facts = p["talker"].calls[-1][2]
+    assert 'Isaac: "what\'s on friday" / Evie: "It\'s 4pm."' in facts["conversation"]
+
+
+async def test_overheard_chatter_never_enters_the_conversation(tmp_path):
+    from evie.memory import Conversation
+    b, p = brain(FakeSwitchboard("ignore", "not for Evie", "not_for_evie"))
+    b._conv = Conversation(tmp_path)
+    await b.hear("mom can you drive me", "isaac", addressed=False)
+    assert b._conv.lines() == []

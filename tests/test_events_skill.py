@@ -126,3 +126,23 @@ async def test_stop_cancels_the_delete():
 async def test_none_of_these_events():
     s, _ = skills(jev=FakeJev(choice="none"))
     assert (await s.delete("delete the dentist")).said == "I can't find that on your calendar."
+
+
+async def test_it_means_the_event_just_talked_about():
+    class Conv:
+        def lines(self, n=12):
+            return ['10:00 Isaac: "when is sax tomorrow" / Evie: "Sax Class is at 4:45pm."']
+
+    jev = FakeJev()
+    seen = []
+    orig = jev.ask
+
+    async def ask(state, q):
+        seen.append(state)
+        return await orig(state, q)
+
+    jev.ask = ask
+    s, _ = skills(jev=jev)
+    s._conv = Conv()
+    await s.move("move it to 5")
+    assert "Sax Class is at 4:45pm" in seen[0] and 'Isaac said: "move it to 5"' in seen[0]

@@ -37,6 +37,8 @@ FACT_LABELS = {
     "calendar_tomorrow": "Isaac's calendar tomorrow",
     "calendar_week": "Isaac's calendar for the rest of the week",
     "job": "Evie's background job",
+    "conversation_earlier": "Earlier today with Isaac, in short",
+    "conversation": "What you and Isaac said today, oldest first (use it for follow-ups like 'move it to 5' or 'what about Friday')",
     "things_isaac_told_evie": "Things Isaac asked Evie to remember",
 }
 
@@ -243,6 +245,18 @@ class Talker:
             f'Isaac said: "{utterance}"\n'
             "Answer him. If what you know doesn't cover it, say so briefly. Never make up events or facts."
         )
+
+    async def sum_up(self, summary: str, turns: list[dict]) -> str:
+        """Three plain lines covering the older part of today's conversation (not spoken)."""
+        convo = "\n".join(f'Isaac: {t["isaac"]} / Evie: {t["evie"]}' for t in turns[-60:])
+        try:
+            out = await self._groq.chat(
+                "Summarise a conversation between Isaac and his assistant Evie in at most three short "
+                "plain sentences: what he asked for, what got done, anything still open.",
+                f"Summary so far: {summary or 'none'}\n\nConversation:\n{convo}", max_tokens=200)
+        except TalkError:
+            return summary
+        return " ".join(out.split())
 
     async def clarify(self, utterance: str, reason: str) -> str:
         return await self._say(

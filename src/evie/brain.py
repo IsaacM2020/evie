@@ -81,12 +81,13 @@ def strip_wake(text: str) -> str:
 class Brain:
     def __init__(self, sb, talker, mouth, runner, narrator, calendar: CalendarStore, bus: EventBus, jev,
                  turns_log: Path | None = TURNS_LOG, clock: Callable[[], float] = time.monotonic,
-                 skills=None, remember=None, countdown=None):
+                 skills=None, remember=None, countdown=None, conversation=None):
         self._sb, self._talker, self._mouth = sb, talker, mouth
         self._runner, self._narrator, self._cal = runner, narrator, calendar
         self._bus, self._jev, self._log, self._clock = bus, jev, turns_log, clock
         self._skills, self._remember = skills, remember
         self._countdown = countdown  # a pending "say stop to cancel" (event delete, 3b sends)
+        self._conv = conversation  # today's turns with Isaac (evie.memory), for follow-ups
         self._turns: deque[str] = deque(maxlen=MAX_TURNS)
         self._pending: Pending | None = None
         self._last_reply_at: float | None = None
@@ -229,6 +230,10 @@ class Brain:
         t_said = time.perf_counter()
         if said:
             self._turns.append(f'Isaac: "{text}" / Evie: "{said}"')
+            if self._conv is not None:
+                self._conv.add(text, said, did=route)
+                if self._conv.needs_summary() and hasattr(self._talker, "sum_up"):
+                    asyncio.create_task(self._sum_up())
         if addressed or o.verdict.action != Action.IGNORE:
             self._bus.publish("state", state="working" if self._runner.current else "idle")
         self._write_log({
@@ -325,6 +330,12 @@ class Brain:
             return self._say("Got it, passing that on.")
         return self._say(self._runner.status_line())
 
+    async def _sum_up(self) -> None:
+        try:
+            self._conv.set_summary(await self._talker.sum_up(self._conv.summary, self._conv.older()))
+        except Exception:
+            log.exception("couldn't summarise the conversation")
+
     def _facts(self) -> dict:
         now = datetime.now(TZ)
         if self._cal.updated_at is None:
@@ -338,6 +349,11 @@ class Brain:
         facts = {"now": now.strftime("%a %-d %b %Y, %H:%M"), "calendar_now": self._cal.now_line(now),
                  "calendar_today": today, "calendar_tomorrow": tomorrow, "calendar_week": week,
                  "job": self._runner.status_line()}
+        if self._conv is not None:
+            if self._conv.summary:
+                facts["conversation_earlier"] = self._conv.summary
+            if lines := self._conv.lines():
+                facts["conversation"] = " | ".join(lines)
         if self._remember and self._remember.facts.recent():
             facts["things_isaac_told_evie"] = " | ".join(self._remember.facts.recent())
         return facts
