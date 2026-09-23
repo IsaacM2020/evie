@@ -19,6 +19,7 @@ class Settings:
     groq_model: str = "openai/gpt-oss-20b"
     groq_url: str = "https://api.groq.com/openai/v1"
     groq_timeout_s: float = 4.0
+    stt_backend: str = "local"
     core_host: str = "127.0.0.1"
     core_port: int = 8765
 

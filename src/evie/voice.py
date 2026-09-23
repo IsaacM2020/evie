@@ -75,15 +75,17 @@ class _Line:
 
 class Mouth:
     def __init__(self, synth, player: Player, clock: Callable[[], float] = time.monotonic,
-                 on_say: Callable[[str], None] | None = None, clips: dict[str, Path] | None = None):
+                 on_say: Callable[[str], None] | None = None, clips: dict[str, Path] | None = None,
+                 on_quiet: Callable[[], None] | None = None):
         self._synth, self._player, self._clock = synth, player, clock
-        self._on_say = on_say
+        self._on_say, self._on_quiet = on_say, on_quiet
         self._clips = clips or {}
         self._queue: deque[_Line] = deque()
         self._wake = asyncio.Event()
         self._gen = 0  # bumped by stop(), so a line rendered before a stop never plays after it
         self._task: asyncio.Task | None = None
         self.speaking = False
+        self._spoke = False
 
     def start(self) -> None:
         if self._task is None:
@@ -110,6 +112,9 @@ class Mouth:
     async def _run(self) -> None:
         while True:
             if not self._queue:
+                if self._spoke and self._on_quiet:
+                    self._on_quiet()
+                self._spoke = False
                 self._wake.clear()
                 await self._wake.wait()
                 continue
@@ -126,7 +131,7 @@ class Mouth:
                 continue
             if self._on_say:
                 self._on_say(line.text)
-            self.speaking = True
+            self.speaking = self._spoke = True
             try:
                 await self._player.play(path)
             finally:

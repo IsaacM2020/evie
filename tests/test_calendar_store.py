@@ -3,7 +3,8 @@ from datetime import date, datetime, timedelta
 from fastapi.testclient import TestClient
 
 from evie.calendar_store import TZ, CalendarStore, CalEvent
-from evie.server import create_app
+from evie.events import EventBus
+from evie.server import Deps, create_app
 from evie.switchboard import Switchboard
 from tests.test_server import FakeJev
 
@@ -66,7 +67,7 @@ def test_stale_before_first_update_and_after_31_min():
 
 
 def client():
-    return TestClient(create_app(lambda: Switchboard(FakeJev()), probe=False))
+    return TestClient(create_app(lambda: Deps(sb=Switchboard(FakeJev()), calendar=CalendarStore(), bus=EventBus()), probe=False))
 
 
 def test_calendar_endpoint_round_trip():
@@ -74,7 +75,7 @@ def test_calendar_endpoint_round_trip():
                         "end": "2026-09-24T10:00:00+08:00", "all_day": False, "calendar": "Math"}]}
     with client() as c:
         r = c.post("/calendar", json=body)
-        store = c.app.state.calendar
+        store = c.app.state.d.calendar
     assert r.json() == {"ok": True, "count": 1}
     assert store.on(date(2026, 9, 24))[0].title == "Math"
 

@@ -14,6 +14,15 @@ PERSONA = (
 )
 
 
+# Plain-English labels: with a bare "now:" key the model didn't realise it knew the time.
+FACT_LABELS = {
+    "now": "Current date and time",
+    "calendar_today": "Isaac's calendar today",
+    "calendar_tomorrow": "Isaac's calendar tomorrow",
+    "job": "Evie's background job",
+}
+
+
 class TalkError(Exception):
     pass
 
@@ -76,7 +85,7 @@ class Talker:
             return FALLBACK
 
     async def reply(self, utterance: str, facts: dict) -> str:
-        lines = "\n".join(f"- {k}: {v}" for k, v in facts.items() if v)
+        lines = "\n".join(f"- {FACT_LABELS.get(k, k)}: {v}" for k, v in facts.items() if v)
         return await self._say(
             f"What you know right now:\n{lines or '- nothing extra'}\n\n"
             f'Isaac said: "{utterance}"\n'

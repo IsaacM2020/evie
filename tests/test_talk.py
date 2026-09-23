@@ -29,8 +29,19 @@ async def test_reply_sends_model_persona_and_facts():
     assert req.headers["Authorization"] == "Bearer gsk-test"
     assert body["model"] == "openai/gpt-oss-20b"
     assert "Evie" in body["messages"][0]["content"]
-    assert "Tue 23 Sep, 16:05" in body["messages"][1]["content"]
+    assert "Current date and time: Tue 23 Sep, 16:05" in body["messages"][1]["content"]
     assert "what time is it" in body["messages"][1]["content"]
+
+
+@respx.mock
+async def test_reply_labels_calendar_and_job_facts_in_plain_english():
+    route = respx.post(URL).mock(return_value=ok("ok"))
+    await talker().reply("what's on", {"calendar_today": "Today: 9:00 Math", "calendar_tomorrow": "x",
+                                       "job": "Working on: fix it"})
+    content = json.loads(route.calls[0].request.content)["messages"][1]["content"]
+    assert "Isaac's calendar today: Today: 9:00 Math" in content
+    assert "Isaac's calendar tomorrow: x" in content
+    assert "Evie's background job: Working on: fix it" in content
 
 
 @respx.mock

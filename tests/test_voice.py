@@ -143,3 +143,14 @@ def test_live_kokoro_renders_audio():
     path = Synth().render("hello Isaac")
     with wave.open(str(path)) as w:
         assert w.getnframes() / w.getframerate() > 0.3
+
+
+async def test_on_quiet_fires_once_when_queue_drains():
+    quiet = []
+    m = Mouth(FakeSynth(), FakePlayer(), clock=Clock(), on_quiet=lambda: quiet.append(1))
+    m.say("one")
+    m.say("two")
+    m.start()
+    await settle()
+    assert quiet == [1]
+    await m.aclose()
