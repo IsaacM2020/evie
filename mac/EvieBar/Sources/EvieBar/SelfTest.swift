@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 final class StatusBox: @unchecked Sendable {
@@ -43,6 +44,30 @@ enum SelfTest {
         let st = try? CoreJSON.decoder.decode(CoreStatus.self, from: Data(
             #"{"ok":true,"version":"0.1.0","jev_ok":true,"stt_ready":true,"voice_ready":true,"calendar_fresh":false,"job":null}"#.utf8))
         check(st?.calendarFresh == false && st?.sttReady == true, "decode phase 1 status")
+        var packer = FramePacker()
+        let first = packer.add([Int16](repeating: 7, count: 1000))
+        let second = packer.add([Int16](repeating: 7, count: 24))
+        check(first.count == 1 && first[0].count == 1024 && packer.pending.isEmpty && second.count == 1,
+              "ears: 512-sample int16 frames, remainder carried over")
+        let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let size = NSSize(width: 200, height: 60)
+        check(PillPlacement.clamp(NSPoint(x: 1400, y: -50), size: size, in: screen) == NSPoint(x: 1240, y: 0)
+              && PillPlacement.clamp(NSPoint(x: 100, y: 100), size: size, in: screen) == NSPoint(x: 100, y: 100),
+              "pill: stays fully on screen")
+        check(MenuIcon.states.allSatisfy { MenuIcon.image($0).isTemplate }, "menu icon: template image per state")
+        check(MenuIcon.state(online: false, state: "idle", working: true, jevOk: true) == "offline"
+              && MenuIcon.state(online: true, state: "listening", working: true, jevOk: true) == "listening"
+              && MenuIcon.state(online: true, state: "idle", working: true, jevOk: false) == "working",
+              "menu icon: state priority")
+        let shadow = try? CoreJSON.decoder.decode(CoreEvent.self, from: Data(
+            #"{"kind":"shadow","text":"play lofi","speaker":"isaac","would":"act · quick_action"}"#.utf8))
+        check(shadow?.would == "act · quick_action" && shadow?.speaker == "isaac", "decode shadow event")
+        let earsEv = try? CoreJSON.decoder.decode(CoreEvent.self, from: Data(
+            #"{"kind":"ears","mode":"shadow","enrolling":false,"voiceprint":{"clips":3,"seconds":6.1,"ready":false}}"#.utf8))
+        check(earsEv?.mode == "shadow" && earsEv?.voiceprint?.clips == 3, "decode ears event")
+        let st2 = try? CoreJSON.decoder.decode(CoreStatus.self, from: Data(
+            #"{"ok":true,"version":"0.1.0","jev_ok":true,"ears_mode":"off","voiceprint":{"clips":0,"seconds":0,"ready":false}}"#.utf8))
+        check(st2?.earsMode == "off" && st2?.voiceprint?.ready == false, "decode phase 2 status")
         let box = StatusBox()
         Task.detached {
             box.result = await CoreClient(base: URL(string: "http://127.0.0.1:1")!).status()

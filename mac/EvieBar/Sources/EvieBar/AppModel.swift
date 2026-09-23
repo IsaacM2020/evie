@@ -35,6 +35,14 @@ final class AppModel: ObservableObject {
     @Published var lastJobSummary = ""
     @Published var axTrusted = AXIsProcessTrusted()
     @Published var micDenied = false
+    // Phase 2: open mic + voice ID + pill
+    @Published var earsMode: String? = nil  // nil = core has no ear models
+    @Published var voiceprint = VoicePrintDTO(clips: 0, seconds: 0, ready: false)
+    @Published var enrolling = false
+    @Published var enrollStartClips = 0
+    @Published var shadowLog: [ShadowRow] = []
+    @Published var pillNote = ""
+    @Published var showPill = UserDefaults.standard.object(forKey: "showPill") as? Bool ?? true
 
     private let core = CoreClient()
     private var calendarFeed: CalendarFeed?
@@ -42,6 +50,9 @@ final class AppModel: ObservableObject {
     private var ptt = PushToTalk()
     private let recorder = Recorder()
     private var monitors: [Any] = []
+    private let ears = Ears()
+    private let pill = PillController()
+    private var noteClear: Task<Void, Never>?
 
     /// preview: true builds a model with no side effects (no mic, keys, network) for snapshots.
     init(preview: Bool = false) {
@@ -55,14 +66,74 @@ final class AppModel: ObservableObject {
         Task { await events.run() }
         Task { micDenied = !(await Recorder.requestMic()) }
         installKeyMonitors()
+        if showPill { pill.show(self) }
     }
 
-    var iconName: String {
-        if !online { return "waveform.slash" }
-        if state == "listening" { return "mic.fill" }
-        if job != nil { return "gearshape.2" }
-        if jevOk == false { return "exclamationmark.triangle" }
-        return "waveform"
+    var iconState: String {
+        MenuIcon.state(online: online, state: state, working: job != nil, jevOk: jevOk)
+    }
+
+    /// The one line the floating pill shows; nil = just the orb.
+    var pillLine: String? {
+        switch state {
+        case "listening": return "Listening…"
+        case "thinking": return heard.isEmpty || heard.hasPrefix("(") ? "Thinking…" : heard
+        case "speaking": return said.isEmpty ? nil : said
+        default: return pillNote.isEmpty ? nil : pillNote
+        }
+    }
+
+    private func note(_ text: String, for seconds: Double = 5) {
+        pillNote = text
+        noteClear?.cancel()
+        noteClear = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            if !Task.isCancelled { self?.pillNote = "" }
+        }
+    }
+
+    func setShowPill(_ on: Bool) {
+        showPill = on
+        UserDefaults.standard.set(on, forKey: "showPill")
+        if on { pill.show(self) } else { pill.hide() }
+    }
+
+    // MARK: open mic
+
+    private func syncEars() {
+        let want = online && !micDenied && (earsMode ?? "off") != "off"
+        if want && !ears.running {
+            if !ears.start() { error = "Couldn't start the open mic." }
+        } else if !want && ears.running {
+            ears.stop()
+        }
+    }
+
+    func setEarsMode(_ mode: String) async {
+        let old = earsMode
+        earsMode = mode  // instant in the UI, rolled back if the core refuses
+        switch await core.setEarsMode(mode) {
+        case .success(let e):
+            applyEars(e)
+            error = nil
+        case .failure(let r):
+            earsMode = old
+            error = r.detail
+        }
+        syncEars()
+    }
+
+    func toggleEnroll() async {
+        if case .success(let e) = await core.enroll(!enrolling) {
+            if e.enrolling { enrollStartClips = e.voiceprint.clips }
+            applyEars(e)
+        }
+    }
+
+    private func applyEars(_ e: EarsDTO) {
+        earsMode = e.mode
+        enrolling = e.enrolling
+        voiceprint = e.voiceprint
     }
 
     // MARK: hold Fn to talk
@@ -142,10 +213,25 @@ final class AppModel: ObservableObject {
             if var j = job, j.id == ev.id, let line = ev.line {
                 j.lines = Array((j.lines + [line]).suffix(5))
                 job = j
+                note(line)
             }
         case "job_done":
             if job?.id == ev.id { job = nil }
             lastJobSummary = ev.summary ?? ""
+            if !lastJobSummary.isEmpty { note(lastJobSummary, for: 8) }
+        case "shadow":
+            guard let would = ev.would, !would.hasPrefix("ignore") else { break }
+            shadowLog = Array(([ShadowRow(text: ev.text ?? "", would: would)] + shadowLog).prefix(10))
+            note("Would have: \(would)")
+        case "voiceprint":
+            if let c = ev.clips, let sec = ev.seconds, let r = ev.ready {
+                voiceprint = VoicePrintDTO(clips: c, seconds: sec, ready: r)
+            }
+        case "ears":
+            if let m = ev.mode { earsMode = m }
+            if let e = ev.enrolling { enrolling = e }
+            if let v = ev.voiceprint { voiceprint = v }
+            syncEars()
         default:
             break
         }
@@ -164,6 +250,11 @@ final class AppModel: ObservableObject {
         let s = await core.status()
         online = s != nil
         jevOk = s?.jevOk
+        if let s {
+            earsMode = s.earsMode
+            if let v = s.voiceprint { voiceprint = v }
+        }
+        syncEars()
         let trusted = AXIsProcessTrusted()
         if trusted && !axTrusted {  // just granted: monitors added before the grant stay deaf
             monitors.forEach { NSEvent.removeMonitor($0) }

@@ -15,6 +15,7 @@ struct PanelView: View {
                 header
                 warnings
                 conversation
+                if model.earsMode != nil { OpenMicCard(model: model) }
                 if let job = model.job {
                     JobCard(job: job) { Task { await model.stopJob() } }
                         .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
@@ -140,6 +141,10 @@ struct PanelView: View {
             .toggleStyle(.switch)
             .controlSize(.mini)
             .font(.caption)
+            Toggle("Pill", isOn: Binding(get: { model.showPill }, set: { model.setShowPill($0) }))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .font(.caption)
             Spacer()
             Button("Quit") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.glass)
@@ -152,15 +157,19 @@ struct PanelView: View {
 struct Orb: View {
     let state: String
     let animate: Bool
+    var size: CGFloat = 44
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: 18, weight: .semibold))
+            .font(.system(size: size * 0.41, weight: .semibold))
             .foregroundStyle(.white)
             .symbolEffect(.variableColor.iterative.dimInactiveLayers, isActive: animate && active)
             .contentTransition(.symbolEffect(.replace))
-            .frame(width: 44, height: 44)
-            .glassEffect(.regular.tint(color.opacity(0.85)).interactive(), in: Circle())
+            .frame(width: size, height: size)
+            // Solid colour under the glass: a glass tint alone goes grey in windows that never
+            // become key (the menu bar panel, the pill), and the colour IS the state.
+            .background(color.opacity(0.85).gradient, in: Circle())
+            .glassEffect(.regular.interactive(), in: Circle())
     }
 
     private var active: Bool { state == "listening" || state == "speaking" || state == "thinking" }
@@ -304,5 +313,94 @@ struct OutcomeCard: View {
             Text(v).monospacedDigit()
         }
         .font(.caption)
+    }
+}
+
+// Open mic controls: mode, how well Evie knows Isaac's voice, enrollment, and the shadow log
+// (what she WOULD have done on the open mic, while it's on trial).
+struct OpenMicCard: View {
+    @ObservedObject var model: AppModel
+
+    static let sentences = [
+        "Evie, what's on my calendar tomorrow morning?",
+        "Play some lofi and turn the volume down a little.",
+        "Remind me to send the iGEM slides to Mr Tan on Friday.",
+        "The quick brown fox jumps over the lazy dog by the river.",
+        "I think the chase model is off by one in the second innings.",
+        "Set a timer for twenty minutes, then remind me to stretch.",
+    ]
+
+    private var vp: VoicePrintDTO { model.voiceprint }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Open mic", systemImage: "ear").font(.callout.weight(.semibold))
+                Spacer()
+                Picker("", selection: Binding(get: { model.earsMode ?? "off" },
+                                              set: { m in Task { await model.setEarsMode(m) } })) {
+                    Text("Off").tag("off")
+                    Text("Shadow").tag("shadow")
+                    Text("Live").tag("live")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 180)
+            }
+            Text(modeLine).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Image(systemName: vp.ready ? "person.wave.2.fill" : "person.wave.2")
+                    .foregroundStyle(vp.ready ? Color.green : Color.secondary)
+                Text(voiceLine).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(model.enrolling ? "Done" : "Teach my voice") { Task { await model.toggleEnroll() } }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+            }
+            if model.enrolling { enrollCard }
+            if !model.shadowLog.isEmpty {
+                DisclosureGroup("Would have done (\(model.shadowLog.count))") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(model.shadowLog) { row in
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(row.would).font(.caption.weight(.semibold))
+                                Text("\u{201C}\(row.text)\u{201D}").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .font(.caption)
+            }
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var modeLine: String {
+        switch model.earsMode {
+        case "shadow": return "Listening on trial: she only notes what she would have done."
+        case "live": return "Listening for you. Other voices are ignored on the Mac."
+        default: return vp.ready ? "Hold 🌐 to talk. Shadow first, then Live." : "Hold 🌐 to talk. Teach her your voice to unlock Live."
+        }
+    }
+
+    private var voiceLine: String {
+        vp.ready ? "Knows your voice (\(vp.clips) clips)" : "Learning your voice \(min(vp.clips, 8))/8"
+    }
+
+    private var enrollCard: some View {
+        let done = max(0, vp.clips - model.enrollStartClips)
+        let i = min(done, Self.sentences.count - 1)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(done >= Self.sentences.count ? "All done. Tap Done." : "Hold 🌐 and read this out loud (\(done + 1) of \(Self.sentences.count))")
+                .font(.caption).foregroundStyle(.secondary)
+            if done < Self.sentences.count {
+                Text(Self.sentences[i]).font(.body.weight(.medium)).fixedSize(horizontal: false, vertical: true)
+            }
+            ProgressView(value: Double(min(done, Self.sentences.count)), total: Double(Self.sentences.count))
+        }
+        .padding(10)
+        .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }

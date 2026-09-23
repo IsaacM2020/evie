@@ -18,7 +18,7 @@ struct EvieBarApp: App {
         MenuBarExtra {
             PanelView(model: model)
         } label: {
-            Image(systemName: model.iconName)
+            Image(nsImage: MenuIcon.image(model.iconState))
         }
         .menuBarExtraStyle(.window)
     }

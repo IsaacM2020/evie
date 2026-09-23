@@ -43,6 +43,32 @@ struct CoreClient {
         _ = try? await post("job/stop", body: Data(), type: "application/json", timeout: 10)
     }
 
+    /// Switch the open mic. Returns the new state, or the core's reason for refusing (e.g. Live
+    /// before Evie knows Isaac's voice).
+    func setEarsMode(_ mode: String) async -> Result<EarsDTO, CoreRefusal> {
+        await earsCall("ears/mode", ["mode": mode])
+    }
+
+    func enroll(_ on: Bool) async -> Result<EarsDTO, CoreRefusal> {
+        await earsCall("voiceid/enroll", ["on": on])
+    }
+
+    private func earsCall(_ path: String, _ json: [String: Any]) async -> Result<EarsDTO, CoreRefusal> {
+        var req = URLRequest(url: base.appendingPathComponent(path))
+        req.httpMethod = "POST"
+        req.timeoutInterval = 5
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: json)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req) else {
+            return .failure(CoreRefusal(detail: "Can't reach Evie's core."))
+        }
+        if (resp as? HTTPURLResponse)?.statusCode == 200, let e = try? CoreJSON.decoder.decode(EarsDTO.self, from: data) {
+            return .success(e)
+        }
+        let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String
+        return .failure(CoreRefusal(detail: detail ?? "Evie's core said no."))
+    }
+
     func postCalendar(_ body: Data) async -> Bool {
         (try? await post("calendar", body: body, type: "application/json", timeout: 5)) != nil
     }
@@ -57,4 +83,8 @@ struct CoreClient {
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
     }
+}
+
+struct CoreRefusal: Error, Equatable {
+    let detail: String
 }

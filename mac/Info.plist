@@ -11,7 +11,7 @@
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSMicrophoneUsageDescription</key><string>Evie listens while you hold the Globe key, so she can hear what you ask.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Evie hears you while you hold the Globe key, or all the time with the open mic on. Other people's voices are dropped on your Mac.</string>
   <key>NSCalendarsFullAccessUsageDescription</key><string>Evie reads your calendar so she can answer "what's on tomorrow?" and spot clashes.</string>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>

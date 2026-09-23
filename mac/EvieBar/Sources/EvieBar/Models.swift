@@ -8,6 +8,25 @@ struct JobDTO: Decodable, Equatable {
     let events: [String]
 }
 
+struct VoicePrintDTO: Decodable, Equatable {
+    let clips: Int
+    let seconds: Double
+    let ready: Bool
+}
+
+// What /ears, /ears/mode and /voiceid/enroll return.
+struct EarsDTO: Decodable, Equatable {
+    let mode: String
+    let enrolling: Bool
+    let voiceprint: VoicePrintDTO
+}
+
+struct ShadowRow: Identifiable, Equatable {
+    let id = UUID()
+    let text: String
+    let would: String
+}
+
 struct CoreStatus: Decodable, Equatable {
     let ok: Bool
     let version: String
@@ -16,6 +35,8 @@ struct CoreStatus: Decodable, Equatable {
     var voiceReady: Bool? = nil
     var calendarFresh: Bool? = nil
     var job: JobDTO? = nil
+    var earsMode: String? = nil  // nil: the core has no ear models, push-to-talk only
+    var voiceprint: VoicePrintDTO? = nil
 }
 
 struct DecisionDTO: Decodable, Equatable {
@@ -58,6 +79,15 @@ struct CoreEvent: Decodable, Equatable {
     var status: String? = nil
     var summary: String? = nil
     var job: JobDTO? = nil
+    // Phase 2: open mic
+    var would: String? = nil
+    var speaker: String? = nil
+    var mode: String? = nil
+    var enrolling: Bool? = nil
+    var clips: Int? = nil
+    var seconds: Double? = nil
+    var ready: Bool? = nil
+    var voiceprint: VoicePrintDTO? = nil
 }
 
 enum CoreJSON {
