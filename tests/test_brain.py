@@ -338,3 +338,15 @@ async def test_no_draft_for_speech_not_addressed_to_evie():
     b._talker = LoggingTalker(log)
     await b.hear("mom I've got the dentist", addressed=False)
     assert "groq start" not in log
+
+
+async def test_answer_facts_include_the_rest_of_the_week():
+    from datetime import timedelta
+    cal = CalendarStore()
+    now = datetime.now(TZ)
+    day4 = (now + timedelta(days=4)).replace(hour=11, minute=0)
+    cal.update([CalEvent("Physics", day4, day4 + timedelta(hours=1), False, "Physics")], at=now)
+    b, p = brain(FakeSwitchboard("act", "answer", "answer"), calendar=cal)
+    await b.hear("what's on friday")
+    week = p["talker"].calls[0][2]["calendar_week"]
+    assert f"{day4:%A}: 11:00 Physics" in week

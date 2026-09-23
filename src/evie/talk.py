@@ -19,6 +19,7 @@ FACT_LABELS = {
     "now": "Current date and time",
     "calendar_today": "Isaac's calendar today",
     "calendar_tomorrow": "Isaac's calendar tomorrow",
+    "calendar_week": "Isaac's calendar for the rest of the week",
     "job": "Evie's background job",
 }
 

@@ -147,12 +147,13 @@ class Brain:
     def _facts(self) -> dict:
         now = datetime.now(TZ)
         if self._cal.updated_at is None:
-            today = tomorrow = "unknown, calendar not connected yet"
+            today = tomorrow = week = "unknown, calendar not connected yet"
         else:
             today = self._cal.summary(now.date())
             tomorrow = self._cal.summary(now.date() + timedelta(days=1))
+            week = " | ".join(self._cal.summary(now.date() + timedelta(days=d)) for d in range(2, 8))
         return {"now": now.strftime("%a %-d %b %Y, %H:%M"), "calendar_today": today,
-                "calendar_tomorrow": tomorrow, "job": self._runner.status_line()}
+                "calendar_tomorrow": tomorrow, "calendar_week": week, "job": self._runner.status_line()}
 
     def _say(self, text: str) -> str:
         self._mouth.say(text, kind="reply")
