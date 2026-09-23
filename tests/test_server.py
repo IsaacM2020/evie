@@ -290,3 +290,13 @@ def test_hands_result_endpoint_rejects_unknown_and_bad_results():
     with client(deps=d) as c:
         assert c.post("/hands/result", json={"id": "nobody", "ok": True}).json() == {"accepted": False}
         assert c.post("/hands/result", json={"id": "x", "ok": "maybe"}).status_code == 422
+
+
+def test_debug_recorder_switch(tmp_path):
+    from evie.recorder import SegmentRecorder
+    d = ears_deps()
+    d.open_mic.recorder = SegmentRecorder(tmp_path)
+    with client(deps=d) as c:
+        assert c.get("/recorder").json() == {"on": False, "segments": 0}
+        assert c.post("/recorder", json={"on": True}).json()["on"] is True
+    assert SegmentRecorder(tmp_path).enabled is True

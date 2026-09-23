@@ -284,6 +284,21 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         d.bus.publish("ears", **ears_body(d))
         return ears_body(d)
 
+    @app.get("/recorder")
+    async def recorder() -> dict:
+        rec = getattr(need("open_mic").open_mic, "recorder", None)
+        if rec is None:
+            raise HTTPException(503, "recorder not running")
+        return {"on": rec.enabled, "segments": len(rec.rows())}
+
+    @app.post("/recorder")
+    async def recorder_set(body: EnrollIn) -> dict:
+        rec = getattr(need("open_mic").open_mic, "recorder", None)
+        if rec is None:
+            raise HTTPException(503, "recorder not running")
+        rec.set(body.on)
+        return {"on": rec.enabled, "segments": len(rec.rows())}
+
     @app.websocket("/ws/ears")
     async def ws_ears(sock: WebSocket) -> None:
         """The app streams the mic here: binary = 16 kHz int16 samples, text = JSON context."""
@@ -413,6 +428,9 @@ def build_ears(stt, brain, mouth, bus):
         return None, None
     voiceid = VoiceId(SpeakerEmbedder(), VoicePrint())
     open_mic = OpenMic(Segmenter(), Vad().is_speech, voiceid, stt, brain, mouth, bus, ModeStore())
+    from evie.recorder import SegmentRecorder
+    open_mic.recorder = SegmentRecorder()
+    open_mic.recorder.prune()
     brain.scene = lambda: open_mic.context
     return open_mic, voiceid
 

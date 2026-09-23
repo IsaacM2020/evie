@@ -16,6 +16,36 @@ TARGETS = {
 }
 
 
+_NUM = {w: str(i) for i, w in enumerate("zero one two three four five six seven eight nine".split())}
+
+
+def _words(s: str) -> list[str]:
+    import re
+    s = re.sub(r"\b([ap])\.\s?m\.?", r"\1m", s.lower())  # "5 p.m." and "5pm" are the same words
+    s = re.sub(r"(\d)\s+([ap]m)\b", r"\1\2", s)
+    words = [_NUM.get(w, w) for w in re.sub(r"[^a-z0-9' ]", " ", s).split()]
+    out: list[str] = []  # "four one two nine" and "4129" are the same number
+    for w in words:
+        if w.isdigit() and out and out[-1].isdigit() and len(w) == 1:
+            out[-1] += w
+        else:
+            out.append(w)
+    return out
+
+
+def wer(ref: str, hyp: str) -> float:
+    """Word error rate: word edits (swap, missing, extra) needed to turn hyp into ref, per ref word."""
+    r, h = _words(ref), _words(hyp)
+    if not r:
+        return 0.0 if not h else 1.0
+    row = list(range(len(h) + 1))
+    for i, rw in enumerate(r, 1):
+        prev, row[0] = row[0], i
+        for j, hw in enumerate(h, 1):
+            prev, row[j] = row[j], min(row[j] + 1, row[j - 1] + 1, prev + (rw != hw))
+    return row[len(h)] / len(r)
+
+
 def _ratio(a: int, b: int) -> float | None:
     return round(a / b, 3) if b else None
 

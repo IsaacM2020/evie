@@ -235,3 +235,14 @@ async def test_a_brain_crash_is_logged_and_the_mic_keeps_going(tmp_path, caplog)
     m._brain = p["brain"]
     await say(m, ISAAC)
     assert len(p["brain"].heard) == 1
+
+
+async def test_recorder_keeps_isaacs_sentence_when_on(tmp_path):
+    from evie.recorder import SegmentRecorder
+    m, p = mic(tmp_path)
+    m.recorder = SegmentRecorder(tmp_path / "rec")
+    m.recorder.set(True)
+    await say(m, ISAAC)
+    await say(m, MOM)
+    rows = m.recorder.rows()
+    assert [(r["speaker"], r["text"]) for r in rows] == [("isaac", "evie what time is it")]

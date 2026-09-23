@@ -107,3 +107,9 @@ Two questions added to the one Jev call: `skill` (13 fast skills + other) and `r
 - **Final: false_action 0, recall 1.0, route 0.977, complete 0.958, event 0.94, skill 0.968,
   remember_to 0.917, p50 410 / p95 554 ms. All PASS.** r11 ("note that my igem team meets in
   room 204") goes to task instead of fact: harmless (it lands in Todoist).
+
+## Phase 3.5 M0 baseline (2026-09-23): transcription, synthetic "Isaac" (say -v Aman, 12 sentences, 0.3 s pad)
+- local whisper small.en: WER 0.084, p50 250 ms, p95 262 ms
+- Groq whisper-large-v3-turbo (warm connection): WER 0.054, p50 324 ms, p95 528 ms
+- Both hear "Pause" as "Force" and "Play" as "Flay" on this voice: a hard first consonant, not a
+  clipping bug (pad added). Real open-mic baseline waits for the debug recorder (Isaac's day of use).

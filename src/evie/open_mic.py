@@ -74,6 +74,7 @@ class OpenMic:
         self._tainted = False  # this sentence overlapped the talk key
         self._echo_start = False  # Evie was talking when this sentence began
         self.context = {"front_app": "", "in_call": False}
+        self.recorder = None  # debug recorder (evie.recorder), off unless Isaac turns it on
 
     # -- the talk key owns its own turns --------------------------------------------------
     def ptt_start(self) -> None:
@@ -105,7 +106,8 @@ class OpenMic:
                 else:
                     self._cancel_spec()
                     task = asyncio.get_running_loop().create_task(self._understand(ev.audio))
-                asyncio.get_running_loop().create_task(self._finish(task, self._tainted, self._echo_start))
+                asyncio.get_running_loop().create_task(
+                    self._finish(task, self._tainted, self._echo_start, ev.audio))
 
     def _cancel_spec(self) -> None:
         if self._spec:
@@ -118,7 +120,7 @@ class OpenMic:
             return speaker, sim, ""
         return speaker, sim, (await self._stt.transcribe_pcm(audio)).strip()
 
-    async def _finish(self, task: asyncio.Task, tainted: bool, echo_start: bool) -> None:
+    async def _finish(self, task: asyncio.Task, tainted: bool, echo_start: bool, audio=None) -> None:
         try:
             speaker, sim, text = await task
         except asyncio.CancelledError:
@@ -126,6 +128,11 @@ class OpenMic:
         except Exception:
             log.exception("open mic couldn't understand a sentence")
             return
+        if self.recorder is not None and audio is not None:
+            try:
+                self.recorder.save(audio, speaker, sim, text, evie_speaking=echo_start or bool(self._mouth.speaking))
+            except OSError:
+                log.exception("debug recorder couldn't save")
         if tainted or self._ptt or self.modes.mode == "off":
             return
         if speaker == "other":
