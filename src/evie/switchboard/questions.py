@@ -35,7 +35,10 @@ QUESTIONS = {
         "instructions": "Assuming the latest speech is a request to Evie, could she do it right now "
                         "without asking a follow-up question? 'play that song' is not complete (which "
                         "song?). 'remember I have the dentist on wednesday' is not complete (what "
-                        "time?). 'pause the music', 'what time is it' and 'play some lofi' are complete.",
+                        "time?). 'pause the music', 'what time is it' and 'play some lofi' are complete. "
+                        "Real work that names what to work on is complete, because Evie figures out "
+                        "the rest herself: 'fix the chase bug in my cricket model' and 'check why the "
+                        "tests fail in the anchor repo' are complete, but 'fix it' is not.",
     },
     "has_event": {
         "type": "noul",
