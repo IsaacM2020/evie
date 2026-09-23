@@ -28,7 +28,8 @@ log = logging.getLogger("evie.brain")
 TURNS_LOG = Path.home() / "Library/Logs/Evie/turns.jsonl"
 MAX_TURNS = 3
 PENDING_S = 15.0  # how long Evie waits for the answer to a question she asked
-FOLLOWUP_S = 10.0  # after she answers, a follow-up without her name may still be for her
+FOLLOWUP_S = 10.0
+SKILL_CONF_MIN = 0.5  # below this Jev isn't sure which fast skill: Claude Code handles it  # after she answers, a follow-up without her name may still be for her
 
 JOB_OP_Q = {
     "job_op": {
@@ -77,10 +78,12 @@ def strip_wake(text: str) -> str:
 
 class Brain:
     def __init__(self, sb, talker, mouth, runner, narrator, calendar: CalendarStore, bus: EventBus, jev,
-                 turns_log: Path | None = TURNS_LOG, clock: Callable[[], float] = time.monotonic):
+                 turns_log: Path | None = TURNS_LOG, clock: Callable[[], float] = time.monotonic,
+                 skills=None, remember=None):
         self._sb, self._talker, self._mouth = sb, talker, mouth
         self._runner, self._narrator, self._cal = runner, narrator, calendar
         self._bus, self._jev, self._log, self._clock = bus, jev, turns_log, clock
+        self._skills, self._remember = skills, remember
         self._turns: deque[str] = deque(maxlen=MAX_TURNS)
         self._pending: Pending | None = None
         self._last_reply_at: float | None = None
@@ -180,7 +183,7 @@ class Brain:
         if draft and not (o.verdict.action == Action.ACT and route == "answer"):
             draft.cancel()
             draft = None
-        said = await self._act(o.verdict, route, text, draft, speaker)
+        said = await self._act(o.verdict, route, text, draft, speaker, o.decision)
         t_said = time.perf_counter()
         if said:
             self._turns.append(f'Isaac: "{text}" / Evie: "{said}"')
@@ -200,7 +203,7 @@ class Brain:
                 "route": route, "said": said}
 
     async def _act(self, verdict, route: str | None, text: str, draft: asyncio.Task | None = None,
-                   speaker: str = "isaac") -> str | None:
+                   speaker: str = "isaac", decision=None) -> str | None:
         if verdict.action == Action.IGNORE:
             return None
         if verdict.action == Action.CLARIFY:
@@ -218,7 +221,18 @@ class Brain:
             return await self._start_job(text)
         if route == "job_control":
             return await self._job_control(text)
-        return self._clip("not_yet")  # quick_action / remember land in Phase 3
+        if route == "quick_action" and self._skills:
+            return await self._quick(text, decision)
+        return self._clip("not_yet")
+
+    async def _quick(self, text: str, decision) -> str:
+        """A fast skill if Jev is sure which one; otherwise Claude Code, the general hands."""
+        skill = decision.skill if decision else None
+        if skill and skill != "other" and decision.skill_conf >= SKILL_CONF_MIN:
+            done = await self._skills.run(skill, strip_wake(text))
+            if done.said is not None:
+                return self._say(done.said)
+        return await self._start_job(text)
 
     async def _start_job(self, text: str) -> str:
         running = self._runner.current

@@ -336,6 +336,11 @@ def build_deps(s: Settings) -> Deps:
     from evie.brain import Brain
     from evie.jobs import JobRunner
     from evie.narrator import Narrator
+    from evie.skills.catalog import Skills
+    from evie.skills.music import SpotifySearch
+    from evie.skills.parse import say_duration
+    from evie.skills.system import System, installed_apps
+    from evie.skills.timers import Timers
     from evie.stt import Transcriber
     from evie.talk import GroqClient, Talker
     from evie.voice import Mouth, PocketVoice, SpeakerOut
@@ -364,19 +369,25 @@ def build_deps(s: Settings) -> Deps:
                   on_quiet=on_quiet, on_audio=on_audio)
     narrator = Narrator(jev, talker, mouth, bus)
     runner = JobRunner(narrator.on_event, narrator.on_done)
-    brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev)
+    hands = Hands(bus)
+    spotify = SpotifySearch(s.spotify_id, s.spotify_secret)
+    timers = Timers(lambda t: mouth.say(f"Your {say_duration(int(t.seconds))} timer's done.", kind="reply"))
+    skills = Skills(hands, talker, jev, System(), spotify, timers, apps=installed_apps)
+    brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills)
     stt = Transcriber(s, backend=s.stt_backend)
     open_mic, voiceid = build_ears(stt, brain, mouth, bus)
-    hands = Hands(bus)
 
     async def warm() -> dict:
         t0 = time.perf_counter()
         await stt.warm()
         log.info("whisper warm in %.1fs", time.perf_counter() - t0)
         mouth.start()
+        timers.restore()
         return {"stt_ready": True, "voice_ready": True}
 
     async def close() -> None:
+        timers.close()
+        await spotify.aclose()
         await mouth.aclose()
         await talker.aclose()
         await stt.aclose()

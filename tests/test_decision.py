@@ -1,12 +1,14 @@
 import pytest
 
 from evie.switchboard.decision import parse_decision
-from evie.switchboard.questions import QUESTIONS, ROUTES
+from evie.switchboard.questions import QUESTIONS, ROUTES, SKILLS
 from tests.helpers import make_answers
 
 
 def test_question_set_shape():
-    assert set(QUESTIONS) == {"for_evie", "route", "complete", "has_event"}
+    assert set(QUESTIONS) == {"for_evie", "route", "complete", "has_event", "skill", "remember_to"}
+    assert QUESTIONS["skill"]["criteria"] is SKILLS and "other" in SKILLS
+    assert set(QUESTIONS["remember_to"]["criteria"]) == {"task", "event", "fact"}
     assert QUESTIONS["route"]["type"] == "choice"
     assert QUESTIONS["route"]["criteria"] is ROUTES
     assert set(ROUTES) == {"not_for_evie", "quick_action", "answer", "deep_job", "job_control", "remember"}
@@ -48,3 +50,20 @@ def test_missing_field_raises():
     del raw["complete"]
     with pytest.raises(KeyError):
         parse_decision(raw)
+
+
+def test_skill_and_remember_to_are_parsed():
+    raw = make_answers()
+    raw["skill"] = {"type": "choice", "choice": "volume", "probabilities": {"volume": 0.9, "other": 0.1},
+                    "confidence": 0.9}
+    raw["remember_to"] = {"type": "choice", "choice": "event", "probabilities": {"event": 0.8}, "confidence": 0.8}
+    d = parse_decision(raw)
+    assert d.skill == "volume" and d.skill_conf == 0.9 and d.remember_to == "event"
+
+
+def test_missing_or_unknown_skill_is_none():
+    d = parse_decision(make_answers())
+    assert d.skill is None and d.remember_to is None
+    raw = make_answers()
+    raw["skill"] = {"type": "choice", "choice": "launch_rockets", "confidence": 1.0}
+    assert parse_decision(raw).skill is None

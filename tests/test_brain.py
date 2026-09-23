@@ -527,3 +527,50 @@ async def test_overheard_chatter_is_logged_without_its_words(tmp_path):
     await b.hear("mom can you drive me", "isaac", addressed=False, shadow=True)
     rows = [json.loads(l) for l in log.read_text().splitlines()]
     assert all(r["text"] is None for r in rows) and all(r["action"] == "ignore" for r in rows)
+
+
+class FakeSkills:
+    def __init__(self, said="Volume 30."):
+        self.said, self.runs = said, []
+
+    async def run(self, skill, text):
+        from evie.skills.catalog import Done
+        self.runs.append((skill, text))
+        return Done(self.said)
+
+
+def skill_outcome(ctx, skill, conf=0.9):
+    d = Decision(0.9, "quick_action", 1.0, {"quick_action": 1.0}, 0.9, 0.0, 300.0, 0.0, skill=skill, skill_conf=conf)
+    return Outcome(ctx, d, Verdict(Action.ACT, "quick_action"))
+
+
+class SkillSwitchboard(FakeSwitchboard):
+    def __init__(self, skill, conf=0.9):
+        super().__init__()
+        self.skill, self.conf = skill, conf
+
+    async def handle(self, ctx):
+        self.contexts.append(ctx)
+        return skill_outcome(ctx, self.skill, self.conf)
+
+
+async def test_quick_action_runs_the_skill_jev_picked():
+    b, p = brain(SkillSwitchboard("volume"))
+    b._skills = sk = FakeSkills()
+    out = await b.hear("evie volume 30")
+    assert sk.runs == [("volume", "volume 30")] and out["said"] == "Volume 30." and p["mouth"].said == ["Volume 30."]
+
+
+async def test_unknown_quick_thing_goes_to_claude_code():
+    for skill, conf in (("other", 0.9), ("volume", 0.3), (None, 0.0)):
+        b, p = brain(SkillSwitchboard(skill, conf))
+        b._skills = FakeSkills()
+        await b.hear("evie rename my screenshots by date")
+        assert p["runner"].started == ["rename my screenshots by date"], skill
+
+
+async def test_skill_that_isnt_fast_falls_to_claude_code():
+    b, p = brain(SkillSwitchboard("open_app"))
+    b._skills = FakeSkills(said=None)
+    await b.hear("evie open the thing")
+    assert p["runner"].started == ["open the thing"]

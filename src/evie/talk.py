@@ -1,5 +1,6 @@
 """Evie's words. Jev decides what happens; Groq only writes the sentence she says out loud."""
 import ast
+import json
 import operator
 import re
 
@@ -37,11 +38,12 @@ class GroqClient:
         self._s = settings
         self._http = http or httpx.AsyncClient(timeout=settings.groq_timeout_s)
 
-    async def chat(self, system: str, user: str, max_tokens: int = 400) -> str:
+    async def chat(self, system: str, user: str, max_tokens: int = 400, json_mode: bool = False) -> str:
         body = {
             "model": self._s.groq_model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "max_tokens": max_tokens,
+            **({"response_format": {"type": "json_object"}} if json_mode else {}),
             # Evie's lines are short: no thinking. gpt-oss can't switch it off, so hide it.
             **({"reasoning_effort": "low", "include_reasoning": False}
                if self._s.groq_model.startswith("openai/gpt-oss") else {"reasoning_effort": "none"}),
@@ -128,9 +130,23 @@ def clean(text: str) -> str:
     return " ".join(_SENTENCE_END.split(text)[:2])
 
 
+EXTRACT = ("You read one request that Isaac said out loud to his voice assistant (a raw transcript, "
+           "may contain mishearings) and pull out details as JSON. Reply with one JSON object only. ")
+
+
 class Talker:
     def __init__(self, groq: GroqClient):
         self._groq = groq
+
+    async def extract(self, instructions: str, text: str) -> dict:
+        """Free-text details (a song, a web address, an event time) as JSON. {} if anything fails:
+        the caller then says it couldn't, rather than guessing."""
+        try:
+            out = json.loads(await self._groq.chat(EXTRACT + instructions, f'Request: "{text}"',
+                                                   max_tokens=200, json_mode=True))
+        except (TalkError, ValueError):
+            return {}
+        return out if isinstance(out, dict) else {}
 
     async def _say(self, user: str) -> str:
         try:

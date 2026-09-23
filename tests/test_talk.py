@@ -155,3 +155,21 @@ async def test_reply_prompt_asks_for_bracketed_maths_and_fills_it():
     route = respx.post(URL).mock(return_value=ok("It's [[0.18*240]]."))
     assert await talker().reply("what's 18 percent of 240", {}) == "It's 43.2."
     assert "[[" in json.loads(route.calls[0].request.content)["messages"][0]["content"]
+
+
+@respx.mock
+async def test_extract_asks_for_json_and_parses_it():
+    route = respx.post(URL).mock(return_value=ok('{"query": "Espresso", "kind": "track"}'))
+    t = Talker(GroqClient(S))
+    out = await t.extract('Return {"query": string, "kind": string}.', "play espresso")
+    body = json.loads(route.calls[0].request.content)
+    assert body["response_format"] == {"type": "json_object"} and "play espresso" in body["messages"][1]["content"]
+    assert out == {"query": "Espresso", "kind": "track"}
+
+
+@respx.mock
+async def test_extract_gives_empty_dict_on_junk_or_failure():
+    respx.post(URL).mock(return_value=ok("sure! here you go"))
+    assert await Talker(GroqClient(S)).extract("x", "y") == {}
+    respx.post(URL).mock(return_value=httpx.Response(401, text="bad key"))
+    assert await Talker(GroqClient(S)).extract("x", "y") == {}

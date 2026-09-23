@@ -20,6 +20,32 @@ ROUTES = {
     "remember": "Isaac wants something remembered, scheduled, or added as a task or reminder",
 }
 
+# Which fast skill a quick_action needs. Asked in the SAME Jev call as everything else (answered
+# in parallel, so it adds no time). Anything not listed is "other": Claude Code does it.
+SKILLS = {
+    "music_play": "Play a specific song, artist, album, playlist or kind of music",
+    "music_pause": "Pause or stop the music",
+    "music_resume": "Resume or unpause the music that was playing",
+    "music_next": "Skip to the next song",
+    "music_previous": "Go back to the previous song or restart it",
+    "now_playing": "Ask what song is playing",
+    "volume": "Change the volume: louder, quieter, a number, mute or unmute",
+    "open_app": "Open or switch to an app on the Mac",
+    "open_website": "Open a website, or search a site like YouTube or Google",
+    "timer_set": "Start a timer or countdown",
+    "timer_cancel": "Cancel or stop a timer",
+    "undo": "Undo or reverse the last thing Evie did",
+    "other": "Anything else, for example sending a message, changing a setting, or a multi-step "
+             "task on the computer",
+}
+
+REMEMBER_TO = {
+    "task": "A to-do or reminder: something Isaac has to do, with or without a due date",
+    "event": "Something happening at a specific time or day: an appointment, class, match, test or meeting",
+    "fact": "A fact about Isaac or his life to keep in mind, with nothing to do and no time attached, "
+            "like a locker code or a friend's birthday",
+}
+
 QUESTIONS = {
     "for_evie": {
         "type": "noul",
@@ -49,5 +75,15 @@ QUESTIONS = {
         "instructions": "Does the latest speech mention a specific appointment, deadline, test, "
                         "commitment or task that Isaac has or promised, for example a dentist visit, "
                         "a quiz on Monday, or 'I will send it tonight'?",
+    },
+    "skill": {
+        "type": "choice",
+        "instructions": "If the latest speech asks Evie to do one quick thing on the computer, which one?",
+        "criteria": SKILLS,
+    },
+    "remember_to": {
+        "type": "choice",
+        "instructions": "If Isaac wants something remembered, scheduled, or added as a task, where does it go?",
+        "criteria": REMEMBER_TO,
     },
 }

@@ -20,6 +20,9 @@ class Settings:
     groq_url: str = "https://api.groq.com/openai/v1"
     groq_timeout_s: float = 4.0
     stt_backend: str = "local"
+    spotify_id: str = ""  # optional: music search (client credentials, no login)
+    spotify_secret: str = ""
+    todoist_key: str = ""  # optional: "remind me to..." tasks
     core_host: str = "127.0.0.1"
     core_port: int = 8765
 
@@ -30,4 +33,7 @@ def load_settings() -> Settings:
         keys[name] = os.environ.get(name, "")
         if not keys[name]:
             raise RuntimeError(f"{name} missing: put it in ~/Elemental/Water/evie/.env")
-    return Settings(openrouter_key=keys["OPENROUTER_API_KEY"], groq_key=keys["GROQ_API_KEY"])
+    return Settings(openrouter_key=keys["OPENROUTER_API_KEY"], groq_key=keys["GROQ_API_KEY"],
+                    spotify_id=os.environ.get("SPOTIFY_APP_CLIENT_ID", ""),
+                    spotify_secret=os.environ.get("SPOTIFY_APP_CLIENT_SECRET", ""),
+                    todoist_key=os.environ.get("TODOIST_API", ""))
