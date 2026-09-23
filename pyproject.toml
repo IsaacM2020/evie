@@ -1,0 +1,32 @@
+[project]
+name = "evie"
+version = "0.1.0"
+description = "Evie: Isaac's voice-run operating system"
+readme = "README.md"
+authors = [
+    { name = "Isaac Miranda", email = "isaacmirandaofficial@gmail.com" }
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "httpx>=0.27",
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "python-dotenv>=1.0",
+]
+
+[project.scripts]
+evie-core = "evie.server:main"
+
+[build-system]
+requires = ["uv_build>=0.11.21,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "respx>=0.21"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["live: calls the real Jev API (about $0.00003 per call)"]
+addopts = "-m 'not live'"
