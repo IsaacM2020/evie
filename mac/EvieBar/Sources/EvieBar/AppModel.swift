@@ -43,7 +43,9 @@ final class AppModel: ObservableObject {
     private let recorder = Recorder()
     private var monitors: [Any] = []
 
-    init() {
+    /// preview: true builds a model with no side effects (no mic, keys, network) for snapshots.
+    init(preview: Bool = false) {
+        guard !preview else { return }
         Task { await pollForever() }
         let feed = CalendarFeed(core: core) { [weak self] granted in self?.calendarDenied = !granted }
         calendarFeed = feed

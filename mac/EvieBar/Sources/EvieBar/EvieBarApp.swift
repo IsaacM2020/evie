@@ -8,11 +8,15 @@ struct EvieBarApp: App {
         if CommandLine.arguments.contains("--selftest") {
             exit(SelfTest.run() ? 0 : 1)
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLine.arguments.count {
+            MainActor.assumeIsolated { Snapshot.run(to: CommandLine.arguments[i + 1]) }
+            exit(0)
+        }
     }
 
     var body: some Scene {
         MenuBarExtra {
-            PanelView(model: model).frame(width: 340)
+            PanelView(model: model)
         } label: {
             Image(systemName: model.iconName)
         }
