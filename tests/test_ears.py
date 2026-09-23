@@ -133,3 +133,55 @@ def test_pcm_wav_round_trip():
 def test_wav_to_pcm_of_junk_is_empty():
     from evie.ears import wav_to_pcm
     assert len(wav_to_pcm(b"RIFFnope")) == 0
+
+
+# -- Phase 3.5: longer pre-roll, wait longer when the sentence sounds unfinished --------------
+def test_default_preroll_is_half_a_second():
+    import math
+    s = Segmenter()
+    assert s._pre.maxlen == math.ceil(500 / 32) + 3
+
+
+def test_extend_waits_longer_for_an_unfinished_sentence():
+    from evie.ears import End
+    s = Segmenter()
+    f = np.zeros(512, dtype=np.float32)
+    for _ in range(20):
+        s.feed(f, True)
+    evs = []
+    for _ in range(10):  # 320 ms: peeked, not ended
+        evs += s.feed(f, False)
+    s.extend(1000)
+    for _ in range(12):  # 704 ms total: would have ended at 600
+        evs += s.feed(f, False)
+    assert not any(isinstance(e, End) for e in evs)
+    for _ in range(10):  # past 1000 ms
+        evs += s.feed(f, False)
+    assert any(isinstance(e, End) for e in evs)
+
+
+def test_extend_only_lasts_one_sentence():
+    from evie.ears import End
+    s = Segmenter()
+    f = np.zeros(512, dtype=np.float32)
+    for _ in range(20):
+        s.feed(f, True)
+    s.extend(1000)
+    for _ in range(40):
+        s.feed(f, False)
+    for _ in range(20):
+        s.feed(f, True)
+    evs = []
+    for _ in range(19):  # 608 ms: back to the normal end
+        evs += s.feed(f, False)
+    assert any(isinstance(e, End) for e in evs)
+
+
+@pytest.mark.parametrize("text,unfinished", [
+    ("Remind me to", True), ("Can you play the one by", True), ("so the thing is,", True),
+    ("I want to um", True), ("What time is it?", False), ("Pause the music.", False),
+    ("", False), ("and", True),
+])
+def test_sounds_unfinished(text, unfinished):
+    from evie.ears import sounds_unfinished
+    assert sounds_unfinished(text) is unfinished

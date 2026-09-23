@@ -254,3 +254,20 @@ async def test_open_mic_counts_what_it_heard(tmp_path):
     await say(m, EVIE)
     await say(m, MOM)
     assert m.stats["segments"] == 2 and m.stats["other"] == 1 and m.stats["echo_dropped"] == 1
+
+
+async def test_unfinished_sentence_gets_more_time_before_it_is_cut(tmp_path):
+    m, p = mic(tmp_path, stt=FakeSTT("remind me to"))
+    for _ in range(20):
+        m.feed(frame(ISAAC))
+    for _ in range(10):  # 320 ms: Peek, the early transcript comes back "remind me to"
+        m.feed(frame(0.0))
+    await settle()
+    for _ in range(12):  # 704 ms of silence: normally the sentence would end at 600
+        m.feed(frame(0.0))
+    await settle()
+    assert p["brain"].heard == []
+    for _ in range(12):
+        m.feed(frame(0.0))
+    await settle()
+    assert len(p["brain"].heard) == 1

@@ -8,6 +8,7 @@ peek, the early result is simply reused, which saves ~350 ms on every turn.
 """
 import io
 import math
+import re
 import wave
 from collections import deque
 from dataclasses import dataclass, field
@@ -54,10 +55,11 @@ class Segmenter:
     """Pure state machine: frames + speech flags in, sentence events out. No audio libraries."""
 
     def __init__(self, frame_ms: float = 32, start_frames: int = 3, peek_ms: float = 250,
-                 end_ms: float = 600, preroll_ms: float = 300, max_s: float = 15, min_speech_s: float = 0.4):
+                 end_ms: float = 600, preroll_ms: float = 500, max_s: float = 15, min_speech_s: float = 0.4):
         self._start_frames = start_frames
         self._peek = math.ceil(peek_ms / frame_ms)
-        self._end = math.ceil(end_ms / frame_ms)
+        self._frame_ms = frame_ms
+        self._end_default = self._end = math.ceil(end_ms / frame_ms)
         self._max = math.ceil(max_s * 1000 / frame_ms)
         self._min_speech = math.ceil(min_speech_s * 1000 / frame_ms)
         self._pre: deque[np.ndarray] = deque(maxlen=math.ceil(preroll_ms / frame_ms) + start_frames)
@@ -69,6 +71,12 @@ class Segmenter:
         self._buf: list[np.ndarray] | None = None
         self._speech = self._silence = 0
         self._peeked = False
+        self._end = self._end_default
+
+    def extend(self, end_ms: float) -> None:
+        """Wait longer before ending THIS sentence (the words so far sound unfinished)."""
+        if self._buf is not None:
+            self._end = max(self._end, math.ceil(end_ms / self._frame_ms))
 
     @property
     def active(self) -> bool:
@@ -108,6 +116,18 @@ class Segmenter:
         self._speech, self._silence, self._peeked = self._run, 0, False
         self._pre.clear()
         return [Start()]
+
+
+_TRAILING = re.compile(r"(?:\b(?:and|or|but|so|to|the|a|an|of|for|with|by|um|uh|like|my|your|is|was|that|if|because)|,)\s*$",
+                       re.IGNORECASE)
+
+
+def sounds_unfinished(text: str) -> bool:
+    """ "Remind me to", "play the one by", "so the thing is,": he's mid-sentence, just pausing."""
+    t = text.strip()
+    if not t:
+        return False
+    return bool(_TRAILING.search(t.rstrip(".…"))) and not t.endswith(("?", "!"))
 
 
 def pcm_to_wav(audio: np.ndarray) -> bytes:

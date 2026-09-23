@@ -22,13 +22,14 @@ from typing import Callable
 
 import numpy as np
 
-from evie.ears import End, Drop, Peek, Resume, Segmenter, Start
+from evie.ears import End, Drop, Peek, Resume, Segmenter, Start, sounds_unfinished
 
 log = logging.getLogger("evie.open_mic")
 
 MODES = ("off", "shadow", "live")
 EARS_FILE = Path.home() / "Library/Application Support/Evie/ears.json"
-ECHO_TAIL_S = 0.4  # room echo and buffered audio keep arriving just after she stops
+ECHO_TAIL_S = 0.4
+UNFINISHED_END_MS = 1000  # room echo and buffered audio keep arriving just after she stops
 
 
 def _words(s: str) -> str:
@@ -100,6 +101,7 @@ class OpenMic:
             elif isinstance(ev, Peek):
                 self._cancel_spec()
                 self._spec = asyncio.get_running_loop().create_task(self._understand(ev.audio))
+                self._spec.add_done_callback(self._maybe_wait_longer)
             elif isinstance(ev, Resume | Drop):
                 self._cancel_spec()
             elif isinstance(ev, End):
@@ -110,6 +112,14 @@ class OpenMic:
                     task = asyncio.get_running_loop().create_task(self._understand(ev.audio))
                 asyncio.get_running_loop().create_task(
                     self._finish(task, self._tainted, self._echo_start, ev.audio))
+
+    def _maybe_wait_longer(self, task: asyncio.Task) -> None:
+        """The early transcript sounds mid-sentence ("remind me to"): give him up to a second
+        to carry on instead of cutting the sentence in half."""
+        if task.cancelled() or task.exception() is not None or task is not self._spec:
+            return
+        if sounds_unfinished(task.result()[2]):
+            self._seg.extend(UNFINISHED_END_MS)
 
     def _cancel_spec(self) -> None:
         if self._spec:
