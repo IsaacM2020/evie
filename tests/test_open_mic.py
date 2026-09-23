@@ -246,3 +246,11 @@ async def test_recorder_keeps_isaacs_sentence_when_on(tmp_path):
     await say(m, MOM)
     rows = m.recorder.rows()
     assert [(r["speaker"], r["text"]) for r in rows] == [("isaac", "evie what time is it")]
+
+
+async def test_open_mic_counts_what_it_heard(tmp_path):
+    mouth = FakeMouth(speaking=True, text="Tomorrow you have school at eight.")
+    m, p = mic(tmp_path, mouth=mouth, stt=FakeSTT("tomorrow you have school at eight"))
+    await say(m, EVIE)
+    await say(m, MOM)
+    assert m.stats["segments"] == 2 and m.stats["other"] == 1 and m.stats["echo_dropped"] == 1

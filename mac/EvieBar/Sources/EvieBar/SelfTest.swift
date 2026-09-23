@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 
 final class StatusBox: @unchecked Sendable {
@@ -84,6 +85,20 @@ enum SelfTest {
         let second = packer.add([Int16](repeating: 7, count: 24))
         check(first.count == 1 && first[0].count == 1024 && packer.pending.isEmpty && second.count == 1,
               "ears: 512-sample int16 frames, remainder carried over")
+        if let fmt = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1),
+           let b = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 4) {
+            b.frameLength = 4
+            for i in 0..<4 { b.floatChannelData![0][i] = Float(i) }
+            let c = AudioCopy.copy(b)
+            b.floatChannelData![0][0] = 99  // the engine reusing its buffer must not touch the copy
+            check(c?.frameLength == 4 && c?.floatChannelData?[0][0] == 0 && c?.floatChannelData?[0][3] == 3,
+                  "ears: tap buffer is copied before the async hop")
+        }
+        if let vf = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1) {
+            let data = [Float](repeating: 0.25, count: 480).withUnsafeBufferPointer { Data(buffer: $0) }
+            let vb = AudioCopy.floats(data, format: vf)
+            check(vb?.frameLength == 480 && vb?.floatChannelData?[0][479] == 0.25, "mouth: float32 bytes become a buffer")
+        }
         let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let size = NSSize(width: 200, height: 60)
         check(PillPlacement.clamp(NSPoint(x: 1400, y: -50), size: size, in: screen) == NSPoint(x: 1240, y: 0)

@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
@@ -74,6 +75,7 @@ class OpenMic:
         self._tainted = False  # this sentence overlapped the talk key
         self._echo_start = False  # Evie was talking when this sentence began
         self.context = {"front_app": "", "in_call": False}
+        self.stats: Counter = Counter()  # segments by speaker, echo drops: for tuning, never words
         self.recorder = None  # debug recorder (evie.recorder), off unless Isaac turns it on
 
     # -- the talk key owns its own turns --------------------------------------------------
@@ -128,6 +130,8 @@ class OpenMic:
         except Exception:
             log.exception("open mic couldn't understand a sentence")
             return
+        self.stats["segments"] += 1
+        self.stats[speaker] += 1
         if self.recorder is not None and audio is not None:
             try:
                 self.recorder.save(audio, speaker, sim, text, evie_speaking=echo_start or bool(self._mouth.speaking))
@@ -145,6 +149,7 @@ class OpenMic:
         if echo_start or m.speaking or self._clock() - m.quiet_at < ECHO_TAIL_S:
             if speaker != "isaac" or is_echo(text, m.current_text):
                 log.info("dropped echo/unsure speech while Evie talked (%s %.2f)", speaker, sim)
+                self.stats["echo_dropped"] += 1
                 return
             if m.speaking:
                 m.stop()  # Isaac talked over her: she stops, like a person would

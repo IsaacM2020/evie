@@ -19,9 +19,41 @@ struct FramePacker {
     }
 }
 
+enum AudioCopy {
+    // AVAudioEngine reuses a tap's buffer once the tap block returns. Handing that buffer to
+    // another queue meant the converter sometimes read samples the engine was already
+    // overwriting: garbled open-mic transcripts that the talk key never had (2026-09-23).
+    static func copy(_ b: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let c = AVAudioPCMBuffer(pcmFormat: b.format, frameCapacity: b.frameLength) else { return nil }
+        c.frameLength = b.frameLength
+        let src = UnsafeMutableAudioBufferListPointer(b.mutableAudioBufferList)
+        let dst = UnsafeMutableAudioBufferListPointer(c.mutableAudioBufferList)
+        for (s, d) in zip(src, dst) {
+            guard let sd = s.mData, let dd = d.mData else { continue }
+            memcpy(dd, sd, Int(s.mDataByteSize))
+        }
+        for i in 0..<min(src.count, dst.count) { dst[i].mDataByteSize = src[i].mDataByteSize }
+        return c
+    }
+
+    static func floats(_ data: Data, format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let n = data.count / MemoryLayout<Float>.size
+        guard n > 0, let b = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(n)),
+              let ch = b.floatChannelData else { return nil }
+        b.frameLength = AVAudioFrameCount(n)
+        data.withUnsafeBytes { raw in
+            if let p = raw.baseAddress?.assumingMemoryBound(to: Float.self) { ch[0].update(from: p, count: n) }
+        }
+        return b
+    }
+}
+
 // Open mic: streams the mic to the core as 16 kHz mono int16 over ws://127.0.0.1:8765/ws/ears,
 // plus which app is in front (and whether that's a call app). The core does everything else:
 // finding sentences, voice ID, Whisper. Runs only while the open mic isn't Off.
+//
+// Evie's voice plays through this same engine (/ws/mouth) with Apple's voice processing on, so
+// the echo canceller knows exactly what she's saying and takes it out of the mic signal.
 final class Ears: @unchecked Sendable {
     static let callApps: Set<String> = [
         "us.zoom.xos", "com.apple.FaceTime", "com.microsoft.teams2", "com.microsoft.teams",
@@ -29,33 +61,44 @@ final class Ears: @unchecked Sendable {
     ]
 
     private let engine = AVAudioEngine()
-    private let queue = DispatchQueue(label: "evie.ears")  // owns socket, converter, packer
+    private let player = AVAudioPlayerNode()
+    private let queue = DispatchQueue(label: "evie.ears")  // owns sockets, converter, packer, player
     private let outFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1,
                                           interleaved: true)!
+    private var voiceFormat = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
     private var converter: AVAudioConverter?
     private var packer = FramePacker()
     private var socket: URLSessionWebSocketTask?
+    private var mouth: URLSessionWebSocketTask?
+    private var line: String?  // the id of the line Evie is saying right now
     private var observer: NSObjectProtocol?
     private var keeper: Task<Void, Never>?
     private(set) var running = false
+    private(set) var echoCancel = false
 
     @MainActor
     func start() -> Bool {
         guard !running else { return true }
-        let input = engine.inputNode
-        let inFormat = input.outputFormat(forBus: 0)
-        guard inFormat.sampleRate > 0, let conv = AVAudioConverter(from: inFormat, to: outFormat) else { return false }
-        queue.sync { converter = conv; packer = FramePacker() }
-        input.installTap(onBus: 0, bufferSize: 2048, format: inFormat) { [weak self] buf, _ in
-            self?.queue.async { self?.process(buf) }
+        // Voice processing (echo cancellation + noise suppression + auto gain, like a call app)
+        // is picky about the graph: try the layouts that work, best first, and log which one did.
+        let layouts: [(vp: Bool, explicitOut: Bool, name: String)] = [
+            (true, true, "echo cancel, mixer->output wired explicitly"),
+            (true, false, "echo cancel, default wiring"),
+            (false, false, "plain mic, no echo cancel"),
+        ]
+        for l in layouts {
+            if tryStart(vp: l.vp, explicitOut: l.explicitOut) {
+                NSLog("Evie ears: running (%@)", l.name)
+                break
+            }
+            NSLog("Evie ears: layout failed (%@)", l.name)
+            engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
+            if engine.attachedNodes.contains(player) { engine.detach(player) }
+            try? engine.inputNode.setVoiceProcessingEnabled(false)
+            engine.reset()
         }
-        do {
-            try engine.start()
-        } catch {
-            input.removeTap(onBus: 0)
-            return false
-        }
-        running = true
+        guard running else { return false }
         observer = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -63,10 +106,58 @@ final class Ears: @unchecked Sendable {
         }
         keeper = Task { [weak self] in  // reconnect every 2s whenever the core restarts
             while !Task.isCancelled {
-                self?.queue.async { self?.ensureSocket() }
+                self?.queue.async { self?.ensureSockets() }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+        return true
+    }
+
+    @MainActor
+    private func tryStart(vp: Bool, explicitOut: Bool) -> Bool {
+        let input = engine.inputNode
+        echoCancel = false
+        if vp {
+            do {
+                try input.setVoiceProcessingEnabled(true)
+            } catch {
+                NSLog("Evie ears: voice processing unavailable: %@", "\(error)")
+                return false
+            }
+            if #available(macOS 14.0, *) {  // don't make Spotify quieter while the mic is on
+                input.voiceProcessingOtherAudioDuckingConfiguration =
+                    AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
+            }
+        }
+        if explicitOut {
+            let outFmt = engine.outputNode.inputFormat(forBus: 0)
+            engine.connect(engine.mainMixerNode, to: engine.outputNode, format: outFmt.sampleRate > 0 ? outFmt : nil)
+        }
+        if vp {
+            engine.attach(player)
+            engine.connect(player, to: engine.mainMixerNode, format: voiceFormat)
+        }
+        let inFormat = input.outputFormat(forBus: 0)
+        guard inFormat.sampleRate > 0, let conv = AVAudioConverter(from: inFormat, to: outFormat) else {
+            NSLog("Evie ears: no usable mic format %@", "\(inFormat)")
+            return false
+        }
+        if inFormat.channelCount > 1 { conv.channelMap = [0] }  // voice processing can report extra channels
+        queue.sync { converter = conv; packer = FramePacker() }
+        input.installTap(onBus: 0, bufferSize: 2048, format: inFormat) { [weak self] buf, _ in
+            guard let copy = AudioCopy.copy(buf) else { return }
+            self?.queue.async { self?.process(copy) }
+        }
+        do {
+            try engine.start()
+        } catch {
+            NSLog("Evie ears: engine wouldn't start: %@", "\(error)")
+            return false
+        }
+        if vp { player.play() }
+        echoCancel = vp
+        running = true
+        NSLog("Evie ears: mic format %@", "\(inFormat)")
         return true
     }
 
@@ -77,22 +168,97 @@ final class Ears: @unchecked Sendable {
         keeper?.cancel()
         if let o = observer { NSWorkspace.shared.notificationCenter.removeObserver(o) }
         engine.inputNode.removeTap(onBus: 0)
+        player.stop()
         engine.stop()
+        if engine.attachedNodes.contains(player) { engine.detach(player) }
+        try? engine.inputNode.setVoiceProcessingEnabled(false)
+        engine.reset()
         queue.async {
             self.socket?.cancel(with: .goingAway, reason: nil)
             self.socket = nil
+            // Closing the mouth socket sends Evie's voice back to the core's own speaker output.
+            self.mouth?.cancel(with: .goingAway, reason: nil)
+            self.mouth = nil
             self.packer = FramePacker()
         }
     }
 
-    private func ensureSocket() {
-        if let s = socket, s.state == .running { return }
-        socket?.cancel(with: .goingAway, reason: nil)
-        let s = URLSession.shared.webSocketTask(with: URL(string: "ws://127.0.0.1:8765/ws/ears")!)
-        s.resume()
-        socket = s
-        DispatchQueue.main.async { MainActor.assumeIsolated { self.sendContext() } }
+    private func ensureSockets() {
+        if socket?.state != .running {
+            socket?.cancel(with: .goingAway, reason: nil)
+            let s = URLSession.shared.webSocketTask(with: URL(string: "ws://127.0.0.1:8765/ws/ears")!)
+            s.resume()
+            socket = s
+            DispatchQueue.main.async { MainActor.assumeIsolated { self.sendContext() } }
+        }
+        // Only take over Evie's voice when echo cancellation is actually on.
+        if echoCancel, mouth?.state != .running {
+            mouth?.cancel(with: .goingAway, reason: nil)
+            let m = URLSession.shared.webSocketTask(with: URL(string: "ws://127.0.0.1:8765/ws/mouth")!)
+            m.maximumMessageSize = 4 * 1024 * 1024
+            m.resume()
+            mouth = m
+            m.send(.string(#"{"kind":"hello","echo_cancel":true}"#)) { _ in }
+            listen(m)
+        }
     }
+
+    // MARK: Evie's voice
+
+    private func listen(_ m: URLSessionWebSocketTask) {
+        m.receive { [weak self] result in
+            guard let self else { return }
+            self.queue.async {
+                guard case .success(let msg) = result, self.mouth === m else { return }
+                switch msg {
+                case .data(let d): self.schedule(d)
+                case .string(let s): self.control(s)
+                @unknown default: break
+                }
+                self.listen(m)
+            }
+        }
+    }
+
+    private func control(_ text: String) {
+        guard let obj = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+              let kind = obj["kind"] as? String, let id = obj["id"] as? String else { return }
+        switch kind {
+        case "start":
+            let rate = (obj["rate"] as? Double) ?? 24000
+            if rate != voiceFormat.sampleRate, let f = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) {
+                voiceFormat = f
+                engine.connect(player, to: engine.mainMixerNode, format: f)
+            }
+            line = id
+            if !player.isPlaying { player.play() }
+        case "end":
+            // A 1-frame buffer after the last real one: its completion means everything played.
+            guard let tail = AVAudioPCMBuffer(pcmFormat: voiceFormat, frameCapacity: 1) else { done(id); return }
+            tail.frameLength = 1
+            player.scheduleBuffer(tail, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                self?.queue.async { self?.done(id) }
+            }
+        case "stop":
+            player.stop()  // drops everything queued, within a buffer
+            player.play()
+            done(id)
+        default:
+            break
+        }
+    }
+
+    private func schedule(_ data: Data) {
+        guard line != nil, let buf = AudioCopy.floats(data, format: voiceFormat) else { return }
+        player.scheduleBuffer(buf, completionHandler: nil)
+    }
+
+    private func done(_ id: String) {
+        if line == id { line = nil }
+        mouth?.send(.string(#"{"kind":"done","id":"\#(id)"}"#)) { _ in }
+    }
+
+    // MARK: Mic
 
     private func process(_ buf: AVAudioPCMBuffer) {
         guard let conv = converter, let s = socket, s.state == .running else { return }

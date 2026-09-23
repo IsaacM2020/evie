@@ -8,6 +8,7 @@ import asyncio
 import logging
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Iterator, Literal, Protocol
@@ -70,6 +71,56 @@ class SpeakerOut:
                             on_start()
                     s.write(chunk[i:i + self.SLICE].reshape(-1, 1))
         return True
+
+
+class AppOut:
+    """Plays Evie's voice through the menu bar app, inside the same audio engine as the open mic.
+
+    Apple's echo canceller only removes sound it plays itself: with Evie's voice going out
+    through the app, the mic hears Isaac and not her (2026-09-23: her own words kept turning up
+    in his transcripts). The link is the app's /ws/mouth socket; the app says "done" when the
+    last sample has played, so `speaking` stays true for exactly as long as she's audible."""
+
+    def __init__(self, link, rate: int, grace_s: float = 1.5):
+        self._link, self.rate, self._grace = link, rate, grace_s
+
+    def play(self, chunks, cancel, on_start=None) -> bool:
+        if isinstance(chunks, np.ndarray):
+            chunks = [chunks]
+        lid = uuid.uuid4().hex[:10]
+        done = self._link.waiter(lid)
+        self._link.send_json({"kind": "start", "id": lid, "rate": self.rate})
+        samples = 0
+        for chunk in chunks:
+            if cancel.is_set():
+                self._link.send_json({"kind": "stop", "id": lid})
+                return False
+            self._link.send_bytes(np.ascontiguousarray(chunk, dtype=np.float32).tobytes())
+            if samples == 0 and on_start:
+                on_start()
+            samples += len(chunk)
+        self._link.send_json({"kind": "end", "id": lid})
+        # Wait for the app to finish playing; never longer than the audio itself plus a margin.
+        deadline = time.monotonic() + samples / self.rate + self._grace
+        while not done.wait(0.05):
+            if cancel.is_set():
+                self._link.send_json({"kind": "stop", "id": lid})
+                return False
+            if time.monotonic() > deadline:
+                log.warning("app never said the line finished; carrying on")
+                break
+        return True
+
+
+class RoutedOut:
+    """The app's echo-cancelled speaker while it's listening, the Mac's speakers otherwise."""
+
+    def __init__(self, link, app: Out, speakers: Out):
+        self._link, self._app, self._speakers = link, app, speakers
+
+    def play(self, chunks, cancel, on_start=None) -> bool:
+        out = self._app if self._link.connected else self._speakers
+        return out.play(chunks, cancel, on_start)
 
 
 @dataclass

@@ -98,6 +98,7 @@ class Deps:
     open_mic: object | None = None
     voiceid: object | None = None
     hands: object | None = None
+    mouth_link: object | None = None  # the app's echo-cancelled speaker (/ws/mouth)
     close: Callable[[], Awaitable[None]] | None = None
 
 
@@ -258,12 +259,48 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
             app.state.app_clients -= 1
             d.bus.unsubscribe(q)
 
+    @app.websocket("/ws/mouth")
+    async def ws_mouth(sock: WebSocket) -> None:
+        """The app plays Evie's voice inside its mic engine, so echo cancellation can remove it."""
+        d: Deps = app.state.d
+        link = d.mouth_link
+        await sock.accept()
+        if link is None:
+            await sock.close()
+            return
+        q = link.attach(asyncio.get_running_loop())
+
+        async def pump() -> None:
+            while True:
+                kind, data = await q.get()
+                if kind == "json":
+                    await sock.send_json(data)
+                else:
+                    await sock.send_bytes(data)
+
+        sender = asyncio.create_task(pump())
+        try:
+            while True:
+                msg = await sock.receive_json()
+                if msg.get("kind") == "done" and msg.get("id"):
+                    link.finished(str(msg["id"]))
+        except (WebSocketDisconnect, RuntimeError, ValueError):
+            pass
+        finally:
+            sender.cancel()
+            link.detach()
+
     @app.post("/hands/result")
     async def hands_result(body: HandsResultIn) -> dict:
         d = need("hands")
         return {"accepted": d.hands.result(body.id, body.ok, body.detail, body.data)}
 
     # -- open mic ----------------------------------------------------------------------------
+    @app.get("/ears/stats")
+    async def ears_stats() -> dict:
+        d = need("open_mic")
+        return dict(getattr(d.open_mic, "stats", {})) | {"mouth_via_app": bool(d.mouth_link and d.mouth_link.connected)}
+
     def ears_body(d: Deps) -> dict:
         return {"mode": d.open_mic.modes.mode, "enrolling": app.state.enrolling,
                 "voiceprint": d.voiceid.print.status()}
@@ -384,7 +421,8 @@ def build_deps(s: Settings) -> Deps:
     from evie.skills.timers import Timers, done_line
     from evie.stt import Transcriber
     from evie.talk import GroqClient, Talker
-    from evie.voice import Mouth, PocketVoice, SpeakerOut
+    from evie.mouth_link import MouthLink
+    from evie.voice import AppOut, Mouth, PocketVoice, RoutedOut, SpeakerOut
 
     jev = JevClient(s)
     sb = Switchboard(jev)
@@ -406,7 +444,9 @@ def build_deps(s: Settings) -> Deps:
     def on_audio(text: str) -> None:  # the moment real sound starts: what Isaac actually hears
         bus.publish("audio", text=text)
 
-    mouth = Mouth(voice, SpeakerOut(voice.rate), on_say=on_say, clips=voice.prepare_clips(),
+    mouth_link = MouthLink()
+    out = RoutedOut(mouth_link, AppOut(mouth_link, voice.rate), SpeakerOut(voice.rate))
+    mouth = Mouth(voice, out, on_say=on_say, clips=voice.prepare_clips(),
                   on_quiet=on_quiet, on_audio=on_audio)
     narrator = Narrator(jev, talker, mouth, bus)
     runner = JobRunner(narrator.on_event, narrator.on_done)
@@ -446,7 +486,7 @@ def build_deps(s: Settings) -> Deps:
     return Deps(sb=sb, calendar=cal, bus=bus, brain=brain, mouth=mouth, stt=stt, runner=runner,
                 warm=warm, close=close, pings=[jev.warm, groq.warm, stt.warm, unload_idle], open_mic=open_mic,
                 voiceid=voiceid,
-                hands=hands)
+                hands=hands, mouth_link=mouth_link)
 
 
 def build_ears(stt, brain, mouth, bus):
