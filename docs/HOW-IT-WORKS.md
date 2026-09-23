@@ -369,6 +369,124 @@ Open mic on Live. Isaac, at his desk, no key: **"what's on friday"**.
 - **Messages are not a fast skill.** WhatsApp has no API; sending as Isaac comes with Fluid (3b), with a read-back and a 3 s "stop" window on the pill.
 - **Spotify playback and Calendar writes were checked by tests, not live.** Isaac's demo is the live check (and the one-time "Evie wants to control Spotify" prompt).
 
+# Phase 3.5: the fix pass + a smarter brain (2026-09-24)
+
+The first real day of use (23 Sep) showed Evie was fast but dumb and flaky. This pass fixed what broke and gave her the knowledge to answer properly. Plan: `~/IsaacOS/projects/evie/phase-3.5-3b-plan.md`.
+
+## The big idea in 5 lines
+
+1. **She hears properly.** Groq's big Whisper replaces the small local one. The mic's audio was being corrupted before it left the app, and that's fixed. Apple's echo canceller now removes her own voice from the mic.
+2. **She remembers the conversation.** Every answer sees today's turns, so "move it to 5" and "what about Friday" work.
+3. **She gets exactly the knowledge a question needs.** Jev, in the same call as everything else, says which *context packs* to load: calendar, to-dos, Isaac's projects, the screen, the web.
+4. **She's honest and exact.** Maths is computed by code, including trig. Calendar "right now" is worked out by code. Her own abilities are listed in every prompt.
+5. **She never goes silent.** Long jobs get a "still going" line every ~25 s, hard questions get "Let me think", and web lookups get "Let me look that up".
+
+## Background concepts
+
+- **Echo cancellation (AEC).** A call app plays the other person's voice and subtracts it from your mic. It only works if it knows exactly what's being played. So Evie's voice now plays *through the app's own audio engine* (the core streams it over `/ws/mouth`), the same engine that owns the mic.
+- **Buffer reuse.** When the mic hands the app a chunk of audio, that memory gets reused for the next chunk right after. The old code read it a moment later on another thread, sometimes after it had been overwritten. That produced garbled open-mic transcripts that the talk key never had. Now it copies first.
+- **Context packs.** Rather than stuffing everything into every prompt (slow, and it confuses the model), Jev answers seven extra yes/no questions *in parallel* in the call it already makes: need_calendar, need_tasks, need_projects, need_screen, need_web, hard_question and long_job. Only the chosen packs get loaded. Plain-code "rails" add the obvious ones, so "am I free at 5" always gets the calendar.
+- **Hedged requests.** About 1 Groq call in 35 stalled for 4 s+. Now, if there's no answer after 1.2 s, a second identical request goes out and whichever lands first wins.
+
+## File map (new or changed)
+
+| file | job |
+|---|---|
+| `stt.py` | Groq Whisper first (with Isaac's vocabulary), local Whisper only as a fallback, unloaded after 10 idle minutes |
+| `Ears.swift` | copies mic buffers, voice processing on, plays Evie's voice (`/ws/mouth`) |
+| `voice.py` (`AppOut`, `RoutedOut`), `mouth_link.py` | her voice goes to the app while the open mic is on, else to the speakers |
+| `ears.py` | 500 ms pre-roll; waits up to 1 s when the sentence sounds unfinished ("remind me to…") |
+| `brain.py` | pending questions survive noise; "Evie, …" in Isaac's voice counts as addressed; packs; big model; queue |
+| `memory.py` | today's conversation (4am to 4am), summarised past 12 turns |
+| `context_packs.py` | the packs, the rails, named-day parsing, the IsaacOS project index, web search |
+| `calendar_store.py` | end times, `now_line`, any-day `lookup`, Singapore public holidays |
+| `CalendarFeed.swift` | reads Google "Isaac" + Classroom only (no old timetable, no iCloud), writes to Google "Isaac" |
+| `skills/events.py`, `skills/tasks.py` | move/delete events, tick off Todoist tasks (Jev picks the real one) |
+| `remember.py` | reminders (spoken ones within 12 h), Todoist retry, list, close, fact fallback |
+| `countdown.py` | the "say stop to cancel" window |
+| `capabilities.py` | what she can and can't do, in every prompt |
+| `recorder.py`, `evals/replay.py` | opt-in recordings of Isaac's open-mic sentences + the WER eval |
+
+## One sentence, traced end to end
+
+"**Evie, what's on the 14th of October?**" (open mic, Isaac's voice)
+
+1. Voice ID: Isaac (0.88). The early transcript at the 250 ms Peek goes to Groq Whisper on a warm connection (~320 ms). It ends in "?", so there's no extra wait.
+2. It starts with her name in Isaac's own voice, so it's *named*: treated like the talk key.
+3. Jev, one call (~400 ms): route answer, need_calendar 0.95, others low. The rails agree (calendar).
+4. The draft answer (started before Jev finished) only had the 14-day calendar, and the 14th of October is further out. So the Brain drops the draft and gathers the calendar pack. `named_days` finds 2026-10-14, and `lookup` asks the app (`do calendar_query`) for that day from EventKit.
+5. Groq gets now + right now + today's conversation + the capability sheet + "Wednesday 14 Oct: 9:00-10:00 Chem test" and says: "**You've got a chem test at 9 that Wednesday.**"
+6. The turn goes into today's conversation, so "and the day after?" works next.
+
+## Why each choice beat the alternatives
+
+- **Cloud Whisper over local.** Measured on the replay set: WER 0.054 vs 0.084 for ~70 ms more on a warm connection. It freed ~470 MB (1.5 GB to ~830 MB). Only Isaac's voice is ever sent, since voice ID drops everyone else first.
+- **Voice through the app, not just "turn on AEC".** Apple's canceller only removes sound it played itself. Live check: 2 of 2 outside-voice lines heard, 0 segments from Evie's own reply.
+- **Packs via Jev nouls, not a bigger prompt.** Seven more questions in the same call cost ~0 ms (p50 393 ms). Pack accuracy was 0.556 at first because Jev over-picked web and projects. Sharper wording and higher bars for the slow packs brought it to 0.944.
+- **Google via EventKit, not OAuth.** Isaac's Google account is already on the Mac, so no token can expire (that's what killed the old Google login). Writes land in Google "Isaac" and show on his phone.
+- **Deep research goes to Claude Code** (Isaac, 2026-09-24): depth comes from a real worker, not from making the fast models pretend.
+
+## Numbers (2026-09-24)
+
+| what | result |
+|---|---|
+| Evals, 165 cases | false_action **0**, recall 1.0, route 0.958, skill 0.952, remember_to **1.0**, packs **1.0**, p50 ~400 ms |
+| Narration eval | 0.88 at the new 0.45 bar |
+| Core memory | **~830 MB** (was 1.5 GB), exactly 1 core |
+| Live answers | to-dos 0.8 s, projects 0.9 s, web 4.0 s, hard (gpt-oss-120b) 1.2 s |
+
+## Known limits
+
+- **Real open-mic WER isn't measured yet.** The recorder is off until Isaac turns it on for a day ("Record for tuning" in the panel).
+- **gpt-oss-120b has a small per-minute limit on Groq.** When it's hit, she falls back to Qwen 27B (a bit less careful).
+- **Only 1 of 7 Classroom calendars syncs to the Mac** (English A). The rest need ticking at google.com/calendar/syncselect.
+
+# Phase 3b: Evie operates the Mac (2026-09-24)
+
+Isaac's brief: full macOS control, Safari first, background first, never screenshots unless truly needed, and a read-back plus 3 s "stop" for anything that sends, posts or buys. Designed from zero (no Fluid code or ideas).
+
+## The big idea in 5 lines
+
+1. **Eyes.** The app reads every element on screen at once, as text: a page script in Safari, the Accessibility tree for any other app. Each element gets an id that only exists in that snapshot.
+2. **Recipes first.** Common jobs have exact paths: play a YouTube video, search, open a site, new/close tab, send a message. Jev picks the recipe (1.0 on the eval).
+3. **Planner for the rest.** Each turn a fast model sees the goal, the steps so far and the element list, and picks ONE step. Code refuses any id that isn't on screen.
+4. **Background first.** Page scripts, Accessibility presses and keys sent to one app all work while Isaac stays in his own app. Safari only comes to the front when he asked to watch something.
+5. **Safety.** Sends, buys and deletes are caught twice (a word rail on the button + the model's own flag), read back out loud, and wait 3 s for "stop". Only Isaac's voice or the talk key can start a message. Stuck on screen? It goes to Claude Code.
+
+## One sentence, traced end to end
+
+"**Evie, play a video by MrBeast.**"
+
+1. Jev: quick_action, skill `computer`. Isaac's own voice, so it's allowed. She says "On it." and keeps listening (the work runs in the background).
+2. Recipes: Jev picks `youtube_play`, and Groq pulls out `{"query": "mrbeast"}` (both at once).
+3. The core sends the app `open_url https://www.youtube.com/results?search_query=mrbeast` with `front: false`. Safari loads it *behind* whatever Isaac's doing, and `wait_page` waits for the load.
+4. `observe Safari`: the page reader tags every visible link and button (w1 Search, w5 "I Spent 7 Days Buried Alive" → /watch…). Code takes the first on-screen /watch link.
+5. `press w5` (a page-script click, no mouse). Then `activate Safari`, because he asked to watch it.
+6. "**Playing I Spent 7 Days Buried Alive.**" Saying "stop" at any point cancels the task.
+
+## Why each choice beat the alternatives
+
+- **Element lists, not screenshots.** Text is exact (no misclicks from pixel guessing), fast (one read ~150 ms) and private (nothing leaves the Mac except the element labels).
+- **Ids tied to one snapshot.** A stale plan can't click whatever moved into that spot. The app rejects old snapshot ids ("the screen changed, look again").
+- **One model call per step, ids checked in code** (instead of a planner call + a Jev grounding call): about half the time per step (p50 ~700 ms), and it still can't click anything imaginary.
+- **Page scripts travel as arguments to osascript**, never pasted into AppleScript source, so nothing on a web page can break out. Typed text is JSON-escaped.
+- **WhatsApp via its own link** (`whatsapp://send?phone=…&text=…`) + pressing Send. The number comes from Isaac's real Contacts, so it's never guessed. iMessage goes through Messages.
+
+## Numbers (2026-09-24)
+
+| what | result |
+|---|---|
+| Planner eval, 24 real-looking screens (YouTube, Gmail, Notes, Finder, WhatsApp, Amazon, Settings, Spotify, Notion) | step accuracy **0.958**, unsafe steps **0**, p50 703 ms |
+| Recipe routing, 12 cases | **1.0** |
+| Page scripts in real WebKit (headless selftest) | read, click, type+submit, rich text: all pass |
+| Live read-only checks | Terminal: 11 controls; Safari (Accessibility fallback): 88 elements incl. the page |
+
+## Known limits
+
+- **The live 12-task suite needs Isaac there** (it drives his screen). The tests and evals never touch it.
+- **One-time prompts:** "Evie wants to control Safari" (for page scripts; until then she reads Safari through Accessibility), Contacts (first message), Messages.
+- **Keys sent to a background app** work in most Cocoa apps, not all. The planner then takes over the screen, and says so.
+
 # Change log
 
 - **2026-09-23, keys + pill crash.** The talk key moved from 🌐 (Fn) to **hold left ⌃⌥**, and **left ⌃⌥⌘** flips the Live open mic on and off (left keys only, so Right Option stays Ripple's). `Chord` in `PushToTalk.swift` reads the left/right bits of the modifier flags. The pill crashed the app: its window was set to resize itself to fit its text, and a text change ("Listening…") started an endless resize → layout → resize loop (stack overflow, 2 crash reports). The pill is now a fixed 400×60 transparent window with the capsule on the left, SwiftUI is never allowed to size it, and a `DragPanel` starts the window drag itself (SwiftUI was swallowing the mouse, which is why it couldn't be moved).

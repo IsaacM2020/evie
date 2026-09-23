@@ -76,6 +76,9 @@ class EnrollIn(BaseModel):
     on: bool
 
 
+DEBUG_OPS = {"observe", "screen_info", "wait_page", "calendar_query", "spotify_state"}
+
+
 class DoIn(BaseModel):
     op: str
     args: dict = {}
@@ -299,6 +302,8 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
     @app.post("/debug/do")
     async def debug_do(body: DoIn) -> dict:
         """Run one hands command by hand (testing Phase 3b). Localhost only, like everything here."""
+        if body.op not in DEBUG_OPS:  # never a send, press or delete that skips Evie's read-back
+            raise HTTPException(403, f"{body.op} can only be run by Evie herself")
         d = need("hands")
         r = await d.hands.do(body.op, timeout=body.timeout, **body.args)
         return {"ok": r.ok, "detail": r.detail, "data": r.data}

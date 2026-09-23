@@ -309,3 +309,14 @@ def test_app_online_while_the_app_is_connected():
             ws.receive_json()  # hello
             assert c.get("/status").json()["app_online"] is True
         assert c.get("/status").json()["app_online"] is False
+
+
+def test_debug_do_only_runs_read_only_ops():
+    from evie.hands import Hands
+    d = full_deps()
+    d.hands = Hands(d.bus)
+    with client(deps=d) as c:
+        r = c.post("/debug/do", json={"op": "imessage_send", "args": {"to": "+6591234567", "text": "hi"}})
+        assert r.status_code == 403
+        r = c.post("/debug/do", json={"op": "press", "args": {"id": "w1", "snapshot": "x"}})
+        assert r.status_code == 403
