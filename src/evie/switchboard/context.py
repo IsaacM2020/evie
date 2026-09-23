@@ -50,7 +50,8 @@ def render_state(ctx: Context) -> str:
     if ctx.front_app:
         lines.append(f"App in front: {ctx.front_app}")
     if ctx.active_jobs:
-        lines.append("Evie is currently working on: " + "; ".join(ctx.active_jobs))
+        jobs = [_clip(j, MAX_RECENT_CHARS) for j in ctx.active_jobs[-MAX_RECENT:]]
+        lines.append("Evie is currently working on: " + "; ".join(jobs))
     else:
         lines.append("Evie is not working on anything right now.")
     if ctx.recent:

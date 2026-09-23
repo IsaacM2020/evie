@@ -45,3 +45,11 @@ def test_noise():
         assert is_noise(junk), junk
     for real in ["pause", "evie play lofi", "thank you evie"]:
         assert not is_noise(real), real
+
+
+def test_active_jobs_clipped_and_capped():
+    ctx = Context(utterance="x", active_jobs=tuple(f"job{i} " + "z" * 1000 for i in range(6)))
+    line = [l for l in render_state(ctx).splitlines() if l.startswith("Evie is currently working on:")][0]
+    jobs = line.removeprefix("Evie is currently working on: ").split("; ")
+    assert len(jobs) == 3
+    assert all(len(j) <= MAX_RECENT_CHARS for j in jobs)

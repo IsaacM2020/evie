@@ -14,6 +14,10 @@ CLIENT_SECRET = APP_DIR / "google_client_secret.json"
 TOKEN = APP_DIR / "google_token.json"
 
 
+class CalendarUnavailable(Exception):
+    """Google can't be reached right now (no internet, Google down). Not a login problem."""
+
+
 @dataclass(frozen=True)
 class Event:
     title: str
@@ -40,17 +44,24 @@ def parse_events(items: list[dict]) -> list[Event]:
 
 
 def load_credentials():
-    from google.auth.exceptions import RefreshError
+    from google.auth.exceptions import RefreshError, TransportError
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
 
-    creds = Credentials.from_authorized_user_file(str(TOKEN), SCOPES) if TOKEN.exists() else None
+    creds = None
+    if TOKEN.exists():
+        try:
+            creds = Credentials.from_authorized_user_file(str(TOKEN), SCOPES)
+        except ValueError:  # corrupt token file (JSONDecodeError is a ValueError): log in again
+            creds = None
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
         except RefreshError:  # dead token (the old invalid_grant): log in again instead of crashing
             creds = None
+        except TransportError as e:  # no internet: the token is fine, so don't make Isaac log in again
+            raise CalendarUnavailable(f"can't reach Google right now: {e}") from e
     if not creds or not creds.valid:
         if not CLIENT_SECRET.exists():
             raise FileNotFoundError(f"Put the Google OAuth desktop client JSON at {CLIENT_SECRET}")
