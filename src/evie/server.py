@@ -277,6 +277,14 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
     async def stop_all() -> dict:
         return await need("brain").brain.stop_all()
 
+    @app.post("/choose")
+    async def choose(body: dict) -> dict:
+        """A tap on one of the orb's "Which one?" rows."""
+        eid = str(body.get("id") or "").strip()
+        if not eid:
+            raise HTTPException(422, "id needed")
+        return await need("brain").brain.choose_option(eid)
+
     @app.websocket("/ws")
     async def ws(sock: WebSocket) -> None:
         d: Deps = app.state.d

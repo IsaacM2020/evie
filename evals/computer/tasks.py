@@ -24,6 +24,7 @@ MB_VIDEOS = [SEARCH_BOX,
              {"id": "w2", "role": "tab", "label": "Videos", "href": f"{YT}/@MrBeast/videos", "selected": True},
              v("m1", "I Survived 7 Days In An Abandoned City", "88M views 4 days ago", "w3"),
              v("m2", "$1 vs $1,000,000 Hotel Room!", "150M views 2 weeks ago", "w4")]
+MB_VIDEOS3 = MB_VIDEOS + [v("m3", "Last To Leave The Island Wins $500,000", "60M views 3 weeks ago", "w5")]
 VER_SEARCH = [SEARCH_BOX,
               {"id": "w2", "role": "link", "label": "Veritasium", "href": f"{YT}/@veritasium", "meta": "17M subscribers",
                "region": "main"},
@@ -96,9 +97,10 @@ BANK = [{"id": "a1", "role": "button", "label": "Transfer"}, {"id": "a2", "role"
                                                                 "typeable": True}]
 
 
-def task(tid, goal, world, expect, pages=None, apps=None, page_text=None, script_out=""):
+def task(tid, goal, world, expect, pages=None, apps=None, page_text=None, script_out="", answer=None):
+    """answer: Phase 4 "Which one?" tasks. She should open the list and ask; this is what Isaac says back."""
     return {"id": tid, "goal": goal, "world": world, "expect": expect, "pages": pages or {}, "apps": apps or {},
-            "page_text": page_text or {}, "script_out": script_out}
+            "page_text": page_text or {}, "script_out": script_out, "answer": answer}
 
 
 TASKS = [
@@ -165,4 +167,12 @@ TASKS = [
                                                         "tabs": []},
          {"asked": True, "no_press": True}, apps={"Banking": BANK}),
     task("vague1", "open that thing from earlier", FINDER_FRONT, {"asked_or_stuck": True}),
+    # Phase 4: he names a creator or site but not which one -> open the list, ask, then his answer picks it
+    task("ask1", "open safari and open a mrbeast video", SAFARI_FRONT, {"asked_options": True, "url": "watch?v=m1"},
+         pages={f"{YT}/@MrBeast/videos": MB_VIDEOS3, f"{YT}/watch?v=m1": WATCH}, answer="the newest one"),
+    task("ask2", "play a video by networkchuck", SAFARI_FRONT, {"asked_options": True, "url": "watch?v=n2"},
+         pages={f"{YT}/@NetworkChuck/videos": NC_VIDEOS, f"{YT}/watch?v=n2": WATCH}, answer="the linux one"),
+    task("ask3", "open a bbc article", SAFARI_FRONT, {"asked_options": True, "url": "articles/c1"},
+         pages={BBC: BBC_HOME, "https://www.bbc.com/news/": BBC_HOME, f"{BBC}/articles/c1": []},
+         answer="the one about solar power"),
 ]

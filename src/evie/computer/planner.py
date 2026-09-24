@@ -16,7 +16,7 @@ import asyncio
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
@@ -47,19 +47,22 @@ Steps (each an object with "do"):
 - {"do":"open_url","url":"https://...","same_tab":false}   open a page (a new tab unless same_tab)
 - {"do":"find","what":"words on the element","role":"tab|button|link|input|...","href":"part of its link",
    "typeable":true, "then":"press|set_text", "text":"what to type", "submit":true, "risky":false, "say":"read-back"}
-- {"do":"pick","among":"videos|articles|channels|results|rows","want":"what Isaac wants","then":"press|read"}
+- {"do":"pick","among":"videos|articles|channels|results|rows","want":"what Isaac wants","then":"press|read","ask":false}
 - {"do":"key","combo":"cmd+t"}   {"do":"menu","path":"File > New"}   {"do":"activate","app":"Notes"}
 - {"do":"action","name":"<action from the app guide>","args":{...}}
 - {"do":"read","what":"what to find out or summarise"}     reads the page/window and answers Isaac
 - {"do":"expect","url_contains":"..."} or {"do":"expect","element":"words on something that must now be there"}
 - {"do":"message","to":"who","body":"exact words","via":"whatsapp|imessage"}   sending always uses this
 - {"do":"ask","say":"a short question"}   only when Isaac's goal is truly unclear
-- {"do":"done","say":"one short spoken sentence; {picked} = the label of what you picked"}
+- {"do":"done","say":"..."}   Evie's short closing line about what she did ("Playing {picked}." for a video,
+   "Wi-Fi's off.", "Your Downloads are open."); {picked} becomes the name of what was picked
 Rules: when the app guide has an action for the task, use that one step, never clicks. open_url already opens a
 new tab (never key cmd+t before it). Use read only when Isaac wants to know or hear something. A message step does the
 whole send by itself (finds the person, opens the chat, reads it back): use it alone. Otherwise prefer direct
 addresses over clicking. After a page change put an expect that proves it worked (never after an action or message). "Newest" on a channel's Videos page is the first video. When several could match, use pick and choose the
-best: don't ask. Mark "risky": true on any step that sends, posts, buys, deletes or submits for Isaac, with a "say"
+best: don't ask. But when Isaac names a creator, site or list and NOT which item ("a mrbeast video", "a video by
+parrot", "something on netflix"), open the list and set "ask": true on the pick: Evie shows him the top ones and asks
+there. With newest, latest, most interesting, about X or any other hint, choose (ask false). Mark "risky": true on any step that sends, posts, buys, deletes or submits for Isaac, with a "say"
 read-back. Never type passwords or pay. Isaac's words came from speech-to-text and may contain misheard words:
 read them for what he most likely meant. End with done."""
 
@@ -67,6 +70,38 @@ read them for what he most likely meant. End with done."""
 _SEND_KEYS = {"return", "enter", "cmd+return", "cmd+enter", "shift+cmd+d", "cmd+shift+d"}
 MESSAGING_APPS = {"WhatsApp", "Messages", "Mail", "Slack", "Discord", "Telegram", "Microsoft Teams", "Signal"}
 _DOING = {"open_url", "find", "pick", "key", "menu", "action", "message", "activate"}
+
+# "a mrbeast video", "a video by networkchuck", "a bbc article": a creator or site but not WHICH one. She opens the
+# list and asks (Isaac, 2026-09-24). Any hint ("newest", "about solar", "that explains...") means she picks instead.
+_VAGUE_ITEM = re.compile(r"\b(a|an|any|some)\s+(\S+\s+){0,2}(videos?|vids?|articles?|stor(y|ies)|episodes?|posts?)\b",
+                         re.I)
+_HINT = re.compile(r"\b(newest|latest|recent|new one|last|first|most|best|top|popular|funniest|about|called|named|"
+                   r"titled|that|which|where|explain\w*|on how|how to|from (yesterday|today|last))\b", re.I)
+
+
+_ROW_WORDS = {"newest": 0, "latest": 0, "most recent": 0, "first": 0, "1st": 0, "top": 0, "1": 0,
+              "second": 1, "2nd": 1, "2": 1, "middle": 1, "third": 2, "3rd": 2, "3": 2}
+_FILLER = {"the", "please", "evie", "play", "open", "that", "video", "article", "it", "uh", "um"}
+
+
+def ordinal_row(answer: str, n: int) -> int | None:
+    """"the newest one" / "the second one" / "number 3" -> a row index, worked out without a model.
+    "the last one" is left to Jev (last in the list, or latest?)."""
+    a = re.sub(r"[^a-z0-9 ]", " ", answer.lower())
+    for word, digit in (("one", "1"), ("two", "2"), ("three", "3")):
+        a = re.sub(rf"\bnumber {word}\b", digit, a)
+    a = re.sub(r"\bnumber\b", " ", a)
+    words = [w for w in a.split() if w not in _FILLER]
+    if len(words) > 1 and words[-1] == "one":
+        words = words[:-1]
+    i = _ROW_WORDS.get(" ".join(words))
+    return i if i is not None and i < n else None
+
+
+def vague_pick(goal: str) -> bool:
+    m = _VAGUE_ITEM.search(goal)
+    return bool(m) and not _HINT.search(goal[m.start():])
+
 
 # Isaac asked to KNOW something (so a read step's answer is what she says).
 _WANTS_ANSWER = re.compile(r"\?|\b(what|what's|whats|who|which|when|where|how|why|any|anything|summari[sz]e|read|"
@@ -79,6 +114,8 @@ class Outcome:
     said: str
     ask: bool = False
     stuck: bool = False  # couldn't do it on screen: the Brain may hand it to Claude Code
+    options: list[dict] = field(default_factory=list)  # "Which one?": the rows shown to Isaac
+    pick: dict | None = None  # what Planner.choose needs to finish once he answers
 
 
 class _Fail(Exception):
@@ -89,6 +126,28 @@ class _Ask(Exception):
     def __init__(self, say: str):
         super().__init__(say)
         self.say = say
+
+
+class _AskPick(Exception):
+    """The list is open; Isaac says which one (Planner.choose finishes it)."""
+
+    def __init__(self, say: str, options: list[dict], pick: dict):
+        super().__init__(say)
+        self.say, self.options, self.pick = say, options, pick
+
+
+ASK_ROWS = 3
+
+
+def _which_line(rows: list[dict]) -> str:
+    names = [_short(r.get("label", "")) for r in rows]
+    listed = ", ".join(names[:-1]) + f", or {names[-1]}" if len(names) > 2 else " or ".join(names)
+    return f"Which one? {listed}."
+
+
+def _short(label: str, n: int = 48) -> str:
+    label = " ".join(label.split())
+    return label if len(label) <= n else label[: n - 1].rsplit(" ", 1)[0] + "…"
 
 
 class Planner:
@@ -125,6 +184,8 @@ class Planner:
         while True:
             try:
                 return await self._run_steps(steps)
+            except _AskPick as a:
+                return Outcome(False, a.say, ask=True, options=a.options, pick=a.pick)
             except _Ask as a:
                 return Outcome(False, a.say, ask=True)
             except _Fail as f:
@@ -141,6 +202,7 @@ class Planner:
         if not steps:
             raise _Fail("the plan was empty")
         prev, did = None, False
+        self._steps = steps
         for st in steps[:MAX_STEPS]:
             do = st.get("do")
             if do == "read" and not _WANTS_ANSWER.search(self._goal):
@@ -153,7 +215,10 @@ class Planner:
             if do == "done":
                 if not did and not self._did:
                     raise _Fail("the plan stopped before doing anything")
-                return Outcome(True, str(st.get("say") or self._closing()).replace("{picked}", self._picked))
+                say = str(st.get("say") or "")
+                if "spoken sentence" in say or "the label of" in say:  # the model copied the prompt's example
+                    say = ""
+                return Outcome(True, (say or self._closing()).replace("{picked}", self._picked))
             if do == "ask":
                 raise _Ask(str(st.get("say") or "What exactly should I do?"))
             said = await self._step(do, st)
@@ -203,6 +268,8 @@ class Planner:
             await self._act(st, el)
         elif do == "pick":
             await self._fresh()
+            if st.get("ask") or vague_pick(self._goal):
+                self._ask_which(st)
             el = await self._pick(st)
             if st.get("then", "press") == "read" and _WANTS_ANSWER.search(self._goal):
                 return await self._read(f"{st.get('want')}: {el.get('label')}")
@@ -296,6 +363,64 @@ class Planner:
             "(first = top of the page). Pick the best match.", pool[:12], f"pick {st.get('want')!r}")
         self._picked = el.get("label", "")
         return el
+
+    def _ask_which(self, st: dict) -> None:
+        """He didn't say which one: the list is on screen now, so ask with the top rows."""
+        rows = pick_pool(self._screen, str(st.get("among") or ""))[:ASK_ROWS]
+        if len(rows) < 2:
+            return  # only one: nothing to ask
+        shown = [{k: r[k] for k in ("id", "label", "meta", "href") if r.get(k)} for r in rows]
+        done = next((s.get("say") for s in self._steps if s.get("do") == "done" and s.get("say")
+                     and "spoken sentence" not in str(s.get("say"))), "")
+        raise _AskPick(_which_line(rows), shown, {
+            "goal": self._goal, "among": st.get("among"), "then": st.get("then", "press"), "rows": shown,
+            "done": done, "target": self._target, "world": self._world_now})
+
+    async def choose(self, pick: dict, answer: str | None, eid: str | None = None) -> Outcome:
+        """Finish a "Which one?": his answer ("the latest one", "the island one") or a tap on a row.
+        Only the rows he was shown count, found again on a fresh read by their link (the page may
+        have re-rendered with new ids); no new plan."""
+        self._goal = pick["goal"] + (f' (Isaac was shown some and chose: "{answer}")' if answer else "")
+        self._picked, self._history, self._did, self._last_say, self._typed = "", [], True, "", False
+        self._target, self._world_now, self._new_tab_done, self._steps = pick["target"], pick["world"], True, []
+        try:
+            await self._look()
+            live = []
+            for row in pick["rows"]:
+                el = next((e for e in self._screen.elements if row.get("href") and e.get("href") == row["href"]), None) \
+                    or next((e for e in self._screen.elements if e.get("label") == row.get("label")), None)
+                live.append((row, el))
+            found = [(row, el) for row, el in live if el is not None]
+            if eid is not None:
+                el = next((el for row, el in found if row["id"] == eid), None)
+                if el is None:
+                    raise _Fail("that one isn't on screen any more")
+            elif found and answer and (i := ordinal_row(answer, len(pick["rows"]))) is not None \
+                    and live[i][1] is not None:
+                el = live[i][1]  # "the newest one", "the second one": no model needed
+                self._history.append(f"row {i + 1} for {answer!r}")
+            else:
+                cands = [el for _, el in found] or pick_pool(self._screen, str(pick.get("among") or ""))[:12]
+                if not cands:
+                    raise _Fail(f"no {pick.get('among')} on this page")
+                el = await self._jev_choose(
+                    f'Evie showed Isaac these and asked which one. He answered: "{answer}". Which one does he '
+                    'mean? They\'re in page order: "the latest", "the newest" or "the first" is #1.', cands,
+                    f"choose {answer!r}")
+            self._picked = el.get("label", "")
+            if pick.get("then") == "read" and _WANTS_ANSWER.search(pick["goal"]):
+                return Outcome(True, await self._read(f"{pick['goal']}: {self._picked}"))
+            await self._act({"then": "press"}, el)
+        except _Ask as a:
+            return Outcome(False, a.say, ask=True)
+        except _Fail as f:
+            log.info("choosing %r failed: %s", answer or eid, f)
+            return Outcome(False, "I couldn't open that one.", stuck=True)
+        done = str(pick.get("done") or "")
+        if "{picked}" not in done:  # say WHICH one: he chose it, so he should hear it was the right one
+            video = re.search(r"video|vid|song|episode", str(pick.get("among") or "") + " " + pick["goal"], re.I)
+            done = "Playing {picked}." if video else "Opened {picked}."
+        return Outcome(True, done.replace("{picked}", self._picked))
 
     async def _jev_choose(self, instructions: str, cands: list[dict], what: str) -> dict:
         criteria = {c["id"]: (f"#{i + 1} " + (c.get("label") or "") + (f" ({c['meta']})" if c.get("meta") else ""))[:160]

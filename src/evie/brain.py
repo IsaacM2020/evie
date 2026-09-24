@@ -32,6 +32,7 @@ log = logging.getLogger("evie.brain")
 TURNS_LOG = Path.home() / "Library/Logs/Evie/turns.jsonl"
 MAX_TURNS = 3
 PENDING_S = 15.0  # how long Evie waits for the answer to a question she asked
+PICK_S = 120.0  # a "Which one?" list stays on screen (and answerable) this long
 FOLLOWUP_S = 10.0
 JOB_WINDOW_S = 3.0  # read back a job, then start it this long after unless he says stop
 STT_SURE = 0.5  # Whisper confidence below this: ask before starting anything long
@@ -94,6 +95,7 @@ class Pending:
     speaker: str
     at: float
     asked: str = ""  # what she asked ("What time?")
+    data: dict | None = None  # kind "pick": what the planner needs to finish it (rows shown, the tab)
 
 
 def strip_wake(text: str) -> str:
@@ -229,6 +231,8 @@ class Brain:
         p = self._pending
         if p is None:
             return None
+        if p.kind == "pick":
+            return await self._answer_pick(p, text, speaker)
         if self._clock() - p.at > PENDING_S or _WAKE.match(text):
             self._pending = None
             return None
@@ -253,6 +257,51 @@ class Brain:
         self._pending = None
         merged = f'{p.text}. Evie asked "{p.asked}", Isaac answered "{text}".' if p.asked else f"{p.text}. {text}"
         return await self._turn(merged, p.speaker, addressed=True, answered=True)
+
+    async def _answer_pick(self, p: Pending, text: str, speaker: str) -> dict | None:
+        """The "Which one?" list is open on screen. "The latest one", "Evie, the island one": the
+        planner picks among the rows he was shown. Anything else leaves the list waiting."""
+        if self._clock() - p.at > PICK_S:
+            self._pending = None
+            return None
+        if speaker == "other" or not await self._answers(p, text):
+            return None
+        self._pending = None
+        self._bus.publish("heard", text=text)
+        self._start_choice(p.data or {}, strip_wake(text))
+        self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "choice", "route": "computer"})
+        return {"text": text, "action": "act", "reason": "choice", "route": "computer", "said": None}
+
+    async def choose_option(self, eid: str) -> dict:
+        """A tap on one of the orb's "Which one?" rows."""
+        p = self._pending
+        if p is None or p.kind != "pick" or self._clock() - p.at > PICK_S:
+            return {"ok": False, "detail": "nothing to choose"}
+        self._pending = None
+        self._start_choice(p.data or {}, None, eid)
+        return {"ok": True}
+
+    def _start_choice(self, pick: dict, answer: str | None, eid: str | None = None) -> None:
+        if self._computer_task and not self._computer_task.done():
+            self._computer_task.cancel()
+        self._bus.publish("options", options=[])  # the orb closes the list
+        self._computer_task = asyncio.create_task(self._run_choice(pick, answer, eid))
+
+    async def _run_choice(self, pick: dict, answer: str | None, eid: str | None) -> None:
+        self._bus.publish("state", state="working")
+        try:
+            out = await self._computer.choose(pick, answer, eid=eid)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("choosing on screen crashed")
+            self._say("Something broke doing that on screen.")
+            return
+        finally:
+            self._bus.publish("state", state="working" if self._runner.current else "idle")
+        self._write_log({"t": time.time(), "text": answer or f"(tapped {eid})", "action": "act", "reason": "choice",
+                         "route": "computer", "said": out.said, "ok": out.ok})
+        self._say(out.said)
 
     async def _answers(self, p: Pending, text: str) -> bool:
         """Jev: is this Isaac answering her question, or something else? Unsure means yes."""
@@ -485,7 +534,11 @@ class Brain:
             self._bus.publish("state", state="working" if self._runner.current else "idle")
         self._write_log({"t": time.time(), "text": goal, "action": "act", "reason": "computer", "route": "computer",
                          "said": out.said, "ok": out.ok, "stuck": out.stuck})
-        if out.ask:
+        if out.ask and out.pick:  # the list is open: "Which one?" (answered by voice or a tap)
+            self._pending = Pending("pick", goal, "isaac", self._clock(), asked=out.said, data=out.pick)
+            self._bus.publish("options", asked=out.said, options=out.options)
+            self._say(out.said)
+        elif out.ask:
             self._pending = Pending("detail", goal, "isaac", self._clock(), asked=out.said)
             self._say(out.said)
         elif out.stuck:

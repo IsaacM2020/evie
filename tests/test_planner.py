@@ -377,3 +377,146 @@ async def test_pick_then_read_still_opens_it_when_he_only_asked_to_open_it():
     p, _ = planner(hands, PlanGroq(plan, text="Some summary."))
     r = await p.run("open the most interesting bbc article")
     assert hands.url.endswith("/c3") and r.said == "Opened AI model beats doctors at spotting rare diseases."
+
+
+# -- Phase 4 T2: browse first, then ask (Isaac, 2026-09-24: "open up the page and show me the videos and
+# then ask me which one") ----------------------------------------------------------------------------
+MB = "https://www.youtube.com/@MrBeast/videos"
+MB_TITLES = ["$1 vs $1,000,000 Hotel Room", "I Survived 7 Days In An Abandoned City", "Last To Leave The Island Wins",
+             "Ages 1 - 100 Fight For $500,000"]
+MB_PAGE = [{"id": "m1", "role": "tab", "label": "Videos", "href": MB, "selected": True}] + [
+    {"id": f"m{i + 2}", "role": "link", "label": t, "href": f"https://www.youtube.com/watch?v=b{i}",
+     "meta": f"{i + 2} days ago", "region": "main"} for i, t in enumerate(MB_TITLES)]
+VAGUE = {"understood": "Opening MrBeast's videos", "steps": [
+    {"do": "open_url", "url": MB}, {"do": "expect", "url_contains": "/videos"},
+    {"do": "pick", "among": "videos", "want": "a MrBeast video", "then": "press", "ask": True},
+    {"do": "done", "say": "Playing {picked}."}]}
+
+
+def mb_hands():
+    pages = {MB: MB_PAGE, **{f"https://www.youtube.com/watch?v=b{i}": WATCH for i in range(4)}}
+    return SimHands(pages=pages, world=SAFARI_FRONT)
+
+
+async def test_a_vague_video_request_opens_the_list_then_asks_which_one():
+    hands, groq, jev = mb_hands(), PlanGroq(VAGUE), PickJev()
+    p, said = planner(hands, groq, jev)
+    r = await p.run("open safari and open a mrbeast video")
+    assert r.ask and not r.ok
+    assert [o["label"] for o in r.options] == MB_TITLES[:3]
+    assert r.said.startswith("Which one?") and MB_TITLES[0] in r.said
+    assert hands.url == MB  # the page is open, so he can see them
+    assert not [c for c in hands.calls if c[0] == "press"] and jev.asked == []
+
+
+async def test_his_answer_picks_from_the_same_rows_with_no_replan():
+    hands, groq = mb_hands(), PlanGroq(VAGUE)
+    p, _ = planner(hands, groq, PickJev())
+    r = await p.run("open safari and open a mrbeast video")
+    p._jev = jev = PickJev(choose=lambda opts: opts[1])
+    r2 = await p.choose(r.pick, "the abandoned city one")
+    assert r2.ok and r2.said == f"Playing {MB_TITLES[1]}."
+    assert len(groq.calls) == 1  # still the one plan call
+    state, opts = jev.asked[0]
+    assert "the abandoned city one" in state and opts == ["m2", "m3", "m4"]
+    assert hands.url == "https://www.youtube.com/watch?v=b1"
+
+
+async def test_a_tap_on_an_option_needs_no_model():
+    hands, groq = mb_hands(), PlanGroq(VAGUE)
+    p, _ = planner(hands, groq, PickJev())
+    r = await p.run("open safari and open a mrbeast video")
+    p._jev = jev = PickJev()
+    r2 = await p.choose(r.pick, None, eid=r.options[2]["id"])
+    assert r2.ok and MB_TITLES[2] in r2.said and jev.asked == []
+
+
+async def test_rows_that_changed_are_found_again_by_their_link():
+    hands, groq = mb_hands(), PlanGroq(VAGUE)
+    p, _ = planner(hands, groq, PickJev())
+    r = await p.run("open safari and open a mrbeast video")
+    # YouTube re-rendered: same videos, new element ids, and a new video on top
+    hands.pages[MB] = [MB_PAGE[0], {"id": "z9", "role": "link", "label": "Brand New Upload",
+                                    "href": "https://www.youtube.com/watch?v=new", "meta": "1 hour ago"}] + [
+        {**e, "id": "z" + e["id"]} for e in MB_PAGE[1:]]
+    p._jev = jev = PickJev(choose=lambda opts: opts[0])
+    r2 = await p.choose(r.pick, "the hotel one")
+    assert jev.asked[0][1] == ["zm2", "zm3", "zm4"]  # the rows he was shown, not the new upload
+    assert r2.ok and MB_TITLES[0] in r2.said
+    # a tap on a row that's gone falls back to his shown rows too
+    hands.url = MB
+    r3 = await p.choose(r.pick, None, eid="m3")
+    assert r3.ok and MB_TITLES[1] in r3.said
+
+
+async def test_the_planner_is_told_when_to_ask():
+    assert '"ask"' in __import__("evie.computer.planner", fromlist=["SYSTEM"]).SYSTEM
+
+
+def test_vague_pick_is_spotted_in_code():
+    from evie.computer.planner import vague_pick
+    for g in ("open safari and open a mrbeast video", "play a video by networkchuck", "open a bbc article",
+              "put on some mrbeast videos", "open an article on cna"):
+        assert vague_pick(g), g
+    for g in ("play the newest networkchuck video", "play mrbeast's latest video", "open the bbc article about solar",
+              "find a video that explains how transformers work in ai", "open the most interesting bbc article",
+              "play the linux video from networkchuck", "open a new tab", "open youtube"):
+        assert not vague_pick(g), g
+
+
+async def test_a_vague_goal_asks_even_when_the_plan_forgot_to():
+    plan = {"steps": [s if s.get("do") != "pick" else {k: v for k, v in s.items() if k != "ask"} for s in VAGUE["steps"]]}
+    hands, groq, jev = mb_hands(), PlanGroq(plan), PickJev()
+    p, _ = planner(hands, groq, jev)
+    r = await p.run("open safari and open a mrbeast video")
+    assert r.ask and r.options and jev.asked == []
+
+
+async def test_the_prompt_template_is_never_said_out_loud():
+    plan = {"steps": [{"do": "open_url", "url": CH}, {"do": "pick", "among": "videos", "want": "the newest"},
+                      {"do": "done", "say": "one short spoken sentence; {picked} = the label of what you picked"}]}
+    hands = SimHands(pages={CH: CHANNEL_PAGE, "https://www.youtube.com/watch?v=n1": WATCH}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("play the newest networkchuck video")
+    assert r.ok and "spoken sentence" not in r.said and "I hacked my own network" in r.said
+
+
+def test_ordinal_answers_are_worked_out_in_code():
+    from evie.computer.planner import ordinal_row
+    assert ordinal_row("the newest one", 3) == 0 and ordinal_row("latest", 3) == 0 and ordinal_row("the first", 3) == 0
+    assert ordinal_row("the top one", 3) == 0 and ordinal_row("number one", 3) == 0 and ordinal_row("1", 3) == 0
+    assert ordinal_row("the second one", 3) == 1 and ordinal_row("number 2", 3) == 1 and ordinal_row("2nd", 3) == 1
+    assert ordinal_row("the third one", 3) == 2 and ordinal_row("third", 3) == 2
+    assert ordinal_row("the third one", 2) is None
+    for a in ("the island one", "the one about the hotel", "the last one", "whichever"):
+        assert ordinal_row(a, 3) is None, a
+
+
+async def test_the_newest_one_needs_no_model():
+    hands, groq = mb_hands(), PlanGroq(VAGUE)
+    p, _ = planner(hands, groq, PickJev())
+    r = await p.run("open safari and open a mrbeast video")
+    p._jev = jev = PickJev(choose=lambda opts: opts[1])  # would be wrong
+    r2 = await p.choose(r.pick, "the newest one")
+    assert jev.asked == [] and r2.ok and MB_TITLES[0] in r2.said
+
+
+async def test_choosing_opens_it_unless_he_asked_a_question():
+    plan = {"steps": [{"do": "open_url", "url": MB},
+                      {"do": "pick", "among": "videos", "want": "a video", "then": "read", "ask": True},
+                      {"do": "done"}]}
+    hands, groq = mb_hands(), PlanGroq(plan)
+    p, _ = planner(hands, groq, PickJev())
+    r = await p.run("open a mrbeast video")
+    r2 = await p.choose(r.pick, "the second one")
+    assert r2.ok and hands.url == "https://www.youtube.com/watch?v=b1"
+
+
+async def test_after_choosing_she_says_the_title():
+    plan = {"steps": [{"do": "open_url", "url": MB}, {"do": "pick", "among": "videos", "want": "a video", "ask": True},
+                      {"do": "done", "say": "Your video is playing."}]}
+    hands = mb_hands()
+    p, _ = planner(hands, PlanGroq(plan), PickJev())
+    r = await p.run("open a mrbeast video")
+    r2 = await p.choose(r.pick, "the second one")
+    assert r2.said == f"Playing {MB_TITLES[1]}."

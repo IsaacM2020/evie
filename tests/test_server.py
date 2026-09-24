@@ -32,6 +32,10 @@ class FakeBrain:
         self.bus.publish("heard", text=text)
         return {"text": text, "action": "act", "reason": "answer", "route": "answer", "said": "Hi."}
 
+    async def choose_option(self, eid):
+        self.chose = eid
+        return {"ok": eid == "m2"}
+
 
 class FakeMouth:
     def __init__(self):
@@ -356,3 +360,11 @@ def test_the_talk_key_passes_how_sure_whisper_was():
     with client(deps=d) as c:
         c.post("/voice", content=b"RIFFfake", headers={"Content-Type": "audio/wav"})
     assert d.brain.heard == [("evie fix the chase bug", "isaac")] and d.brain.confidence == 0.42
+
+
+def test_a_tap_on_a_which_one_row_goes_to_the_brain():
+    d = full_deps()
+    with client(deps=d) as c:
+        assert c.post("/choose", json={"id": "m2"}).json() == {"ok": True}
+        assert c.post("/choose", json={"id": ""}).status_code == 422
+    assert d.brain.chose == "m2"

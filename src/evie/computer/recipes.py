@@ -37,3 +37,6 @@ class Recipes:
             log.info("computer message via %s", args.get("via"))
             return await self._messages.send(text, args)
         return await self._planner.run(text)
+
+    async def choose(self, pick: dict, answer: str | None, eid: str | None = None) -> Outcome:
+        return await self._planner.choose(pick, answer, eid=eid)
