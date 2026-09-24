@@ -56,6 +56,7 @@ def planner(hands, groq, jev=None, countdown=None, said=None):
     said = said if said is not None else []
     cd = countdown or Countdown(seconds=0.02)
     p = Planner(hands, groq, jev or PickJev(), cd, say=said.append, settle_s=0, window_s=cd.seconds)
+    p.EXPECT_S, p._expect_poll = 0.05, 0.01  # the sim's pages never load slowly (SlowTab does its own)
     return p, said
 
 
@@ -538,3 +539,42 @@ async def test_after_she_picks_by_herself_the_runners_up_are_kept():
     r2 = await p.choose(r.pick, None, eid="w4")
     assert r2.ok and "learn Linux" in r2.said and jev.asked == []
     assert hands.url == "https://www.youtube.com/watch?v=n2"
+
+
+# -- 2026-09-24 18:30: Netflix -> "Darrell" -> The Mentalist fell back to Claude Code ------------
+NFX = "https://www.netflix.com"
+PROFILES = [{"id": "p1", "role": "link", "label": "Isaac", "href": NFX + "/browse?p=1"},
+            {"id": "p2", "role": "link", "label": "Darryl", "href": NFX + "/browse?p=2"},
+            {"id": "p3", "role": "link", "label": "Kids", "href": NFX + "/browse?p=3"}]
+
+
+class SlowTab(SimHands):
+    """A new tab reads about:blank for the first `blank` looks, like Safari while Netflix loads."""
+
+    def __init__(self, blank=2, **kw):
+        super().__init__(**kw)
+        self.blank = blank
+
+    def _screen(self):
+        if self.focus == "web" and self.url and self.blank > 0:
+            self.blank -= 1
+            self.snap += 1
+            return {"snapshot": f"s{self.snap}", "app": "Safari", "kind": "web", "url": "about:blank",
+                    "window": "", "elements": "[]"}
+        return super()._screen()
+
+
+NETFLIX_PLAN = {"understood": "Opening Netflix", "steps": [
+    {"do": "open_url", "url": NFX}, {"do": "expect", "url_contains": "netflix.com"},
+    {"do": "find", "what": "Darrell", "role": "link", "then": "press", "say": "Clicked Darrell"},
+    {"do": "done", "say": "Opened Darrell's profile."}]}
+
+
+async def test_a_slow_new_tab_is_waited_for_not_replanned():
+    hands = SlowTab(pages={NFX: PROFILES, NFX + "/browse?p=2": []}, world=SAFARI_FRONT)
+    groq = PlanGroq(NETFLIX_PLAN)
+    p, said = planner(hands, groq)
+    p.EXPECT_S = 1.0
+    out = await p.run("go to netflix and click on the account named darrell")
+    assert out.ok and len([c for c in groq.calls]) == 1  # one plan, no replans
+    assert hands.url == NFX + "/browse?p=2"  # "Darrell" is Darryl

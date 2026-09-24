@@ -128,6 +128,7 @@ async def main() -> None:
         groq, jev, said, msgs = Counting(groq_inner), Counting(jev_inner), [], FakeMessages()
         planner = Planner(hands, groq, jev, Countdown(seconds=0.01), say=said.append, settle_s=0, window_s=0.01,
                           messages=msgs)
+        planner.EXPECT_S = 1.0  # sim pages load at once: a wrong page stays wrong
         rec = Recipes(hands, jev, None, planner, messages=msgs)
         t0 = time.perf_counter()
         live_before = gcas.misses

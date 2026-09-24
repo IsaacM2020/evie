@@ -70,3 +70,28 @@ def test_symbol_buttons_are_found_by_symbol_or_name():
     assert find_in_code(calc, "=")[0]["id"] == "a1"
     assert find_in_code(calc, "equals")[0]["id"] == "a1"
     assert find_in_code(calc, "times button")[0]["id"] == "a2"
+
+
+def test_a_misheard_name_still_finds_the_profile():
+    """2026-09-24 18:30: Whisper heard "Darrell", the Netflix profile is "Darryl"."""
+    s = Screen(snapshot="s", app="Safari", kind="web", url="https://www.netflix.com", elements=[
+        {"id": "p1", "role": "link", "label": "Isaac"}, {"id": "p2", "role": "link", "label": "Darryl"},
+        {"id": "p3", "role": "link", "label": "Kids"}, {"id": "p4", "role": "link", "label": "Add Profile"}])
+    el, _ = find_in_code(s, "Darrell", role="link")
+    assert el is not None and el["id"] == "p2"
+    el, _ = find_in_code(s, "Dara", role="link")
+    assert el is None  # not close enough to decide in code: Jev chooses
+
+
+def test_video_rows_are_named_by_their_title_not_the_time_badge():
+    """2026-09-24 18:23:29: "Which one? 14:13 Now playing, 0:31 Now playing, or 3:11 Now playing." """
+    v = "https://www.youtube.com/watch?v="
+    s = Screen(snapshot="s", app="Safari", kind="web", url="https://www.youtube.com/@Parrot/videos", elements=[
+        {"id": "t1", "role": "link", "label": "14:13 Now playing", "href": v + "a"},
+        {"id": "l1", "role": "link", "label": "I Beat Minecraft With Only Parrots", "href": v + "a"},
+        {"id": "t2", "role": "link", "label": "0:31", "href": v + "b"},
+        {"id": "l2", "role": "link", "label": "Parrot vs Warden", "href": v + "b"},
+        {"id": "t3", "role": "link", "label": "LIVE", "href": v + "c"},
+        {"id": "l3", "role": "link", "label": "Building a Parrot Zoo", "href": v + "c", "meta": "20K views"}])
+    assert [e["label"] for e in pick_pool(s, "videos")] == [
+        "I Beat Minecraft With Only Parrots", "Parrot vs Warden", "Building a Parrot Zoo"]

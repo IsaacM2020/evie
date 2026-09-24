@@ -13,6 +13,7 @@ Every press is an id from the screen just read. Risky steps (send, post, buy, de
 back with 3 s to say stop, and in an app Evie has no card for, she asks first.
 """
 import asyncio
+import time
 import json
 import logging
 import re
@@ -151,6 +152,9 @@ def _short(label: str, n: int = 48) -> str:
 
 
 class Planner:
+    EXPECT_S = 6.0  # a page still loading gets this long before an expect step fails
+    _expect_poll = 0.4
+
     def __init__(self, hands, groq, jev, countdown: Countdown, say: Callable[[str], None], settle_s: float = 0.5,
                  window_s: float = 3.0, show_work: Callable[[], bool] = lambda: True,
                  progress: Callable[[str], None] | None = None, messages=None, talker=None):
@@ -254,14 +258,17 @@ class Planner:
             await self._wait_page("")
             self._history.append(f"opened {url}")
         elif do == "expect":
-            await self._look()
-            if st.get("url_contains") and st["url_contains"] not in (self._screen.url or ""):
-                raise _Fail(f"expected the address to contain {st['url_contains']!r}, it's {self._screen.url!r}")
-            if st.get("element"):
-                el, _ = find_in_code(self._screen, str(st["element"]))
-                if el is None and not any(str(st["element"]).lower() in (e.get("label") or "").lower()
-                                          for e in self._screen.elements):
-                    raise _Fail(f"expected to see {st['element']!r}")
+            # A page that's still loading isn't a wrong page: look again for up to EXPECT_S before failing
+            # (2026-09-24 18:30: a new tab read about:blank, 3 replans in 3 s, then Claude Code for 2 min).
+            deadline = time.monotonic() + self.EXPECT_S
+            while True:
+                await self._look()
+                problem = self._expect_problem(st)
+                if problem is None:
+                    break
+                if time.monotonic() >= deadline:
+                    raise _Fail(problem)
+                await asyncio.sleep(self._expect_poll)
             self._history.append("checked: ok")
         elif do == "find":
             await self._fresh()
@@ -560,6 +567,16 @@ class Planner:
                 if r.ok:
                     await self._settle_now()
             await self._look()
+
+    def _expect_problem(self, st: dict) -> str | None:
+        if st.get("url_contains") and st["url_contains"] not in (self._screen.url or ""):
+            return f"expected the address to contain {st['url_contains']!r}, it's {self._screen.url!r}"
+        if st.get("element"):
+            el, _ = find_in_code(self._screen, str(st["element"]))
+            if el is None and not any(str(st["element"]).lower() in (e.get("label") or "").lower()
+                                      for e in self._screen.elements):
+                return f"expected to see {st['element']!r}"
+        return None
 
     async def _fresh(self) -> None:
         """Read the screen only if something changed it since the last read."""

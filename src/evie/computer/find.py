@@ -43,7 +43,16 @@ def score(el: dict, what: str) -> float:
     # The whole label is named in the request ("NetworkChuck channel" -> the "NetworkChuck" link);
     # the leftover words just describe it.
     named = 0.92 if lw and lw <= want else 0.0
-    return round(max(exact, named, 0.65 * overlap + 0.35 * close), 3)
+    # A name Whisper misheard ("Darrell" for the profile "Darryl", 2026-09-24): every word of the label
+    # is a near-spelling of a word he said. Only for names (longer than 3 letters), never commands.
+    near = 0.9 if lw and len(lw) <= 2 and not named and all(len(w) > 3 and any(_near(w, x) for x in want) for w in lw) else 0.0
+    return round(max(exact, named, near, 0.65 * overlap + 0.35 * close), 3)
+
+
+def _near(a: str, b: str) -> bool:
+    # "video"/"videos" is the same word, not a misheard name: those count through normal overlap.
+    return (len(b) > 3 and a[0] == b[0] and not (a.startswith(b) or b.startswith(a))
+            and SequenceMatcher(None, a, b).ratio() >= 0.75)
 
 
 def _fits(el: dict, role: str | None, href: str | None, typeable: bool | None) -> bool:
@@ -106,7 +115,16 @@ def pick_pool(screen: Screen, among: str) -> list[dict]:
             continue
         k = e.get("href") or e["id"]
         if k in seen:
+            # The same video twice (thumbnail link, then title link): keep the one with the real name.
+            i = next(j for j, p in enumerate(pool) if (p.get("href") or p["id"]) == k)
+            if _BADGE.match(pool[i]["label"].strip()) and not _BADGE.match(e["label"].strip()):
+                pool[i] = e
             continue
         seen.add(k)
         pool.append(e)
-    return pool[:20]
+    return [e for e in pool if not _BADGE.match(e["label"].strip())][:20]
+
+
+# What a thumbnail link reads as: its time badge, not the video's name (2026-09-24 18:23:29,
+# "Which one? 14:13 Now playing, 0:31 Now playing ...").
+_BADGE = re.compile(r"^(?:\d{1,2}:\d{2}(?::\d{2})?)?\s*(?:now playing|live|upcoming|premiere|shorts|new)?\s*$", re.I)
