@@ -172,3 +172,13 @@ def test_text_mode_lines_reach_the_orb_through_the_real_bus():
     text_to_orb(bus)("Avogadro's constant is 6.022e23.", "reply")
     ev = q.get_nowait()
     assert ev["kind"] == "say" and ev["text_only"] and ev["line_kind"] == "reply"
+
+
+def test_busy_with_something_that_isnt_a_class():
+    now = Now(at(19, 10))
+    q = Quiet(cal(), now=now)
+    assert q.busy_event() == "Dinner with family" and q.mode() == "voice"
+    now.t = at(17)
+    assert q.busy_event() is None  # a class is text mode, not "busy"
+    now.t = at(22)
+    assert q.busy_event() is None

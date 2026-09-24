@@ -34,6 +34,14 @@ class Quiet:
                 return e
         return None
 
+    def busy_event(self) -> str | None:
+        """Something on his calendar right now that isn't a class (dinner): she keeps to what matters."""
+        now = self._now()
+        for e in self._cal.on(now.astimezone(TZ).date()):
+            if not e.all_day and e.start <= now < e.end and not CLASS.search(e.title):
+                return e.title
+        return None
+
     def _expire(self) -> None:
         if self._override and self._until is not None and self._now() >= self._until:
             self._override, self._until = None, None

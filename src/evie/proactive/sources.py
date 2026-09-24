@@ -52,6 +52,8 @@ class Sources:
         self._active_at: float | None = None
         self._errors: dict[str, tuple[str, float]] = {}  # app -> (error signature, first seen)
         self._away: tuple[float, dict] | None = None
+        self.present = True  # at the Mac: the app says "idle" after 20 min without input
+        self._nudged: set[str] = set()  # task ids already brought up today
 
     # -- on every tick ---------------------------------------------------------------------------
     async def collect(self) -> None:
@@ -83,6 +85,10 @@ class Sources:
             tasks = await self._todoist.list("today | overdue")
             if not tasks:
                 continue
+            tasks = [t for t in tasks if f"{now.date()}:{t.id}" not in self._nudged]  # not the same one twice a day
+            if not tasks:
+                continue
+            self._nudged.update(f"{now.date()}:{t.id}" for t in tasks)
             first, more = tasks[0].content, len(tasks) - 1
             line = f"{first} is due today" + (f", plus {more} more" if more else "") + ". Want help getting it done?"
             self.engine.add(FollowUp("tasks", line, key, on_yes={"do": "job", "goal": f"help me get this done: {first}"},
@@ -136,7 +142,7 @@ class Sources:
         if not self.enabled("jobs") or self.engine.free():
             return False
         goal = goal.strip().rstrip(".")[:60]
-        self.engine.add(FollowUp("job", f"The {goal} job is done. Want the summary?", f"job:{goal}:{int(self._clock())}",
+        self.engine.add(FollowUp("job", f"That job's done: {goal}. Want the summary?", f"job:{goal}:{int(self._clock())}",
                                  importance="high", on_yes={"do": "say", "text": summary}))
         return True
 
@@ -146,8 +152,11 @@ class Sources:
     async def activity(self, kind: str) -> None:
         """The app: "active" (unlocked / first input), "idle" (20 min no input), "back"."""
         now = self._now()
+        self.present = kind != "idle"
         if kind in ("active", "back"):
             self.activity_now()
+        if kind == "active":
+            self._away = None  # unlocking in the morning isn't "where was I?"
         if kind == "active" and self.enabled("brief") and 5 <= now.hour < 12 and self._brief_day != now.date():
             self._brief_day = now.date()
             await self._brief(now)

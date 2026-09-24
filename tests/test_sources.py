@@ -132,7 +132,7 @@ async def test_task_nudge_after_school_and_in_the_evening():
     assert nudges[0].on_yes == {"do": "job", "goal": "help me get this done: Email bio teacher"}
     now.t = at(19, 40)
     await s.collect()
-    assert len([i for i in e.items if i.kind == "tasks"]) == 2
+    assert len([i for i in e.items if i.kind == "tasks"]) == 1  # the same two tasks aren't offered again
 
 
 async def test_deadline_radar_flags_things_due_in_two_days_once():
@@ -167,7 +167,7 @@ async def test_a_job_finishing_while_he_is_busy_waits():
     s, e = sources(Now(at(16)), engine=Engine(free=False))
     assert s.job_done("fix the deploy", "Fixed it: a missing env var.") is True
     it = e.items[0]
-    assert it.line == "The fix the deploy job is done. Want the summary?" and it.on_yes["text"].startswith("Fixed it")
+    assert it.line == "That job's done: fix the deploy. Want the summary?" and it.on_yes["text"].startswith("Fixed it")
     s2, e2 = sources(Now(at(16)), engine=Engine(free=True))
     assert s2.job_done("fix the deploy", "Fixed.") is False and e2.items == []
 
@@ -234,3 +234,29 @@ async def test_a_switched_off_source_adds_nothing():
     s.enabled = lambda name: name != "heads_up"
     await s.collect()
     assert not [i for i in e.items if i.kind == "heads_up"]
+
+
+
+async def test_the_evening_nudge_skips_what_was_already_offered():
+    """Sim day: "Email bio teacher is due today" was offered after school AND in the evening."""
+    todo = Todoist([Task("1", "Email bio teacher", "today")])
+    now = Now(at(15, 50))
+    s, e = sources(now, todoist=todo)
+    await s.collect()
+    now.t = at(19, 40)
+    await s.collect()
+    assert len([i for i in e.items if i.kind == "tasks"]) == 1
+    todo.tasks.append(Task("2", "Physics revision", "today"))
+    now.t = at(20, 10)
+    s._asked.discard(f"tasks:{at(19,40).date()}:1930")
+    await s.collect()
+    assert [i.line for i in e.items if i.kind == "tasks"][-1] == "Physics revision is due today. Want help getting it done?"
+
+
+async def test_presence_follows_the_app():
+    s, e = sources(Now(at(16)), hands=Hands([{}, {}]))
+    assert s.present
+    await s.activity("idle")
+    assert not s.present
+    await s.activity("active")
+    assert s.present and s._away is None  # waking the Mac in the morning isn't "where was I?"

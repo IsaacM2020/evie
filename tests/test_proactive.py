@@ -89,11 +89,13 @@ async def test_in_class_it_is_a_chip_not_a_voice(tmp_path):
     assert e.mouth.said == [] and e.bus.of("followup")[0]["line"].startswith("Your bio email")
 
 
-async def test_quiet_hours_are_chips(tmp_path):
+async def test_quiet_hours_hold_everything_until_morning(tmp_path):
+    """Sim day: a chip at 6:00 is used up while he sleeps. It waits instead (quiet hours 22:30-06:00)."""
     e, s, _ = engine(tmp_path, hour=23)
     e.add(item())
-    await e.tick()
-    assert e.mouth.said == [] and e.bus.of("followup")
+    assert await e.tick() is None and e.mouth.said == [] and e.bus.of("followup") == []
+    s["hour"] = 6.5
+    assert await e.tick() is not None and e.mouth.said
 
 
 async def test_at_most_three_spoken_an_hour_and_one_at_a_time(tmp_path):
@@ -102,12 +104,48 @@ async def test_at_most_three_spoken_an_hour_and_one_at_a_time(tmp_path):
     for i in range(5):
         e.add(item(key=f"k{i}", line=f"thing {i}"))
     await e.tick()
-    assert await e.tick() is None  # one at a time: a gap after each
+    clock.t += 120
+    assert await e.tick() is None  # one at a time: 5 min between things (sim day: 3 in 4 min was a barrage)
     for _ in range(4):
-        clock.t += 120
+        clock.t += 300
         await e.tick()
     assert e.mouth.said == ["thing 0", "thing 1", "thing 2"]
     assert [c["line"] for c in e.bus.of("followup") if c.get("line")][-2:] == ["thing 3", "thing 4"]  # capped: chips
+
+
+async def test_time_critical_things_skip_the_cap_and_the_long_gap(tmp_path):
+    """Sim day: "Sax Class in 15 minutes" became a chip because three nudges had used up the hour."""
+    clock = Clock()
+    e, s, _ = engine(tmp_path, clock=clock)
+    for i in range(3):
+        e.add(item(key=f"k{i}", line=f"thing {i}"))
+        await e.tick()
+        clock.t += 301
+    clock.t += 61 - 301  # a minute after the last one, inside the long gap, hour already capped
+    e.add(item(key="sax", importance="high", line="Sax Class in 15 minutes."))
+    await e.tick()
+    assert e.mouth.said[-1] == "Sax Class in 15 minutes."
+
+
+async def test_nothing_while_he_is_away(tmp_path):
+    e, s, _ = engine(tmp_path)
+    here = {"on": False}
+    e.present = lambda: here["on"]
+    e.add(item(importance="high"))
+    assert await e.tick() is None and e.bus.of("followup") == []
+    here["on"] = True
+    assert await e.tick() is not None
+
+
+async def test_during_dinner_only_time_critical_things_are_said(tmp_path):
+    """Sim day: a task nudge was spoken at family dinner."""
+    e, s, _ = engine(tmp_path)
+    e.busy_event = lambda: True
+    e.add(item())
+    assert await e.tick() is None and e.mouth.said == []
+    e.add(item(key="chem", importance="high", line="Chem Class in 15 minutes."))
+    await e.tick()
+    assert e.mouth.said == ["Chem Class in 15 minutes."]
 
 
 async def test_the_same_thing_is_only_ever_offered_once(tmp_path):

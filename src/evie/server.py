@@ -624,7 +624,9 @@ def build_deps(s: Settings) -> Deps:
                     in_call=lambda: bool(brain.scene().get("in_call", False)), context=moment,
                     on_spoken=brain.expect_followup)
     engine.ready = lambda: cal.updated_at is not None
+    engine.busy_event = lambda: quiet.busy_event() is not None
     proactive = Sources(engine, cal, todoist, talker, hands=hands, text_mode=text_now)
+    engine.present = lambda: proactive.present
     proactive.enabled = lambda name: ui.setdefault("proactive", {}).get(name, True)
     brain.proactive, brain.engine, brain.hands = proactive, engine, hands
     narrator.defer = proactive.job_done
