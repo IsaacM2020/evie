@@ -22,6 +22,7 @@ from typing import Callable
 
 import numpy as np
 
+from evie.stt import is_hallucination
 from evie.ears import End, Drop, Peek, Resume, Segmenter, Start, sounds_unfinished
 
 log = logging.getLogger("evie.open_mic")
@@ -160,7 +161,7 @@ class OpenMic:
         if speaker == "other":
             self._bus.publish("overheard", speaker="other", sim=round(sim, 2))
             return
-        if not text:
+        if not text or is_hallucination(text):
             return
         log.info("open mic heard %s (sim %.2f, %d chars)", speaker, sim, len(text))  # for voice-ID tuning
         m = self._mouth

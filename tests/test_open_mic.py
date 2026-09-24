@@ -358,3 +358,11 @@ async def test_unsure_voice_or_no_wake_word_teaches_nothing(tmp_path):
         await say(m, ISAAC)
         await asyncio.sleep(0.05)
         assert vid.live == 0, (sim, text)
+
+
+async def test_whisper_hallucinations_on_noise_never_reach_the_brain(tmp_path):
+    """12 of 36 open-mic segments on 2026-09-24 were 10 characters: Whisper's 'Thank you.' on noise."""
+    for junk in ["Thank you.", "thanks for watching!", "you", " . "]:
+        m, p = mic(tmp_path, stt=FakeSTT(junk))
+        await say(m, ISAAC)
+        assert p["brain"].heard == [], junk

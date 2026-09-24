@@ -193,3 +193,34 @@ async def test_heartbeat_waits_while_isaac_is_busy():
 def test_narration_bar_is_lower_now():
     from evie.narrator import NarrationRules
     assert NarrationRules().threshold == 0.45
+
+
+async def test_routine_steps_never_cost_a_jev_call():
+    """2026-09-24: every 'Ran: ls' step was a Jev call scoring ~0.10. Code knows those are routine."""
+    n, jev, mouth, clock, bus = make(p=0.9)
+    job = Job(goal="check my website")
+    q = bus.subscribe()
+    for i, line in enumerate(["Read index.html", "Searched for 'vercel'", "Looked for files matching *.md",
+                              "Ran: ls /Users/isaac/Elemental", "Ran: find ~ -maxdepth 3 -iname x",
+                              "Ran: cat package.json", "Ran: git status", "Opened https://x.com"]):
+        clock.t = 20 * (i + 1)
+        await n.on_event(job, line)
+    assert jev.states == [] and mouth.said == []
+    assert q.qsize() == 8  # the panel still shows every step
+
+
+async def test_real_work_still_goes_to_jev():
+    n, jev, _, clock, _ = make(p=0.9)
+    job = Job(goal="fix the bug")
+    for i, line in enumerate(["Ran: uv run pytest -q", "Edited model.py", "Found it: the date parse is off by one"]):
+        clock.t = 20 * (i + 1)
+        await n.on_event(job, line)
+    assert len(jev.states) == 3
+
+
+async def test_notices_about_memory_tools_are_never_spoken():
+    """A job's first message was the claude-mem outage notice from a hook; she read 8 s of it out."""
+    n, jev, mouth, clock, _ = make(p=0.9)
+    clock.t = 20
+    await n.on_event(Job(goal="x"), "I need to flag something first: the memory system (claude-mem) hit an outage — q")
+    assert jev.states == [] and mouth.said == []

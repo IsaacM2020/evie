@@ -5,6 +5,7 @@ from chattering (10s gap, 6 per job max). The end-of-job summary is always spoke
 """
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -28,6 +29,20 @@ NARRATE_Q = {
         ),
     }
 }
+
+
+# Steps code already knows aren't news: reading, listing, searching. They still show on the panel,
+# they just never cost a Jev call (2026-09-24: each "Ran: ls" was a call scoring ~0.10).
+_ROUTINE_PREFIX = ("Read ", "Searched for ", "Looked for files", "Opened ", "Used ")
+_ROUTINE_CMD = re.compile(
+    r"^Ran: (cd |ls|cat |head |tail |find |grep |rg |pwd|wc |echo |which |sed -n |stat |file |tree"
+    r"|git (status|log|diff|show|branch|remote))")
+# Notices from Isaac's own Claude Code setup (memory tools, hooks) that leak into a job's words.
+_NOTICE = re.compile(r"claude-mem|memory (system|observer|tool)|\bhook\b|allowance|outage", re.IGNORECASE)
+
+
+def routine(line: str) -> bool:
+    return line.startswith(_ROUTINE_PREFIX) or bool(_ROUTINE_CMD.match(line)) or bool(_NOTICE.search(line))
 
 
 @dataclass(frozen=True)
@@ -88,6 +103,8 @@ class Narrator:
 
     async def on_event(self, job: Job, line: str) -> None:
         self._bus.publish("job_event", id=job.id, line=line)
+        if routine(line):
+            return
         count = self._count.get(job.id, 0)
         if count >= self._r.max_per_job:
             return

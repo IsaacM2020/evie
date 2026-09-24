@@ -147,3 +147,14 @@ class Transcriber:
     async def aclose(self) -> None:
         await self._http.aclose()
         self._pool.shutdown(wait=False)
+
+
+# What Whisper writes when it's given noise, not speech. On the open mic these are dropped before
+# Jev ever sees them (2026-09-24: a third of the day's segments were "Thank you.").
+_HALLUCINATIONS = {"thank you", "thank you so much", "thanks for watching", "thank you for watching",
+                   "thanks for watching and see you next time", "you", "bye", "subtitles by the amara org community"}
+
+
+def is_hallucination(text: str) -> bool:
+    words = " ".join(re.sub(r"[^a-z ]", " ", text.lower()).split())
+    return not words or words in _HALLUCINATIONS

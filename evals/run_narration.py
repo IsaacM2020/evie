@@ -4,11 +4,13 @@
 
 Targets: accuracy >= 0.80, false_yes <= 0.20 (share of routine steps she'd say out loud).
 """
+import sys
 import asyncio
 import json
 from pathlib import Path
 
 from evie.config import load_settings
+from evals.cassette import CachedJev, cassette
 from evie.jev import JevClient
 from evie.narrator import NarrationRules, Narrator
 
@@ -27,10 +29,12 @@ def score(rows: list[dict], threshold: float) -> dict:
 
 async def main() -> None:
     cases = [json.loads(l) for l in CASES.read_text().splitlines() if l.strip()]
-    jev = JevClient(load_settings())
+    cas = cassette("narration", live="--live" in sys.argv)
+    jev = CachedJev(JevClient(load_settings()), cas)
     n = Narrator(jev, None, None, None)
     ps = await asyncio.gather(*(n.worth_saying(c["goal"], c["line"], c["since_s"], c["count"]) for c in cases))
     await jev.aclose()
+    print(cas.summary())
     rows = [{**c, "p": round(p, 3)} for c, p in zip(cases, ps)]
     t = NarrationRules().threshold
     for r in rows:

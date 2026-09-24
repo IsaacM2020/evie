@@ -14,6 +14,7 @@ from pathlib import Path
 
 from evals.metrics import TARGETS, check_targets, score
 from evie.config import load_settings
+from evals.cassette import CachedJev, cassette
 from evie.jev import JevClient
 from evie.switchboard import Switchboard
 from evie.switchboard.context import Context
@@ -85,11 +86,13 @@ def report(metrics: dict, fails: dict, results: list[dict], prev: dict | None) -
 
 async def amain(args: argparse.Namespace) -> int:
     cases = load_cases(HERE / "cases.jsonl", args.split)
-    sb = Switchboard(JevClient(load_settings()))
+    cas = cassette("switchboard", live=args.live)
+    sb = Switchboard(CachedJev(JevClient(load_settings()), cas))
     try:
         results = await run_cases(sb, cases)
     finally:
         await sb.aclose()
+    print(cas.summary())
     metrics, fails = score(results)
     prev = previous_run(args.split)
     print(report(metrics, fails, results, prev))
@@ -105,6 +108,7 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--split", choices=["tune", "holdout", "all"], default="tune")
     p.add_argument("--label", default="run")
+    p.add_argument("--live", action="store_true", help="ask Jev again instead of replaying recorded answers")
     raise SystemExit(asyncio.run(amain(p.parse_args())))
 
 
