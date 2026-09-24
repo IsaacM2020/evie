@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import CoreAudio
 
 // Cuts converted mic audio into the 512-sample frames the core's VAD wants.
 // Pure (no audio APIs) so the selftest can check it.
@@ -16,6 +17,87 @@ struct FramePacker {
             out.append(chunk.withUnsafeBufferPointer { Data(buffer: $0) })  // little-endian on Apple silicon
         }
         return out
+    }
+}
+
+// The talk key's recording, cut from the mic stream the open mic already uses (2026-09-24): the
+// last `keep` seconds are always held, so a press can include audio from just BEFORE it (no more
+// clipped first words), and the clip is the same audio the open mic's voice ID compares against.
+// Pure, for the selftest.
+struct CaptureBuffer {
+    let rate: Int
+    let keep: Double
+    private(set) var ring: [Int16] = []
+    private var clip: [Int16]?
+
+    init(rate: Int, keep: Double) {
+        self.rate = rate
+        self.keep = keep
+    }
+
+    var capturing: Bool { clip != nil }
+
+    mutating func add(_ s: [Int16]) {
+        if clip != nil { clip?.append(contentsOf: s) }
+        ring.append(contentsOf: s)
+        let cap = Int(keep * Double(rate))
+        if ring.count > cap { ring.removeFirst(ring.count - cap) }
+    }
+
+    mutating func begin(preroll: Double) {
+        clip = Array(ring.suffix(Int(preroll * Double(rate))))
+    }
+
+    mutating func end() -> [Int16]? {
+        defer { clip = nil }
+        return clip
+    }
+}
+
+enum WAV {
+    static func encode(_ samples: [Int16], rate: Int) -> Data {
+        var d = Data()
+        func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        let bytes = UInt32(samples.count * 2)
+        d.append(contentsOf: Array("RIFF".utf8)); u32(36 + bytes); d.append(contentsOf: Array("WAVE".utf8))
+        d.append(contentsOf: Array("fmt ".utf8)); u32(16); u16(1); u16(1); u32(UInt32(rate)); u32(UInt32(rate * 2)); u16(2); u16(16)
+        d.append(contentsOf: Array("data".utf8)); u32(bytes)
+        samples.withUnsafeBufferPointer { d.append(Data(buffer: $0)) }
+        return d
+    }
+}
+
+// The MacBook's own mic, even with AirPods in: AirPods drop into low-quality call mode whenever
+// their mic is used, which is bad for Whisper and for Isaac's music.
+enum MicPicker {
+    static func builtInInput() -> AudioDeviceID? {
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices,
+                                              mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        let sys = AudioObjectID(kAudioObjectSystemObject)
+        guard AudioObjectGetPropertyDataSize(sys, &addr, 0, nil, &size) == noErr, size > 0 else { return nil }
+        var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(sys, &addr, 0, nil, &size, &ids) == noErr else { return nil }
+        for id in ids {
+            var t: UInt32 = 0
+            var ts = UInt32(MemoryLayout<UInt32>.size)
+            var ta = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyTransportType,
+                                                mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            guard AudioObjectGetPropertyData(id, &ta, 0, nil, &ts, &t) == noErr, t == kAudioDeviceTransportTypeBuiltIn else { continue }
+            var sa = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams,
+                                                mScope: kAudioDevicePropertyScopeInput, mElement: kAudioObjectPropertyElementMain)
+            var ss: UInt32 = 0
+            if AudioObjectGetPropertyDataSize(id, &sa, 0, nil, &ss) == noErr, ss > 0 { return id }
+        }
+        return nil
+    }
+
+    static func use(_ id: AudioDeviceID, on engine: AVAudioEngine) -> Bool {
+        guard let unit = engine.inputNode.audioUnit else { return false }
+        var dev = id
+        return AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &dev,
+                                    UInt32(MemoryLayout<AudioDeviceID>.size)) == noErr
     }
 }
 
@@ -75,11 +157,20 @@ final class Ears: @unchecked Sendable {
     private var keeper: Task<Void, Never>?
     private(set) var running = false
     private(set) var echoCancel = false
+    private(set) var streaming = false  // sending frames to the core (open mic Shadow/Live)
+    private var sendFrames = false  // the queue's copy of `streaming`
+    private var capture = CaptureBuffer(rate: 16000, keep: 1.0)  // queue-owned
     var onVoiceLevel: ((Float) -> Void)?  // Evie's own loudness as she plays (the orb's speaking bars)
+    var onMicLevel: ((Float) -> Void)?  // Isaac's loudness (the orb's listening bars)
 
+    /// streaming: send the mic to the core for the open mic. Without it the engine only feeds
+    /// the talk key's capture buffer.
     @MainActor
-    func start() -> Bool {
-        guard !running else { return true }
+    func start(streaming wantStream: Bool = true) -> Bool {
+        if running {
+            if wantStream && !streaming { enableStreaming() }
+            return true
+        }
         // Voice processing (echo cancellation + noise suppression + auto gain, like a call app)
         // is picky about the graph: try the layouts that work, best first, and log which one did.
         let layouts: [(vp: Bool, explicitOut: Bool, name: String)] = [
@@ -100,6 +191,14 @@ final class Ears: @unchecked Sendable {
             engine.reset()
         }
         guard running else { return false }
+        if wantStream { enableStreaming() }
+        return true
+    }
+
+    @MainActor
+    private func enableStreaming() {
+        streaming = true
+        queue.async { self.sendFrames = true }
         observer = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -111,13 +210,47 @@ final class Ears: @unchecked Sendable {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
-        return true
     }
+
+    /// Open mic off: stop sending, keep the engine only if the talk key still needs it.
+    @MainActor
+    func stopStreaming() {
+        guard streaming else { return }
+        streaming = false
+        keeper?.cancel()
+        if let o = observer { NSWorkspace.shared.notificationCenter.removeObserver(o) }
+        observer = nil
+        queue.async {
+            self.sendFrames = false
+            self.socket?.cancel(with: .goingAway, reason: nil)
+            self.socket = nil
+            self.mouth?.cancel(with: .goingAway, reason: nil)  // her voice goes back to the core's speakers
+            self.mouth = nil
+            self.packer = FramePacker()
+        }
+    }
+
+    // MARK: talk key capture
+
+    func beginCapture() { queue.async { self.capture.begin(preroll: 0.4) } }
+
+    /// The clip as a WAV, 0.25 s after release (the last word's tail), or nil if nothing was captured.
+    func endCapture(_ done: @escaping @Sendable (Data?) -> Void) {
+        queue.asyncAfter(deadline: .now() + 0.25) {
+            let clip = self.capture.end()
+            done(clip.map { WAV.encode($0, rate: 16000) })
+        }
+    }
+
+    func cancelCapture() { queue.async { _ = self.capture.end() } }
 
     @MainActor
     private func tryStart(vp: Bool, explicitOut: Bool) -> Bool {
         let input = engine.inputNode
         echoCancel = false
+        if UserDefaults.standard.object(forKey: "useBuiltInMic") as? Bool ?? true, let mic = MicPicker.builtInInput() {
+            NSLog("Evie ears: built-in mic %@", MicPicker.use(mic, on: engine) ? "selected" : "couldn't be selected")
+        }
         if vp {
             do {
                 try input.setVoiceProcessingEnabled(true)
@@ -165,23 +298,15 @@ final class Ears: @unchecked Sendable {
     @MainActor
     func stop() {
         guard running else { return }
+        stopStreaming()
         running = false
-        keeper?.cancel()
-        if let o = observer { NSWorkspace.shared.notificationCenter.removeObserver(o) }
         engine.inputNode.removeTap(onBus: 0)
         player.stop()
         engine.stop()
         if engine.attachedNodes.contains(player) { engine.detach(player) }
         try? engine.inputNode.setVoiceProcessingEnabled(false)
         engine.reset()
-        queue.async {
-            self.socket?.cancel(with: .goingAway, reason: nil)
-            self.socket = nil
-            // Closing the mouth socket sends Evie's voice back to the core's own speaker output.
-            self.mouth?.cancel(with: .goingAway, reason: nil)
-            self.mouth = nil
-            self.packer = FramePacker()
-        }
+        queue.async { self.capture = CaptureBuffer(rate: 16000, keep: 1.0) }
     }
 
     private func ensureSockets() {
@@ -275,7 +400,7 @@ final class Ears: @unchecked Sendable {
     // MARK: Mic
 
     private func process(_ buf: AVAudioPCMBuffer) {
-        guard let conv = converter, let s = socket, s.state == .running else { return }
+        guard let conv = converter else { return }
         let cap = AVAudioFrameCount(Double(buf.frameLength) * 16000 / buf.format.sampleRate) + 64
         guard let out = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: cap) else { return }
         var fed = false
@@ -291,6 +416,13 @@ final class Ears: @unchecked Sendable {
         }
         guard err == nil, let ch = out.int16ChannelData, out.frameLength > 0 else { return }
         let samples = Array(UnsafeBufferPointer(start: ch[0], count: Int(out.frameLength)))
+        capture.add(samples)
+        if let cb = onMicLevel {
+            var sum: Float = 0
+            for v in samples { let f = Float(v) / 32768; sum += f * f }
+            cb(min(1, (sum / Float(max(samples.count, 1))).squareRoot() * 6))
+        }
+        guard sendFrames, let s = socket, s.state == .running else { return }
         for frame in packer.add(samples) {
             s.send(.data(frame)) { _ in }
         }

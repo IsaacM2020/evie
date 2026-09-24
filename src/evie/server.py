@@ -201,10 +201,11 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         d.bus.publish("state", state="listening")
         return {"ok": True}
 
-    async def learn_voice(d: Deps, wav: bytes) -> bool:
-        """A talk-key clip is certainly Isaac: it teaches voice ID (embedding only, ~50 ms)."""
+    async def learn_voice(d: Deps, wav: bytes, channel: str = "raw") -> bool:
+        """A talk-key clip is certainly Isaac: it teaches voice ID (embedding only, ~50 ms).
+        channel "live": the app recorded it through the echo-cancelled open-mic engine."""
         pcm = wav_to_pcm(wav)
-        learned = await asyncio.get_running_loop().run_in_executor(None, d.voiceid.learn, pcm)
+        learned = await asyncio.get_running_loop().run_in_executor(None, d.voiceid.learn, pcm, channel)
         if learned:
             d.bus.publish("voiceprint", **d.voiceid.print.status())
         return learned
@@ -213,14 +214,15 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
     async def voice(request: Request) -> dict:
         d = need("brain", "stt")
         audio = await request.body()
+        channel = "live" if request.headers.get("x-evie-channel") == "live" else "raw"
         try:
             if d.voiceid and app.state.enrolling:
-                await learn_voice(d, audio)
+                await learn_voice(d, audio, channel)
                 d.bus.publish("state", state="idle")
                 return {"text": "", "action": "ignore", "reason": "enrolled", "route": None, "said": None,
                         "voiceprint": d.voiceid.print.status()}
             if d.voiceid:
-                asyncio.get_running_loop().create_task(learn_voice(d, audio))
+                asyncio.get_running_loop().create_task(learn_voice(d, audio, channel))
             return await transcribe_and_hear(d, audio)
         finally:
             if d.open_mic:
@@ -548,7 +550,8 @@ def build_ears(stt, brain, mouth, bus):
         log.warning("ears models missing: run ops/get-ears-models.sh. Push-to-talk only.")
         return None, None
     voiceid = VoiceId(SpeakerEmbedder(), VoicePrint())
-    open_mic = OpenMic(Segmenter(), Vad().is_speech, voiceid, stt, brain, mouth, bus, ModeStore())
+    # 800 ms of quiet ends a sentence (was 600: short pauses chopped sentences in half, 2026-09-24)
+    open_mic = OpenMic(Segmenter(end_ms=800), Vad().is_speech, voiceid, stt, brain, mouth, bus, ModeStore())
     from evie.recorder import SegmentRecorder
     open_mic.recorder = SegmentRecorder()
     open_mic.recorder.prune()

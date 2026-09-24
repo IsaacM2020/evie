@@ -6,6 +6,7 @@ frees ~470 MB of GPU memory. Only Isaac's own sentences get here (voice ID drops
 on the Mac first). If Groq is down or slow, local MLX Whisper takes over, loaded only then and
 unloaded again after 10 idle minutes."""
 import asyncio
+import math
 import io
 import logging
 import re
@@ -13,6 +14,7 @@ import tempfile
 import time
 import wave
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Callable
 
 import httpx
@@ -67,6 +69,20 @@ def _seconds(audio: bytes) -> float:
         return 0.0
 
 
+@dataclass(frozen=True)
+class Heard:
+    """What Whisper heard, and how sure it was. confidence is exp(mean avg_logprob): ~0.8+ is a
+    clear sentence, under 0.5 means mumbled or misheard words. noise is Whisper's own rule for
+    words it wrote over silence (no_speech_prob > 0.6 and avg_logprob < -1)."""
+    text: str
+    confidence: float = 1.0
+    no_speech: float = 0.0
+
+    @property
+    def noise(self) -> bool:
+        return self.no_speech > 0.6 and math.log(max(self.confidence, 1e-6)) < -1.0
+
+
 class Transcriber:
     def __init__(self, settings: Settings, backend: str = "groq",
                  local_fn: Callable[[str], str] = _mlx_transcribe, http: httpx.AsyncClient | None = None,
@@ -82,24 +98,30 @@ class Transcriber:
         self.offline = False  # Groq failed last time and local Whisper answered instead
 
     async def transcribe(self, audio: bytes) -> str:
+        return (await self.transcribe_detail(audio)).text
+
+    async def transcribe_detail(self, audio: bytes) -> Heard:
         if _seconds(audio) < MIN_SECONDS:
-            return ""
-        text = None
+            return Heard("")
+        heard = None
         if self.backend == "groq":
             try:
-                text = await self._groq(audio)
+                heard = await self._groq(audio)
                 self.offline = False
             except (httpx.HTTPError, KeyError, ValueError) as e:
                 log.warning("groq whisper failed (%s), using local whisper", type(e).__name__)
                 self.offline = True
-        if text is None:
-            text = await asyncio.get_running_loop().run_in_executor(self._pool, self._run_local, audio)
-        return _NAME_FIXES.sub("Evie", text)
+        if heard is None:
+            heard = Heard(await asyncio.get_running_loop().run_in_executor(self._pool, self._run_local, audio))
+        return Heard(_NAME_FIXES.sub("Evie", heard.text), heard.confidence, heard.no_speech)
 
     async def transcribe_pcm(self, audio) -> str:
+        return (await self.transcribe_pcm_detail(audio)).text
+
+    async def transcribe_pcm_detail(self, audio) -> Heard:
         """The open mic hands over raw samples (float32, 16 kHz), not a WAV file."""
         from evie.ears import pcm_to_wav
-        return await self.transcribe(pcm_to_wav(audio))
+        return await self.transcribe_detail(pcm_to_wav(audio))
 
     def _run_local(self, audio: bytes) -> str:
         self._local_used_at = self._clock()
@@ -117,16 +139,22 @@ class Transcriber:
         log.info("local whisper unloaded after %d idle minutes", IDLE_UNLOAD_S // 60)
         return True
 
-    async def _groq(self, audio: bytes) -> str:
+    async def _groq(self, audio: bytes) -> Heard:
         r = await self._http.post(
             f"{self._s.groq_url}/audio/transcriptions",
             headers={"Authorization": f"Bearer {self._s.groq_key}"},
-            data={"model": "whisper-large-v3-turbo", "language": "en", "response_format": "json",
+            data={"model": "whisper-large-v3-turbo", "language": "en", "response_format": "verbose_json",
                   "temperature": "0", "prompt": VOCAB},
             files={"file": ("speech.wav", audio, "audio/wav")},
         )
         r.raise_for_status()
-        return r.json()["text"].strip()
+        d = r.json()
+        segs = [x for x in d.get("segments") or [] if isinstance(x, dict)]
+        if not segs:
+            return Heard(d["text"].strip())
+        logp = sum(float(x.get("avg_logprob", 0.0)) for x in segs) / len(segs)
+        return Heard(d["text"].strip(), round(math.exp(logp), 3),
+                     max(float(x.get("no_speech_prob", 0.0)) for x in segs))
 
     async def warm(self) -> None:
         """Groq: open the connection now so Isaac's first sentence isn't slow. Local: load the model."""

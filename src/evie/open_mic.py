@@ -139,6 +139,12 @@ class OpenMic:
         speaker, sim = await asyncio.get_running_loop().run_in_executor(self._pool, self._vid.who, audio)
         if speaker == "other":
             return speaker, sim, ""
+        if hasattr(self._stt, "transcribe_pcm_detail"):
+            heard = await self._stt.transcribe_pcm_detail(audio)
+            if heard.noise:  # words Whisper wrote over silence or room noise
+                log.info("open mic dropped noise (no_speech %.2f)", heard.no_speech)
+                return speaker, sim, ""
+            return speaker, sim, heard.text.strip()
         return speaker, sim, (await self._stt.transcribe_pcm(audio)).strip()
 
     async def _finish(self, task: asyncio.Task, tainted: bool, echo_start: bool, audio=None) -> None:

@@ -101,6 +101,14 @@ final class AppModel: ObservableObject {
         ears.onVoiceLevel = { [weak self] lvl in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.voiceLevel = lvl } }
         }
+        ears.onMicLevel = { [weak self] lvl in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.state == "listening" else { return }
+                    self.micLevel = self.micLevel * 0.5 + lvl * 0.5  // smoothed, so the bars don't flicker
+                }
+            }
+        }
         if showPill { pill.show(self) }
     }
 
@@ -194,10 +202,11 @@ final class AppModel: ObservableObject {
 
     private func syncEars() {
         let want = online && !micDenied && (earsMode ?? "off") != "off"
-        if want && !ears.running {
-            if !ears.start() { error = "Couldn't start the open mic." }
-        } else if !want && ears.running {
-            ears.stop()
+        if want && !ears.streaming {
+            if !ears.start(streaming: true) { error = "Couldn't start the open mic." }
+        } else if !want && ears.streaming {
+            ears.stopStreaming()
+            if state != "listening" { ears.stop() }
         }
     }
 
@@ -288,32 +297,73 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private var pttViaEars = false
+    private var earsWarmStop: Task<Void, Never>?
+
     private func runPTT(_ input: PTTInput) {
         switch ptt.handle(input) {
         case .startRecording:
-            guard online, !micDenied, recorder.start() else { ptt = PushToTalk(); return }
+            guard online, !micDenied else { ptt = PushToTalk(); return }
+            // The talk key records through the open mic's engine: 0.4 s from before the press is
+            // kept (no clipped first word) and it's the same audio voice ID compares against.
+            earsWarmStop?.cancel()
+            if ears.start(streaming: ears.streaming) {
+                ears.beginCapture()
+                pttViaEars = true
+            } else {
+                guard recorder.start() else { ptt = PushToTalk(); return }
+                pttViaEars = false
+            }
             Earcon.listening.play()
             state = "listening"
             Task { await core.voiceStart() }
-            Task { [weak self] in  // the orb's bars follow his voice while he talks
-                while let self, self.state == "listening" {
-                    self.micLevel = self.recorder.level()
-                    try? await Task.sleep(for: .milliseconds(50))
+            if !pttViaEars {
+                Task { [weak self] in  // the orb's bars follow his voice while he talks
+                    while let self, self.state == "listening" {
+                        self.micLevel = self.recorder.level()
+                        try? await Task.sleep(for: .milliseconds(50))
+                    }
+                    self?.micLevel = 0
                 }
-                self?.micLevel = 0
             }
         case .stopAndSend:
-            guard let wav = recorder.stop() else { state = "idle"; return }
             Earcon.gotIt.play()
             state = "thinking"
-            Task {
-                if await core.voice(wav) == nil { error = "Couldn't reach Evie's core." }
+            micLevel = 0
+            if pttViaEars {
+                let channel = ears.echoCancel ? "live" : "raw"
+                ears.endCapture { [weak self] wav in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        guard let wav else { self.state = "idle"; return }
+                        if await self.core.voice(wav, channel: channel) == nil { self.error = "Couldn't reach Evie's core." }
+                        self.coolEars()
+                    }
+                }
+            } else {
+                guard let wav = recorder.stop() else { state = "idle"; return }
+                Task {
+                    if await core.voice(wav) == nil { error = "Couldn't reach Evie's core." }
+                }
             }
         case .cancel:
-            recorder.cancel()
+            if pttViaEars { ears.cancelCapture(); coolEars() } else { recorder.cancel() }
             state = job == nil ? "idle" : "working"
+            micLevel = 0
         case .none:
             break
+        }
+    }
+
+    /// With the open mic off, the engine started for the talk key stays warm 30 s (a quick second
+    /// question starts instantly), then stops so the mic isn't on for nothing.
+    private func coolEars() {
+        guard !ears.streaming else { return }
+        earsWarmStop?.cancel()
+        earsWarmStop = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard let self, !Task.isCancelled, !self.ears.streaming, self.state != "listening" else { return }
+            self.ears.stop()
         }
     }
 

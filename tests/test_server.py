@@ -193,9 +193,11 @@ class FakeVoicePrint:
 class FakeVoiceId:
     def __init__(self, ready=False):
         self.print = FakeVoicePrint(ready)
+        self.channels = []
 
-    def learn(self, audio):
+    def learn(self, audio, channel="raw"):
         self.print.clips += 1
+        self.channels.append(channel)
         return True
 
 
@@ -266,6 +268,17 @@ def test_talk_key_pauses_the_open_mic_and_teaches_voice_id():
         c.post("/voice", content=speech_wav())
     assert d.open_mic.ptt == ["start", "end"]
     assert d.voiceid.print.clips == 1 and d.brain.heard  # learning never replaces the turn
+
+
+def test_talk_key_audio_from_the_echo_cancelled_mic_teaches_the_live_print():
+    """The app now records the talk key through the open mic's own engine: when that audio went
+    through Apple's echo cancel, it's exactly what the open mic hears, so it trains the live print."""
+    d = ears_deps()
+    with client(deps=d) as c:
+        c.post("/voice", content=speech_wav(), headers={"X-Evie-Channel": "live"})
+        c.post("/voice", content=speech_wav())
+        c.post("/voice", content=speech_wav(), headers={"X-Evie-Channel": "bogus"})
+    assert d.voiceid.channels == ["live", "raw", "raw"]
 
 
 def test_enrolling_trains_voice_id_without_a_turn():

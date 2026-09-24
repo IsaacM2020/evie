@@ -34,8 +34,10 @@ struct CoreClient {
         _ = try? await post("voice/start", body: Data(), type: "application/json", timeout: 2)
     }
 
-    func voice(_ wav: Data) async -> TurnDTO? {
-        guard let data = try? await post("voice", body: wav, type: "audio/wav", timeout: 30) else { return nil }
+    /// channel "live": recorded through the echo-cancelled open-mic engine (teaches the live voiceprint).
+    func voice(_ wav: Data, channel: String = "raw") async -> TurnDTO? {
+        guard let data = try? await post("voice", body: wav, type: "audio/wav", timeout: 30,
+                                         headers: ["X-Evie-Channel": channel]) else { return nil }
         return try? CoreJSON.decoder.decode(TurnDTO.self, from: data)
     }
 
@@ -99,11 +101,13 @@ struct CoreClient {
         (try? await post("calendar", body: body, type: "application/json", timeout: 5)) != nil
     }
 
-    private func post(_ path: String, body: Data, type: String, timeout: TimeInterval) async throws -> Data {
+    private func post(_ path: String, body: Data, type: String, timeout: TimeInterval,
+                      headers: [String: String] = [:]) async throws -> Data {
         var req = URLRequest(url: base.appendingPathComponent(path))
         req.httpMethod = "POST"
         req.timeoutInterval = timeout
         req.setValue(type, forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         req.httpBody = body
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }

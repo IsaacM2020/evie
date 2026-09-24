@@ -165,3 +165,34 @@ async def test_local_model_is_unloaded_after_ten_idle_minutes():
     clock[0] += 2
     assert t.maybe_unload() is True and unloaded == [1]
     assert t.maybe_unload() is False  # already gone
+
+
+@respx.mock
+async def test_groq_asks_for_segment_details_and_reports_how_sure_it_was():
+    route = respx.post("https://api.groq.com/openai/v1/audio/transcriptions").respond(200, json={
+        "text": " open a new tab in safari ", "segments": [
+            {"avg_logprob": -0.1, "no_speech_prob": 0.01}, {"avg_logprob": -0.3, "no_speech_prob": 0.02}]})
+    h = await Transcriber(S, backend="groq", local_fn=FakeModel()).transcribe_detail(wav(1.0))
+    assert h.text == "open a new tab in safari" and 0.8 < h.confidence < 0.85 and h.no_speech == 0.02
+    assert b"verbose_json" in route.calls[0].request.content
+
+
+@respx.mock
+async def test_mumbled_words_have_low_confidence():
+    respx.post("https://api.groq.com/openai/v1/audio/transcriptions").respond(200, json={
+        "text": "open cornhub", "segments": [{"avg_logprob": -1.1, "no_speech_prob": 0.1}]})
+    h = await Transcriber(S, backend="groq", local_fn=FakeModel()).transcribe_detail(wav(1.0))
+    assert h.confidence < 0.5 and not h.noise
+
+
+@respx.mock
+async def test_whisper_writing_words_over_silence_is_marked_noise():
+    respx.post("https://api.groq.com/openai/v1/audio/transcriptions").respond(200, json={
+        "text": "Thank you.", "segments": [{"avg_logprob": -1.2, "no_speech_prob": 0.8}]})
+    h = await Transcriber(S, backend="groq", local_fn=FakeModel()).transcribe_detail(wav(1.0))
+    assert h.noise
+
+
+async def test_local_whisper_has_no_confidence_so_it_counts_as_sure():
+    h = await Transcriber(S, backend="local", local_fn=FakeModel()).transcribe_detail(wav(1.0))
+    assert h.text == "what time is it" and h.confidence == 1.0 and not h.noise

@@ -366,3 +366,16 @@ async def test_whisper_hallucinations_on_noise_never_reach_the_brain(tmp_path):
         m, p = mic(tmp_path, stt=FakeSTT(junk))
         await say(m, ISAAC)
         assert p["brain"].heard == [], junk
+
+
+async def test_whisper_noise_flag_drops_the_segment(tmp_path):
+    from evie.stt import Heard
+
+    class DetailSTT(FakeSTT):
+        async def transcribe_pcm_detail(self, audio):
+            self.calls += 1
+            return Heard("so what do we do", confidence=0.3, no_speech=0.9)
+
+    m, p = mic(tmp_path, stt=DetailSTT())
+    await say(m, ISAAC)
+    assert p["brain"].heard == []

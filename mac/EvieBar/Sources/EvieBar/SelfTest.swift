@@ -146,6 +146,16 @@ enum SelfTest {
               && !LiveSwitch.note(status: 503, detail: "x", clipsLeft: 8).contains("more times")
               && !LiveSwitch.note(status: 0, detail: "x", clipsLeft: 8).contains("more times"),
               "live: only a real 409 asks Isaac to train his voice")
+        var cap = CaptureBuffer(rate: 16000, keep: 1.0)
+        cap.add([Int16](repeating: 1, count: 16000))  // 1 s before the key: only 0.4 s is kept
+        cap.begin(preroll: 0.4)
+        cap.add([Int16](repeating: 2, count: 8000))
+        let clip = cap.end() ?? []
+        check(clip.count == 6400 + 8000 && clip.first == 1 && clip.last == 2 && cap.end() == nil,
+              "talk key: 0.4 s from before the key press, then everything until release")
+        let w = WAV.encode([1, -1, 300], rate: 16000)
+        check(w.count == 44 + 6 && String(data: w.prefix(4), encoding: .ascii) == "RIFF"
+              && w[24] == 0x80 && w[25] == 0x3E && w[34] == 16, "talk key: 16 kHz 16-bit mono WAV")
         // Orb: momentum snapping, spring motion, layout, and the crash that made the app "quit".
         let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let flick = OrbSnap.rest(center: CGPoint(x: 600, y: 450), velocity: CGVector(dx: 1500, dy: 0), in: screen)
