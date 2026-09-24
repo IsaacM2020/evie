@@ -124,7 +124,7 @@ class Engine:
 
 
 def _card(it: FollowUp) -> dict:
-    return {"id": it.id, "about": it.kind, "line": it.line, "ask": it.ask, "options": it.options,
+    return {"id": it.id, "about": it.kind, "line": it.line, "ask": it.ask, "answers": it.options,
             "yes": bool(it.on_yes)}
 
 

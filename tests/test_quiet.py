@@ -160,3 +160,15 @@ def test_the_open_mic_pauses_in_class():
     paused["why"] = None
     mic.feed(np.zeros(512, dtype=np.float32))
     assert seg.fed == 1 and ("mic_paused", {"why": None}) in bus.events
+
+
+def test_text_mode_lines_reach_the_orb_through_the_real_bus():
+    """The first version passed kind= to EventBus.publish, whose own first argument is `kind`:
+    every reply in text mode would have raised TypeError."""
+    from evie.events import EventBus
+    from evie.server import text_to_orb
+    bus = EventBus()
+    q = bus.subscribe()
+    text_to_orb(bus)("Avogadro's constant is 6.022e23.", "reply")
+    ev = q.get_nowait()
+    assert ev["kind"] == "say" and ev["text_only"] and ev["line_kind"] == "reply"

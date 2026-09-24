@@ -568,11 +568,8 @@ def build_deps(s: Settings) -> Deps:
     quiet = Quiet(cal, in_call=lambda: bool(brain and brain.scene().get("in_call", False)))
     text_now = lambda: quiet.mode() == "text"  # noqa: E731
 
-    def on_text(text: str, kind: str) -> None:  # text mode: the orb shows it, nothing is said
-        bus.publish("say", text=text, kind=kind, text_only=True)
-
     mouth = Mouth(voice, out, on_say=on_say, clips=voice.prepare_clips(),
-                  on_quiet=on_quiet, on_audio=on_audio, trace=trace, text_only=text_now, on_text=on_text)
+                  on_quiet=on_quiet, on_audio=on_audio, trace=trace, text_only=text_now, on_text=text_to_orb(bus))
     narrator = Narrator(jev, talker, mouth, bus,
                         can_speak=lambda: not (brain and brain.scene().get("in_call", False)))
 
@@ -668,6 +665,13 @@ def build_deps(s: Settings) -> Deps:
                 pings=[jev.warm, groq.warm, stt.warm, unload_idle, watch_quiet, proactive_tick],
                 open_mic=open_mic, voiceid=voiceid, hands=hands, mouth_link=mouth_link, ui=ui, quiet=quiet,
                 engine=engine, proactive=proactive)
+
+
+def text_to_orb(bus: EventBus) -> Callable[[str, str], None]:
+    """Text mode: what she would have said goes to the orb instead (nothing is synthesised)."""
+    def on_text(text: str, line_kind: str) -> None:
+        bus.publish("say", text=text, line_kind=line_kind, text_only=True)
+    return on_text
 
 
 def build_ears(stt, brain, mouth, bus):
