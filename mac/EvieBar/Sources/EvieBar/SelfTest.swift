@@ -208,6 +208,9 @@ enum SelfTest {
               && CardLayout.counts(.yes, shownFor: 0.8) && CardLayout.counts(.mark, shownFor: 0)
               && CardLayout.counts(.cancel, shownFor: 0.1) && CardLayout.counts(.stop, shownFor: 0.1),
               "card: Yes/rows only count once the card has been up 0.6 s (Cancel/Stop always do)")
+        check(JobView.modelName("quick") == "Haiku" && JobView.modelName("hard") == "Sonnet high"
+              && JobView.modelName("") == nil && !["quick", "normal", "hard"].contains { JobView.modelName($0)!.contains("Opus") },
+              "job card: says which Claude is on it (Haiku or Sonnet, never Opus)")
         for side in [OrbSide.left, .right] {
             let c = CGPoint(x: side == .left ? 41 : 1399, y: 450)
             let m = OrbGeometry.markFrame(center: c)

@@ -513,7 +513,7 @@ def build_deps(s: Settings) -> Deps:
     """The real thing: Jev, Groq, Pocket TTS, Whisper, Claude Code, all wired to one event bus."""
     from evie.brain import JOB_WINDOW_S, Brain
     from evie.quiet import Quiet
-    from evie.jobs import JobRunner
+    from evie.jobs import JobRunner, pick_tier
     from evie.facts import FactStore
     from evie.narrator import Narrator
     from evie.remember import Remember, Todoist
@@ -575,10 +575,11 @@ def build_deps(s: Settings) -> Deps:
 
     async def next_job_started(job) -> None:  # a queued job starting on its own
         narrator.start(job)
-        bus.publish("job_started", id=job.id, goal=job.goal)
+        bus.publish("job_started", id=job.id, goal=job.goal, tier=job.tier)
         mouth.say(f"Starting the next one: {job.goal}.", kind="reply")
 
-    runner = JobRunner(narrator.on_event, narrator.on_done, on_start=next_job_started)
+    runner = JobRunner(narrator.on_event, narrator.on_done, on_start=next_job_started,
+                       pick_tier=lambda goal: pick_tier(jev, goal))  # Haiku or Sonnet, never Opus
     hands = Hands(bus)
     spotify = SpotifySearch(s.spotify_id, s.spotify_secret)
     timers = Timers(lambda t: mouth.say(done_line(t), kind="reply"))

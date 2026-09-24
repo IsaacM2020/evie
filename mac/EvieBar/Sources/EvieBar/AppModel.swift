@@ -9,6 +9,12 @@ struct JobView: Equatable {
     let goal: String
     let started: Date
     var lines: [String]
+    var tier: String = ""
+
+    /// Which Claude is on it, for the card: Haiku for quick jobs, Sonnet for the rest (never Opus).
+    static func modelName(_ tier: String) -> String? {
+        ["quick": "Haiku", "normal": "Sonnet", "hard": "Sonnet high"][tier]
+    }
 }
 
 // ObservableObject + @Published instead of @Observable/@State: those are macros, and macro
@@ -171,7 +177,9 @@ final class AppModel: ObservableObject {
             let count = jobProgress.flatMap { _ in j.lines.last.flatMap { l in
                 l.range(of: #"^Step (\d+) of (\d+)"#, options: .regularExpression).map { String(l[$0]).replacingOccurrences(of: "Step ", with: "").replacingOccurrences(of: " of ", with: "/") } } }
             let step = j.lines.last.map { $0.replacingOccurrences(of: #"^Step \d+ of \d+:\s*"#, with: "", options: .regularExpression) }
-            s.job = (goal: j.goal, step: step.map { $0.prefix(1).uppercased() + $0.dropFirst() }, count: count)
+            let label = [JobView.modelName(j.tier), count].compactMap { $0 }.joined(separator: " · ")
+            s.job = (goal: j.goal, step: step.map { $0.prefix(1).uppercased() + $0.dropFirst() },
+                     count: label.isEmpty ? nil : label)
         }
         s.hover = orbHover || bubbleHover
         s.linger = linger
@@ -556,7 +564,7 @@ final class AppModel: ObservableObject {
             if state == "listening" { break }  // Fn is held: the key, not the core, ends listening
             state = ev.state ?? state
         case "job_started":
-            job = JobView(id: ev.id ?? "", goal: ev.goal ?? "", started: Date(), lines: [])
+            job = JobView(id: ev.id ?? "", goal: ev.goal ?? "", started: Date(), lines: [], tier: ev.tier ?? "")
             lastJobSummary = ""
         case "job_event":
             if var j = job, j.id == ev.id, let line = ev.line {

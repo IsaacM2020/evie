@@ -311,3 +311,42 @@ async def test_claude_codes_own_todo_list_is_real_progress():
 def test_the_worker_is_told_to_keep_a_plan_and_skip_memory_notices():
     from evie.jobs import WORKER_NOTE
     assert "TodoWrite" in WORKER_NOTE and "memory" in WORKER_NOTE
+
+
+# -- Jev picks the model (Isaac, 2026-09-24: "Sonnet medium or high for most, Haiku for really simple", never Opus)
+async def test_the_picked_tier_sets_model_and_effort():
+    from evie.jobs import TIERS
+    rec, made = Recorder(), []
+
+    def factory(**kw):
+        made.append(kw)
+        return FakeClient([[result("ok")]])
+
+    async def pick(goal):
+        return "quick" if "open" in goal else "hard"
+
+    r = JobRunner(rec.on_event, rec.on_done, client_factory=factory, pick_tier=pick)
+    job = await r.start("open netflix and play the mentalist")
+    await asyncio.sleep(0.05)
+    assert job.tier == "quick" and made[-1] == {"model": TIERS["quick"][0], "effort": TIERS["quick"][1]}
+    job = await r.start("fix the failing chase test in my cricket model")
+    await asyncio.sleep(0.05)
+    assert made[-1] == {"model": "claude-sonnet-5", "effort": "high"}
+
+
+def test_opus_is_never_used():
+    from evie.jobs import TIERS, make_client
+    assert all("opus" not in m for m, _ in TIERS.values())
+    with pytest.raises(ValueError):
+        make_client(model="claude-opus-5-5")
+
+
+async def test_jev_failing_means_the_normal_tier():
+    from evie.jev import JevError
+    from evie.jobs import pick_tier
+
+    class Down:
+        async def ask(self, state, q):
+            raise JevError("down")
+
+    assert await pick_tier(Down(), "research MIT's early action deadline") == "normal"

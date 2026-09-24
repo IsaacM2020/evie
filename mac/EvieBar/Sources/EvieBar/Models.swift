@@ -75,6 +75,7 @@ struct CoreEvent: Decodable, Equatable {
     var route: String? = nil
     var id: String? = nil
     var goal: String? = nil
+    var tier: String? = nil  // job_started: quick | normal | hard (which Claude runs it)
     var line: String? = nil
     var status: String? = nil
     var summary: String? = nil

@@ -729,7 +729,7 @@ class Brain:
                 self._say(f"I'm on {e}. I'll do this right after.")
                 return
             self._narrator.start(job)
-            self._bus.publish("job_started", id=job.id, goal=job.goal)
+            self._bus.publish("job_started", id=job.id, goal=job.goal, tier=getattr(job, "tier", ""))
 
         self._job_countdown.start(go)
         return self._say(f"{line}. Say stop if that's wrong.")

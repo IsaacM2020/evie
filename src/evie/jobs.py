@@ -15,6 +15,8 @@ from typing import Awaitable, Callable
 from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher,
                               ResultMessage, TextBlock, ToolUseBlock)
 
+from evie.jev import JevError
+
 log = logging.getLogger("evie.jobs")
 
 WORKER_NOTE = (
@@ -101,8 +103,39 @@ def describe(block) -> str | None:
     return f"Used {name}"
 
 
-def make_client(cwd: Path | str = Path.home() / "IsaacOS", max_turns: int = 60) -> ClaudeSDKClient:
+# Which Claude runs a job, picked by Jev per job (Isaac, 2026-09-24: "for most tasks Sonnet medium or
+# Sonnet high is perfect, Haiku for the really simple tasks"; Opus never).
+TIERS = {"quick": ("claude-haiku-4-5-20251001", "low"),
+         "normal": ("claude-sonnet-5", "medium"),
+         "hard": ("claude-sonnet-5", "high")}
+TIER_Q = {"tier": {"type": "choice", "instructions": (
+    "Evie is handing this task to Claude Code, an AI agent working on Isaac's Mac. How capable a model "
+    "does it need? Pick the cheapest one that will do it well."), "criteria": {
+    "quick": "Simple and short: look one thing up, open or play something, a quick task on screen, read "
+             "one file, a one-line answer",
+    "normal": "Typical work: research and summarise, explain something, write or draft text, small "
+              "edits, organise notes or files",
+    "hard": "Coding or debugging, building something, changes across several files, tricky multi-step "
+            "problems that need careful thinking"}}}
+
+
+async def pick_tier(jev, goal: str) -> str:
+    """Jev's pick, or "normal" when it's down or unsure."""
+    try:
+        a = (await jev.ask(f"The task: {goal}", TIER_Q)).answers["tier"]
+    except (JevError, KeyError, TypeError):
+        return "normal"
+    choice = a.get("choice")
+    return choice if choice in TIERS and float(a.get("confidence", 0)) >= 0.4 else "normal"
+
+
+def make_client(cwd: Path | str = Path.home() / "IsaacOS", max_turns: int = 60, model: str | None = None,
+                effort: str | None = None) -> ClaudeSDKClient:
+    if model and "opus" in model.lower():
+        raise ValueError("Evie never runs Opus")  # Isaac, 2026-09-24
     return ClaudeSDKClient(ClaudeAgentOptions(
+        model=model,
+        effort=effort,
         cwd=str(cwd),
         permission_mode="bypassPermissions",
         setting_sources=["user", "project"],
@@ -119,6 +152,7 @@ class Busy(Exception):
 @dataclass
 class Job:
     goal: str
+    tier: str = ""  # quick | normal | hard (Jev's pick; "" when nobody picked)
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     status: str = "running"  # running | done | failed | stopped
     started: float = field(default_factory=time.time)
@@ -141,9 +175,11 @@ class Job:
 class JobRunner:
     def __init__(self, on_event: Callable[[Job, str], Awaitable[None]],
                  on_done: Callable[[Job], Awaitable[None]],
-                 client_factory: Callable[[], ClaudeSDKClient] = make_client,
-                 on_start: Callable[[Job], Awaitable[None]] | None = None):
+                 client_factory: Callable[..., ClaudeSDKClient] = make_client,
+                 on_start: Callable[[Job], Awaitable[None]] | None = None,
+                 pick_tier: Callable[[str], Awaitable[str]] | None = None):
         self._on_event, self._on_done, self._factory = on_event, on_done, client_factory
+        self._pick_tier = pick_tier
         self._on_start = on_start  # a queued job starting by itself (Evie says so)
         self._job: Job | None = None
         self._task: asyncio.Task | None = None
@@ -170,13 +206,17 @@ class JobRunner:
         if self.current:
             raise Busy(self.current.goal)
         self._job = Job(goal=goal)
+        if self._pick_tier is not None:  # after her read-back window: no delay before she speaks
+            self._job.tier = await self._pick_tier(goal)
+            log.info("job %s tier %s (%s)", self._job.id, self._job.tier, TIERS[self._job.tier][0])
         self._queued = []
         self._task = asyncio.create_task(self._run(self._job))
         return self._job
 
     async def _run(self, job: Job) -> None:
         try:
-            async with self._factory() as client:
+            kw = dict(zip(("model", "effort"), TIERS[job.tier])) if job.tier in TIERS else {}
+            async with self._factory(**kw) as client:
                 await client.query(job.goal)
                 while True:
                     async for m in client.receive_response():

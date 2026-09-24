@@ -1,0 +1,15 @@
+{"id": "t01", "goal": "open Netflix, click the profile Darryl and play The Mentalist", "want": "quick"}
+{"id": "t02", "goal": "what's the weather in Singapore this weekend", "want": "quick"}
+{"id": "t03", "goal": "find the MIT early action deadline for 2027", "want": "quick"}
+{"id": "t04", "goal": "turn on do not disturb on my Mac", "want": "quick"}
+{"id": "t05", "goal": "read my chem IA draft and tell me the word count", "want": "quick"}
+{"id": "t06", "goal": "research how Jev works and explain it to me simply", "want": "normal"}
+{"id": "t07", "goal": "summarise the three most recent iGEM wiki pages", "want": "normal"}
+{"id": "t08", "goal": "draft an email to my biology teacher asking for an extension", "want": "normal"}
+{"id": "t09", "goal": "organise my Downloads folder into folders by type", "want": "normal"}
+{"id": "t10", "goal": "compare the IB Physics HL and SL syllabus changes for 2027", "want": "normal"}
+{"id": "t11", "goal": "fix the failing chase test in my cricket win predictor", "want": "hard"}
+{"id": "t12", "goal": "add a dark mode toggle to my personal website and deploy it", "want": "hard"}
+{"id": "t13", "goal": "debug why the n8n WhatsApp workflow stopped replying", "want": "hard"}
+{"id": "t14", "goal": "refactor the Evie planner so find and pick share one scorer", "want": "hard"}
+{"id": "t15", "goal": "build a script that backtests my win predictor on the 2025 IPL season", "want": "hard"}

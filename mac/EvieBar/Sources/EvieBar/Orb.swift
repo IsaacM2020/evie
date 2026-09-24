@@ -253,7 +253,7 @@ enum CardLayout {
             y += pillH
         case .job(let goal, let step, let count):
             add(.tag("Claude Code"), tagH, gap: 7)
-            if let n = count { out.append(Part(role: .count(n), rect: CGRect(x: right - 60, y: top, width: 60, height: tagH))) }
+            if let n = count { out.append(Part(role: .count(n), rect: CGRect(x: right - 120, y: top, width: 120, height: tagH))) }
             add(.title(goal), titleH, gap: 7)
             out.append(Part(role: .body(step ?? "Working on it…"), rect: CGRect(x: x, y: y, width: w - pillW - 10, height: pillH)))
             out.append(Part(role: .pill(.stop, "Stop", primary: false), rect: CGRect(x: right - pillW, y: y, width: pillW, height: pillH)))
