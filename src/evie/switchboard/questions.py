@@ -77,8 +77,12 @@ QUESTIONS = {
     "complete": {
         "type": "noul",
         "instructions": "Assuming the latest speech is a request to Evie, could she do it right now "
-                        "without asking a follow-up question? 'play that song' is not complete (which "
-                        "song?). 'remember I have the dentist on wednesday' is not complete (what "
+                        "without asking a follow-up question? Use the speech just before: 'play that song' "
+                        "is complete if a song was just mentioned, and not complete if nothing says which "
+                        "song. A song title alone is complete ('play trance': she plays the most popular "
+                        "match). A creator or site without a specific item is complete ('play a mrbeast "
+                        "video': she opens his videos and asks there). "
+                        "'remember I have the dentist on wednesday' is not complete (what "
                         "time?), but 'I have the dentist on wednesday at 4' and 'vedant's birthday is on sunday' are "
                         "complete. Quick controls are complete as they are: 'pause', 'resume the music', "
                         "'skip this song', 'turn it up', 'undo that', 'cancel the timer', 'what song is "

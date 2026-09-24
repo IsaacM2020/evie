@@ -312,3 +312,77 @@ async def test_readback_turns_the_request_into_a_short_line_or_a_question():
     assert "speech-to-text" in g.prompts[0]
     g = G({"line": "", "unsure": True, "question": "Which website?"})
     assert (await Talker(g).readback("check my site thingy"))["question"] == "Which website?"
+
+
+class _JsonGroq:
+    def __init__(self, out=None, raw=None, error=None):
+        self.out, self.raw, self.error, self.prompts = out, raw, error, []
+
+    async def chat(self, system, user, max_tokens=400, json_mode=False, model=None, reasoning=None, fallbacks=None):
+        import json as _j
+        self.prompts.append((system, user))
+        if self.error:
+            raise self.error
+        return self.raw if self.raw is not None else _j.dumps(self.out)
+
+
+async def test_resolve_fills_in_that_song_from_the_conversation():
+    from evie.talk import Talker
+    g = _JsonGroq({"request": "play Trance by Travis Scott on Spotify"})
+    out = await Talker(g).resolve("play that song on spotify", ['Someone: "trance, travis scott"'])
+    assert out == "play Trance by Travis Scott on Spotify"
+    system, user = g.prompts[0]
+    assert "trance, travis scott" in user and "play that song on spotify" in user
+
+
+async def test_resolve_keeps_his_words_when_it_cant():
+    from evie.talk import TalkError, Talker
+    for g in (_JsonGroq(error=TalkError("down")), _JsonGroq(raw="not json"), _JsonGroq({"request": ""}),
+              _JsonGroq({"nope": 1})):
+        assert await Talker(g).resolve("open it", ['Isaac: "hi"']) == "open it"
+
+
+async def test_clarify_sees_the_conversation():
+    from evie.talk import Talker
+    g = _JsonGroq(raw="Which song, the Travis Scott one?")
+    await Talker(g).clarify("play that song", "a detail is missing", recent=['Someone: "trance, travis scott"'])
+    system, user = g.prompts[0]
+    assert "trance, travis scott" in user and "already" in user.lower()
+
+
+async def test_hedged_never_leaves_an_unread_error():
+    """2026-09-24 14:09:30: "Task exception was never retrieved" (a ReadTimeout from the losing
+    hedged request). Both requests finishing in the same tick used to leave the loser's error unread."""
+    import asyncio
+    import gc
+
+    from evie.config import load_settings
+    from evie.talk import GroqClient, TalkError
+
+    seen = []
+    loop = asyncio.get_running_loop()
+    old = loop.get_exception_handler()
+    loop.set_exception_handler(lambda l, ctx: seen.append(ctx.get("message", "")))
+    try:
+        for _ in range(20):
+            go = asyncio.Event()
+            n = {"calls": 0}
+
+            class G(GroqClient):
+                async def _once(self, body):
+                    n["calls"] += 1
+                    mine = n["calls"]
+                    await go.wait()
+                    if mine == 2:
+                        raise TalkError("timeout: ReadTimeout('')")
+                    return "ok"
+
+            g = G(load_settings(), hedge_after_s=0.001)
+            loop.call_later(0.01, go.set)
+            assert await g._hedged({}) == "ok"
+            await asyncio.sleep(0)
+        gc.collect()
+        await asyncio.sleep(0)
+    finally:
+        loop.set_exception_handler(old)
+    assert not [m for m in seen if "never retrieved" in m]

@@ -41,6 +41,7 @@ SPLIT_Q = ('Isaac asked for several separate things in one sentence. Return {"pa
            'complete sentence, in the order he said them]}. Keep his words; fill in what "it" or "that" means.')
 REPLACE_S = 3.0  # a new request this soon after the last replaces it (see _replace_recent_turn)
 COMPUTER_SKILLS = {"computer", "message_send"}  # Phase 3b: done on screen (or by message)
+RESOLVE_S = 120.0  # "that song" can point at anything said in the last 2 minutes, nothing older
 SKILL_CONF_MIN = 0.5  # below this Jev isn't sure which fast skill: Claude Code handles it  # after she answers, a follow-up without her name may still be for her
 
 JOB_OP_Q = {
@@ -75,6 +76,16 @@ def is_stop(text: str) -> bool:
     return bool(_STOP.match(_norm(text)))
 
 
+# "that song", "open it", "send it to him": words that point at something said before. "it" in
+# "what time is it" / "is it raining" / "it's" doesn't point anywhere.
+_REF = re.compile(r"\b(that|this|those|these|the one|the other one|him|her|them|same|again)\b|"
+                  r"(?<!\bis )\bit\b(?!'s| is\b)", re.IGNORECASE)
+
+
+def needs_resolve(text: str) -> bool:
+    return bool(_REF.search(text))
+
+
 @dataclass
 class Pending:
     """A question Evie just asked. Isaac's next sentence is probably the answer."""
@@ -93,6 +104,7 @@ def strip_wake(text: str) -> str:
 
 class Brain:
     THINK_AFTER_S = 1.2  # the big model says "Let me think." if it hasn't answered by then
+    RESOLVE_WAIT_S = 1.5  # after Jev decides, wait at most this for "that song" to be filled in
     HARD_AT = 0.7
     def __init__(self, sb, talker, mouth, runner, narrator, calendar: CalendarStore, bus: EventBus, jev,
                  turns_log: Path | None = TURNS_LOG, clock: Callable[[], float] = time.monotonic,
@@ -108,6 +120,9 @@ class Brain:
         self._computer = computer  # Phase 3b: operating apps on screen (evie.computer.recipes)
         self._computer_task: asyncio.Task | None = None
         self._turns: deque[str] = deque(maxlen=MAX_TURNS)
+        # What was said near Evie in the last RESOLVE_S (Isaac and unknown voices, her replies), so
+        # "play that song" knows the song. RAM only: overheard words are never written anywhere.
+        self._heard: deque[tuple[float, str]] = deque(maxlen=12)
         self._pending: Pending | None = None
         self._last_reply_at: float | None = None
         self.scene: Callable[[], dict] = dict  # the app's view of the Mac: front_app, in_call
@@ -147,7 +162,24 @@ class Brain:
             self._pending = None
         return out
 
-    def _context(self, text: str, speaker: str, addressed: bool, named: bool = False) -> Context:
+    def _recent(self) -> list[str]:
+        now = self._clock()
+        return [line for at, line in self._heard if now - at <= RESOLVE_S]
+
+    async def _resolved(self, task: asyncio.Task | None, text: str) -> str:
+        """His request with "that/it" filled in from the conversation, or his own words if that
+        isn't ready in time or fails."""
+        if task is None:
+            return text
+        try:
+            out = await asyncio.wait_for(task, timeout=self.RESOLVE_WAIT_S)
+        except Exception as e:  # noqa: BLE001 - slow or failed: his words still work
+            log.info("couldn't resolve %r: %r", text, e)
+            return text
+        return str(out).strip() or text
+
+    def _context(self, text: str, speaker: str, addressed: bool, named: bool = False,
+                 answered: bool = False) -> Context:
         job = self._runner.current
         since = None if self._last_reply_at is None else self._clock() - self._last_reply_at
         scene = self.scene()
@@ -155,7 +187,7 @@ class Brain:
                        in_call=bool(scene.get("in_call", False)), front_app=str(scene.get("front_app", "")),
                        active_jobs=(job.goal,) if job else (), addressed=addressed,
                        followup_s=since if (not addressed and since is not None and since <= FOLLOWUP_S) else None,
-                       named=named)
+                       named=named, answered=answered)
 
     def _stop(self, text: str) -> dict:
         self._mouth.stop()
@@ -220,7 +252,7 @@ class Brain:
             return None
         self._pending = None
         merged = f'{p.text}. Evie asked "{p.asked}", Isaac answered "{text}".' if p.asked else f"{p.text}. {text}"
-        return await self._turn(merged, p.speaker, addressed=True)
+        return await self._turn(merged, p.speaker, addressed=True, answered=True)
 
     async def _answers(self, p: Pending, text: str) -> bool:
         """Jev: is this Isaac answering her question, or something else? Unsure means yes."""
@@ -248,12 +280,18 @@ class Brain:
         return {"text": text, "action": o.verdict.action.value, "reason": o.verdict.reason, "route": route,
                 "said": None, "shadow": True, "would": would}
 
-    async def _turn(self, text: str, speaker: str, addressed: bool, named: bool = False) -> dict:
+    async def _turn(self, text: str, speaker: str, addressed: bool, named: bool = False,
+                    answered: bool = False) -> dict:
         t0 = time.perf_counter()
         if addressed:
             self._bus.publish("heard", text=text)
             self._bus.publish("state", state="thinking")
-        ctx = self._context(text, speaker, addressed, named)
+        ctx = self._context(text, speaker, addressed, named, answered)
+        # "play that song": work out which song while Jev decides (0 ms added). Jev still judges his
+        # real words; the filled-in request is what skills, screen work and jobs get.
+        recent = self._recent() if speaker != "other" else []
+        resolving = (asyncio.create_task(self._talker.resolve(strip_wake(text), recent))
+                     if recent and needs_resolve(text) and hasattr(self._talker, "resolve") else None)
         # Speed: when Isaac is talking to Evie, draft the spoken answer while Jev decides.
         # If Jev picks "answer" the words are ready; otherwise the draft is dropped.
         draft = asyncio.create_task(self._talker.reply(text, self._facts())) if addressed else None
@@ -262,6 +300,8 @@ class Brain:
         except BaseException:
             if draft:
                 draft.cancel()
+            if resolving:
+                resolving.cancel()
             raise
         # On ACT the policy's pick wins (it can differ from Jev's top route when addressed).
         route = o.verdict.reason if o.verdict.action == Action.ACT else (o.decision.route if o.decision else None)
@@ -278,8 +318,17 @@ class Brain:
         if draft and not (o.verdict.action == Action.ACT and route == "answer"):
             draft.cancel()
             draft = None
-        said = await self._act(o.verdict, route, text, draft, speaker, o.decision, addressed)
+        if resolving and o.verdict.action != Action.ACT:
+            resolving.cancel()
+            resolving = None
+        act_text = await self._resolved(resolving, text)
+        said = await self._act(o.verdict, route, text, draft, speaker, o.decision, addressed, act_text=act_text)
         t_said = time.perf_counter()
+        if speaker != "other":
+            now = self._clock()
+            self._heard.append((now, f'Isaac: "{text}"' if speaker == "isaac" else f'Someone: "{text}"'))
+            if said:
+                self._heard.append((now, f'Evie: "{said}"'))
         if said:
             self._turns.append(f'Isaac: "{text}" / Evie: "{said}"')
             if self._conv is not None:
@@ -312,34 +361,38 @@ class Brain:
         self._last_act = (turn, now)
 
     async def _act(self, verdict, route: str | None, text: str, draft: asyncio.Task | None = None,
-                   speaker: str = "isaac", decision=None, addressed: bool = True) -> str | None:
+                   speaker: str = "isaac", decision=None, addressed: bool = True,
+                   act_text: str | None = None) -> str | None:
         if verdict.action == Action.IGNORE:
             return None
+        doing = act_text or text  # "that song" filled in from the conversation
         if verdict.action == Action.CLARIFY:
             kind = "for_me" if verdict.reason == "unsure it was for me" else "detail"
             pending = self._pending = Pending(kind, text, speaker, self._clock())
             if verdict.reason == "missing detail":
-                pending.asked = self._say(await self._talker.clarify(text, "a detail is missing"))
+                pending.asked = self._say(await self._talker.clarify(text, "a detail is missing",
+                                                                     recent=self._recent()))
             elif verdict.reason == "unsure what you meant":
                 pending.asked = self._say(await self._talker.clarify(
-                    text, "it's unclear whether he wants an answer, a job done, or something else"))
+                    text, "it's unclear whether he wants an answer, a job done, or something else",
+                    recent=self._recent()))
             else:
                 pending.asked = self._clip("for_me")
             return pending.asked
         if decision and decision.multi >= MULTI_AT and not (route == "quick_action" and decision.skill == "computer"):
-            said = await self._one_by_one(text, speaker)
+            said = await self._one_by_one(doing, speaker)
             if said is not None:
                 return said
         if route == "answer":
             return await self._answer(text, draft, decision)
         if route == "deep_job":
-            return await self._start_job(text, decision=decision)
+            return await self._start_job(doing, decision=decision)
         if route == "job_control":
             return await self._job_control(text)
         if route == "quick_action" and (self._skills or self._computer):
-            return await self._quick(text, decision, speaker, addressed)
+            return await self._quick(doing, decision, speaker, addressed)
         if route == "remember" and self._remember:
-            return await self._remember_it(text, decision, speaker)
+            return await self._remember_it(doing, decision, speaker)
         return self._clip("not_yet")
 
     async def _one_by_one(self, text: str, speaker: str) -> str | None:

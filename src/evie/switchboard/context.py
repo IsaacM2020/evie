@@ -36,6 +36,7 @@ class Context:
     addressed: bool = False  # Isaac held the talk key or typed to Evie: definitely for her
     followup_s: float | None = None  # open mic: seconds since Evie last answered Isaac
     named: bool = False  # open mic: Isaac's matched voice started with "Evie, ..."
+    answered: bool = False  # his request merged with his answer to her one question: no second question
 
 
 def _clip(text: str, limit: int) -> str:

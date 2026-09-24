@@ -54,6 +54,11 @@ class TalkError(Exception):
     pass
 
 
+def _read_outcome(t: asyncio.Task) -> None:
+    if not t.cancelled():
+        t.exception()
+
+
 class RateLimited(TalkError):
     pass
 
@@ -105,10 +110,12 @@ class GroqClient:
 
     async def _hedged(self, body: dict) -> str:
         first = asyncio.create_task(self._once(body))
+        first.add_done_callback(_read_outcome)
         done, _ = await asyncio.wait({first}, timeout=self._hedge)
         if done:
             return first.result()
         second = asyncio.create_task(self._once(body))
+        second.add_done_callback(_read_outcome)  # the loser's error is read, never left "never retrieved"
         last: TalkError | None = None
         pending = {first, second}
         try:
@@ -318,11 +325,32 @@ class Talker:
             return summary
         return " ".join(out.split())
 
-    async def clarify(self, utterance: str, reason: str) -> str:
+    async def clarify(self, utterance: str, reason: str, recent: list[str] | tuple[str, ...] = ()) -> str:
+        said = ("Said near you just before: " + " | ".join(recent) + "\n") if recent else ""
         return await self._say(
-            f'Isaac said: "{utterance}". You can\'t do it yet because of this: {reason}. '
-            "Ask him one short question to get what you need."
+            f'{said}Isaac said: "{utterance}". You can\'t do it yet because of this: {reason}. '
+            "Ask him one short question to get what you need. Never ask for something already said "
+            "above; if it's there, ask to confirm it instead (\"The Travis Scott one?\")."
         )
+
+    async def resolve(self, text: str, recent: list[str] | tuple[str, ...]) -> str:
+        """"play that song on spotify" + what was just said ("trance, travis scott") -> "play Trance by
+        Travis Scott on Spotify". His own words back if nothing fits or anything fails."""
+        system = ("Isaac's request to his assistant Evie points at something said just before (\"that song\", "
+                  "\"open it\", \"send it to him\"). Rewrite it as one standalone request with those words "
+                  "replaced by what they mean in the conversation. Keep everything else as he said it. What people said "
+                  "counts more than Evie's replies, which can be wrong. A title next to a name ('trance, travis "
+                  "scott') is that song by that artist. If the conversation doesn't say what they mean, return "
+                  "the request unchanged. Answer in JSON: "
+                  "{\"request\": string}")
+        user = "Conversation (oldest first): " + " | ".join(recent) + f'\nRequest: "{text}"'
+        try:
+            out = json.loads(await self._groq.chat(system, user, max_tokens=120, json_mode=True))
+        except (TalkError, ValueError) as e:
+            log.warning("resolve failed: %s", str(e)[:120])
+            return text
+        got = str(out.get("request") or "").strip() if isinstance(out, dict) else ""
+        return got or text
 
     async def readback(self, text: str) -> dict:
         """Before a long job: what Evie understood, as a short spoken line ("Checking why your website

@@ -41,8 +41,8 @@ class FakeTalker:
         self.calls.append(("reply", utterance, facts))
         return "It's 4pm."
 
-    async def clarify(self, utterance, reason):
-        self.calls.append(("clarify", utterance, reason))
+    async def clarify(self, utterance, reason, recent=()):
+        self.calls.append(("clarify", utterance, reason, tuple(recent)))
         return "Which song?"
 
 

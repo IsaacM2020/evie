@@ -41,18 +41,21 @@ UNKNOWN_CANT_DO = {"quick_action", "deep_job", "remember", "job_control"}
 
 
 def decide(d: Decision, speaker: str, t: Thresholds = Thresholds(), addressed: bool = False,
-           named: bool = False) -> Verdict:
+           named: bool = False, answered: bool = False) -> Verdict:
+    """answered: this is his request merged with his answer to her question. She asked once already,
+    so she acts on her best guess instead of asking again (Isaac, 2026-09-24: "Trance!" got "Who is
+    the artist?")."""
     followup = d.has_event >= t.event_at
     if speaker == "other":
         return Verdict(Action.IGNORE, "not Isaac's voice", followup)
     if addressed:
-        return _addressed(d, t, followup)
+        return _addressed(d, t, followup, answered)
     if named and speaker == "isaac":
         # "Evie, ..." in Isaac's own matched voice: treat it like the talk key unless Jev is sure
         # he was only talking ABOUT her ("Evie is so slow today").
         if d.for_evie < t.named_ignore_below or (d.route == "not_for_evie" and d.route_confidence >= 0.8):
             return Verdict(Action.IGNORE, "not for Evie", followup)
-        return _addressed(d, t, followup)
+        return _addressed(d, t, followup, answered)
     if d.route == "not_for_evie" or d.for_evie < t.ignore_below:
         return Verdict(Action.IGNORE, "not for Evie", followup)
     bar = t.answer_act_at if d.route == "answer" else t.act_at
@@ -62,12 +65,12 @@ def decide(d: Decision, speaker: str, t: Thresholds = Thresholds(), addressed: b
         return Verdict(Action.CLARIFY, "unsure it was for me")
     if speaker == "unknown" and d.route in UNKNOWN_CANT_DO:
         return Verdict(Action.CLARIFY, "unsure it was for me")
-    if d.route in NEEDS_DETAIL and d.complete < t.incomplete_below:
+    if d.route in NEEDS_DETAIL and d.complete < t.incomplete_below and not answered:
         return Verdict(Action.CLARIFY, "missing detail")
     return Verdict(Action.ACT, d.route)
 
 
-def _addressed(d: Decision, t: Thresholds, followup: bool) -> Verdict:
+def _addressed(d: Decision, t: Thresholds, followup: bool, answered: bool = False) -> Verdict:
     """Isaac held the talk key (or typed to Evie), so it IS for her. Jev only picks the route."""
     probs = {r: p for r, p in d.route_probs.items() if r != "not_for_evie"}
     total = sum(probs.values())
@@ -76,6 +79,6 @@ def _addressed(d: Decision, t: Thresholds, followup: bool) -> Verdict:
     route = max(probs, key=probs.get)
     if probs[route] / total < t.route_conf_min:
         return Verdict(Action.CLARIFY, "unsure what you meant", followup)
-    if route in NEEDS_DETAIL and d.complete < t.incomplete_below:
+    if route in NEEDS_DETAIL and d.complete < t.incomplete_below and not answered:
         return Verdict(Action.CLARIFY, "missing detail", followup)
     return Verdict(Action.ACT, route, followup)
