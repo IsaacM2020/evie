@@ -199,6 +199,9 @@ enum SelfTest {
               && OrbLook.of(state: "speaking", online: false).motion == .still,
               "orb: every state has its own motion, idle and offline are still")
         check(MainActor.assumeIsolated { OrbStress.run(seconds: 3) }, "orb: 3 s of mouse moves, drags and state changes, no crash")
+        let prog = try? CoreJSON.decoder.decode(CoreEvent.self, from: Data(
+            #"{"kind":"job_progress","id":"j1","done":1,"total":4,"step":"Finding the missing env var"}"#.utf8))
+        check(prog?.done == 1 && prog?.total == 4 && prog?.step == "Finding the missing env var", "decode job progress")
         let box = StatusBox()
         Task.detached {
             box.result = await CoreClient(base: URL(string: "http://127.0.0.1:1")!).status()

@@ -22,7 +22,7 @@ class FakeTalker:
     def __init__(self, narrate_text=None):
         self.narrate_text = narrate_text
 
-    async def narrate(self, goal, event):
+    async def narrate(self, goal, event, last=""):
         return self.narrate_text or f"update: {event}"
 
     async def summarize(self, goal, result):
@@ -224,3 +224,51 @@ async def test_notices_about_memory_tools_are_never_spoken():
     clock.t = 20
     await n.on_event(Job(goal="x"), "I need to flag something first: the memory system (claude-mem) hit an outage — q")
     assert jev.states == [] and mouth.said == []
+
+
+async def test_heartbeat_with_a_plan_says_the_real_step_without_any_model():
+    jev, mouth, clock, bus = FakeJev(0.1), FakeMouth(), Clock(), EventBus()
+    n = Narrator(jev, FakeTalker("should not be used"), mouth, bus, clock=clock, heartbeat_s=30, tick_s=0.005)
+    job = Job(goal="fix the deploy")
+    job.events = ["Read log.txt"]
+    job.todos = [{"content": "a", "status": "completed", "activeForm": "Reading the log"},
+                 {"content": "b", "status": "in_progress", "activeForm": "Testing the fix"},
+                 {"content": "c", "status": "pending", "activeForm": "Pushing it"}]
+    n.start(job)
+    clock.t = 31
+    await asyncio.sleep(0.03)
+    assert mouth.said == [("narration", "Still going. Step 2 of 3, testing the fix.")]
+    job.status = "done"
+
+
+async def test_step_changes_update_the_orb():
+    n, jev, mouth, clock, bus = make(p=0.1)
+    q = bus.subscribe()
+    job = Job(goal="g")
+    job.todos = [{"content": "a", "status": "in_progress", "activeForm": "Reading the log"},
+                 {"content": "b", "status": "pending", "activeForm": "Fixing it"}]
+    clock.t = 20
+    await n.on_event(job, "Step 1 of 2: Reading the log")
+    kinds = {}
+    while not q.empty():
+        e = q.get_nowait()
+        kinds[e["kind"]] = e
+    assert kinds["job_progress"]["done"] == 0 and kinds["job_progress"]["total"] == 2
+    assert kinds["job_progress"]["step"] == "Reading the log"
+
+
+async def test_updates_are_written_knowing_what_she_said_last():
+    n, jev, mouth, clock, bus = make(p=0.9)
+    seen = []
+
+    async def narrate(goal, event, last=""):
+        seen.append(last)
+        return f"update {len(seen)}"
+
+    n._talker.narrate = narrate
+    job = Job(goal="g")
+    clock.t = 20
+    await n.on_event(job, "Found the bug")
+    clock.t = 40
+    await n.on_event(job, "Fixed it")
+    assert seen == ["", "update 1"]

@@ -92,6 +92,10 @@ struct CoreEvent: Decodable, Equatable {
     var op: String? = nil
     var args: [String: JSONValue]? = nil
     var expires: Double? = nil
+    // Phase 3c: a job's own plan (step k of n) for the orb
+    var done: Int? = nil
+    var total: Int? = nil
+    var step: String? = nil
 }
 
 enum CoreJSON {

@@ -63,13 +63,14 @@ def render_step(goal: str, line: str, since_s: float | None, count: int) -> str:
 
 class Narrator:
     def __init__(self, jev, talker, mouth, bus: EventBus, rules: NarrationRules = NarrationRules(),
-                 clock: Callable[[], float] = time.monotonic, heartbeat_s: float = 25.0, tick_s: float = 2.0,
+                 clock: Callable[[], float] = time.monotonic, heartbeat_s: float = 30.0, tick_s: float = 2.0,
                  can_speak: Callable[[], bool] = lambda: True):
         self._jev, self._talker, self._mouth, self._bus = jev, talker, mouth, bus
         self._r, self._clock = rules, clock
         self._heartbeat_s, self._tick_s, self._can_speak = heartbeat_s, tick_s, can_speak
         self._last: dict[str, float] = {}
         self._count: dict[str, int] = {}
+        self._said: dict[str, str] = {}  # the last update she said per job (updates build on it)
 
     def start(self, job: Job) -> None:
         """Called right after "On it", which counts as the last thing she said."""
@@ -90,9 +91,15 @@ class Narrator:
             if not self._can_speak():
                 continue
             self._last[job.id] = self._clock()
-            text = await self._talker.narrate(job.goal, "still working. Latest steps: " + "; ".join(job.events[-3:]))
+            p = job.progress() if hasattr(job, "progress") else None
+            if p:  # the real step, from its own plan: no model needed
+                text = f"Still going. Step {p[0]} of {p[1]}, {p[2][:1].lower() + p[2][1:]}."
+            else:
+                text = await self._talker.narrate(job.goal, "still working. Latest steps: " + "; ".join(job.events[-3:]),
+                                                  **self._last_kw(job))
             if text != FALLBACK and job.status == "running":
                 self._mouth.say(text, kind="narration", ttl_s=15)
+                self._said[job.id] = text
 
     async def worth_saying(self, goal: str, line: str, since_s: float | None, count: int) -> float:
         try:
@@ -101,8 +108,15 @@ class Narrator:
         except (JevError, KeyError, TypeError, ValueError):
             return 0.0
 
+    def _last_kw(self, job: Job) -> dict:
+        last = self._said.get(job.id, "")
+        return {"last": last} if last else {}
+
     async def on_event(self, job: Job, line: str) -> None:
         self._bus.publish("job_event", id=job.id, line=line)
+        p = job.progress() if hasattr(job, "progress") else None
+        if p and line.startswith("Step "):  # the orb's progress ring and step line
+            self._bus.publish("job_progress", id=job.id, done=p[0] - 1, total=p[1], step=p[2])
         if routine(line):
             return
         count = self._count.get(job.id, 0)
@@ -116,11 +130,12 @@ class Narrator:
         log.info("narrate? p=%.2f %s", p, line[:80])
         if p < self._r.threshold:
             return
-        text = await self._talker.narrate(job.goal, line)
+        text = await self._talker.narrate(job.goal, line, last=self._said.get(job.id, ""))
         if text == FALLBACK:
             log.info("narration skipped: Groq fallback")
             return
         self._mouth.say(text, kind="narration", ttl_s=15)
+        self._said[job.id] = text
         self._last[job.id] = self._clock()
         self._count[job.id] = count + 1
 
@@ -131,3 +146,4 @@ class Narrator:
         self._bus.publish("job_done", id=job.id, status=job.status, summary=text, result=job.result[:2000])
         self._last.pop(job.id, None)
         self._count.pop(job.id, None)
+        self._said.pop(job.id, None)

@@ -202,8 +202,8 @@ async def test_status_line():
     await r.start("fix the chase bug")
     await c.first_turn_started.wait()
     await asyncio.sleep(0.01)
-    assert r.status_line().startswith("Working on: fix the chase bug (")
-    assert "last: Ran: pytest" in r.status_line()
+    assert r.status_line().startswith("I'm ") and "fix the chase bug" in r.status_line()
+    assert "Ran: pytest" in r.status_line()
     await r.stop()
 
 
@@ -284,3 +284,30 @@ async def test_stopping_drops_the_queue_too():
     r.enqueue("second")
     dropped = await r.stop()
     assert dropped == ["second"] and r.queued == []
+
+
+TODOS = {"todos": [
+    {"content": "Read the build log", "status": "completed", "activeForm": "Reading the build log"},
+    {"content": "Find the missing env var", "status": "in_progress", "activeForm": "Finding the missing env var"},
+    {"content": "Fix vercel.json", "status": "pending", "activeForm": "Fixing vercel.json"},
+    {"content": "Run the build", "status": "pending", "activeForm": "Running the build"}]}
+
+
+async def test_claude_codes_own_todo_list_is_real_progress():
+    """Isaac (2026-09-24): during a long job 'I don't know the progress of it'."""
+    rec = Recorder()
+    c = FakeClient([[tool("TodoWrite", TODOS), text("Found it: VERCEL_TOKEN isn't set.")]], hang=True)
+    r = runner(c, rec)
+    job = await r.start("check why my website deploy failed")
+    await c.first_turn_started.wait()
+    await asyncio.sleep(0.01)
+    assert job.progress() == (2, 4, "Finding the missing env var")
+    assert "Step 2 of 4: Finding the missing env var" in rec.events
+    assert r.status_line() == ("I'm on step 2 of 4 of check why my website deploy failed: finding the missing env var. "
+                               "Latest: Found it: VERCEL_TOKEN isn't set.")
+    await r.stop()
+
+
+def test_the_worker_is_told_to_keep_a_plan_and_skip_memory_notices():
+    from evie.jobs import WORKER_NOTE
+    assert "TodoWrite" in WORKER_NOTE and "memory" in WORKER_NOTE

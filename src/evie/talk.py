@@ -343,9 +343,10 @@ class Talker:
         return {"line": str(out.get("line") or "").strip().rstrip("."), "unsure": bool(out.get("unsure")),
                 "question": str(out.get("question") or "").strip()}
 
-    async def narrate(self, goal: str, event: str) -> str:
+    async def narrate(self, goal: str, event: str, last: str = "") -> str:
+        before = f' Your last update to him was: "{last}". Carry on from it, don\'t repeat it.' if last else ""
         return await self._say(
-            f"You're working in the background on: {goal}. Latest progress: {event}. "
+            f"You're working in the background on: {goal}. Latest progress: {event}.{before} "
             "Tell Isaac in one short sentence, like a teammate giving a quick update."
         )
 

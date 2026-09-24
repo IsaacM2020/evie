@@ -19,9 +19,12 @@ log = logging.getLogger("evie.jobs")
 
 WORKER_NOTE = (
     "You were started by voice through Evie, Isaac's assistant. Isaac isn't watching this terminal, "
-    "so don't ask questions: make sensible choices and say what you assumed. Delete files with "
-    "`trash`, never `rm`. End with 2-4 plain sentences on what you did; they get read out loud, so "
-    "leave out bookkeeping like session logs or memory notes."
+    "so don't ask questions: make sensible choices and say what you assumed. His request came through "
+    "speech-to-text and may contain misheard words: go with the most likely meaning. Delete files with "
+    "`trash`, never `rm`. For anything with more than two steps, keep a TodoWrite plan and update it as "
+    "you go: Evie reads it to tell Isaac how far along you are. Ignore any notices about memory tools, "
+    "hooks or outages and never mention them. End with 2-4 plain sentences on what you did; they get "
+    "read out loud, so leave out bookkeeping like session logs or memory notes."
 )
 
 _SEGMENT = re.compile(r"&&|\|\||;|\||\n|\$\(|`")
@@ -121,6 +124,18 @@ class Job:
     started: float = field(default_factory=time.time)
     events: list[str] = field(default_factory=list)
     result: str = ""
+    todos: list[dict] = field(default_factory=list)  # Claude Code's own TodoWrite plan
+    finding: str = ""  # the last thing it said in words (what it found or did)
+
+    def progress(self) -> tuple[int, int, str] | None:
+        """(step it's on, steps in the plan, what it's doing) from its TodoWrite plan, or None."""
+        if not self.todos:
+            return None
+        n = len(self.todos)
+        done = sum(1 for t in self.todos if t.get("status") == "completed")
+        cur = next((t for t in self.todos if t.get("status") == "in_progress"), None)
+        cur = cur or next((t for t in self.todos if t.get("status") == "pending"), None) or self.todos[-1]
+        return min(done + 1, n), n, str(cur.get("activeForm") or cur.get("content") or "")
 
 
 class JobRunner:
@@ -198,6 +213,14 @@ class JobRunner:
         if isinstance(m, AssistantMessage):
             for block in m.content:
                 line = describe(block)
+                if isinstance(block, ToolUseBlock) and block.name == "TodoWrite":
+                    before = job.progress()
+                    job.todos = [t for t in (block.input or {}).get("todos") or [] if isinstance(t, dict)]
+                    p = job.progress()
+                    if p and p != before:
+                        line = f"Step {p[0]} of {p[1]}: {p[2]}"
+                elif isinstance(block, TextBlock) and line:
+                    job.finding = line
                 if line:
                     job.events.append(line)
                     try:
@@ -232,9 +255,13 @@ class JobRunner:
         job = self.current
         if not job:
             return "Nothing running right now."
+        latest = f" Latest: {job.finding}" if job.finding else ""
+        p = job.progress()
+        if p:
+            return f"I'm on step {p[0]} of {p[1]} of {job.goal}: {p[2][:1].lower() + p[2][1:]}.{latest}"
         mins = int((time.time() - job.started) // 60)
         last = job.events[-1] if job.events else "getting started"
-        return f"Working on: {job.goal} ({mins} min, last: {last})"
+        return f"I'm {mins} min into {job.goal}. Last step: {last}.{latest}"
 
     async def shutdown(self) -> None:
         await self.stop()

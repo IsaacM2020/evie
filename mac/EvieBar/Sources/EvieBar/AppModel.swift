@@ -399,7 +399,14 @@ final class AppModel: ObservableObject {
                 job = j
                 note(line)
             }
+        case "job_progress":  // its own plan: the orb's ring fills and shows the step
+            if let d = ev.done, let n = ev.total, n > 0 { jobProgress = Double(d) / Double(n) }
+            if var j = job, j.id == ev.id, let st = ev.step {
+                j.lines = Array((j.lines + ["Step \((ev.done ?? 0) + 1) of \(ev.total ?? 0): \(st)"]).suffix(5))
+                job = j
+            }
         case "job_done":
+            jobProgress = nil
             if job?.id == ev.id { job = nil }
             lastJobSummary = ev.summary ?? ""
             if !lastJobSummary.isEmpty { note(lastJobSummary, for: 8) }
