@@ -33,6 +33,10 @@ UNFINISHED_END_MS = 1000  # room echo and buffered audio keep arriving just afte
 # A sentence that ends this soon after the previous one, while that turn is still being worked
 # out, is the rest of the same sentence (2026-09-24: chopped sentences got two answers).
 MERGE_S = 1.2
+# Isaac saying "Evie, ..." in a voice that already clearly matches is certainly him, and this is
+# the open mic's own (echo-cancelled) audio: it teaches the live voiceprint (evie/voiceid.py).
+LEARN_LIVE_AT = 0.70
+_NAMED = re.compile(r"^\s*(hey\s+)?(evie|eve|evey|ivy)\b", re.IGNORECASE)
 
 
 def _words(s: str) -> str:
@@ -167,6 +171,10 @@ class OpenMic:
                 return
             if m.speaking:
                 m.stop()  # Isaac talked over her: she stops, like a person would
+        # (after the echo check: her own voice must never teach the print)
+        if speaker == "isaac" and sim >= LEARN_LIVE_AT and _NAMED.match(text) and audio is not None \
+                and hasattr(self._vid, "learn"):
+            self._pool.submit(self._vid.learn, audio, "live")
         now = self._clock()
         prev = self._inflight
         if prev and not prev[0].done() and now - prev[3] <= MERGE_S:

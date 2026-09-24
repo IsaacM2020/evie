@@ -144,6 +144,13 @@ enum SelfTest {
         check(MouthGate.onStart(playing: nil, new: "b") == .play
               && MouthGate.onStart(playing: "a", new: "b") == .flushOldThenPlay
               && MouthGate.onStart(playing: "b", new: "b") == .play, "mouth: one voice at a time, a new line flushes the old")
+        check(LiveSwitch.shouldRetry(status: 503) && LiveSwitch.shouldRetry(status: 0)
+              && !LiveSwitch.shouldRetry(status: 409) && !LiveSwitch.shouldRetry(status: 400),
+              "live: a warming or unreachable core is retried, a real refusal isn't")
+        check(LiveSwitch.note(status: 409, detail: "x", clipsLeft: 3).contains("3 more times")
+              && !LiveSwitch.note(status: 503, detail: "x", clipsLeft: 8).contains("more times")
+              && !LiveSwitch.note(status: 0, detail: "x", clipsLeft: 8).contains("more times"),
+              "live: only a real 409 asks Isaac to train his voice")
         let box = StatusBox()
         Task.detached {
             box.result = await CoreClient(base: URL(string: "http://127.0.0.1:1")!).status()

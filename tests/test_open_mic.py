@@ -321,3 +321,40 @@ async def test_sentences_far_apart_stay_separate_turns(tmp_path):
     await say(m, ISAAC)
     await asyncio.sleep(0.05)
     assert brain.finished == ["what time is it", "pause the music"]
+
+
+class LearningVoiceId(FakeVoiceId):
+    def __init__(self, sim=0.8):
+        super().__init__()
+        self.sim, self.live = sim, 0
+
+    def who(self, audio):
+        self.calls += 1
+        return ("isaac" if self.sim >= 0.65 else "unknown"), self.sim
+
+    def learn(self, audio, channel="raw"):
+        self.live += channel == "live"
+        return True
+
+
+async def test_isaac_saying_evie_teaches_the_live_voiceprint(tmp_path):
+    modes = ModeStore(tmp_path / "ears.json")
+    modes.set("live")
+    vid = LearningVoiceId(sim=0.72)
+    m = OpenMic(Segmenter(), lambda f: f[0] != 0.0, voiceid=vid, stt=FakeSTT("evie what time is it"),
+                brain=FakeBrain(), mouth=FakeMouth(), bus=EventBus(), modes=modes, clock=Clock())
+    await say(m, ISAAC)
+    await asyncio.sleep(0.05)
+    assert vid.live == 1
+
+
+async def test_unsure_voice_or_no_wake_word_teaches_nothing(tmp_path):
+    for sim, text in [(0.66, "evie what time is it"), (0.9, "what time is it")]:
+        modes = ModeStore(tmp_path / "ears.json")
+        modes.set("live")
+        vid = LearningVoiceId(sim=sim)
+        m = OpenMic(Segmenter(), lambda f: f[0] != 0.0, voiceid=vid, stt=FakeSTT(text), brain=FakeBrain(),
+                    mouth=FakeMouth(), bus=EventBus(), modes=modes, clock=Clock())
+        await say(m, ISAAC)
+        await asyncio.sleep(0.05)
+        assert vid.live == 0, (sim, text)

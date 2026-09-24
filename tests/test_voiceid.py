@@ -42,7 +42,7 @@ def test_not_ready_until_enough_voice(tmp_path):
         vp.add(ISAAC, 2.0)
     assert not vp.ready
     vp.add(ISAAC, 2.0)
-    assert vp.ready and vp.status() == {"clips": 8, "seconds": 16.0, "ready": True}
+    assert vp.ready and vp.status() == {"clips": 8, "seconds": 16.0, "ready": True, "live_clips": 0}
 
 
 def test_thirty_seconds_is_also_enough(tmp_path):
@@ -127,3 +127,36 @@ def test_live_embedder_tells_two_voices_apart(tmp_path):
     b = emb(clip("Daniel", "Play some lofi music and turn it down a bit.", "b"))
     c = emb(clip("Samantha", "Mom, can you drive me to the dentist on Wednesday?", "c"))
     assert float(a @ b) > float(a @ c) + 0.2
+
+
+# The open mic hears Isaac through Apple's voice processing, which changes how he sounds (tag 3):
+# against the raw talk-key print he only scores ~0.64 (2026-09-24: "she ignores my voice").
+def test_live_print_takes_over_once_it_has_enough_clips(tmp_path):
+    vid = VoiceId(fake_embed, enrolled(tmp_path))
+    assert vid.who(audio(2.0, tag=3.0))[0] == "unknown"
+    for _ in range(8):
+        vid.learn(audio(2.0, tag=3.0), channel="live")
+    who, sim = vid.who(audio(2.0, tag=3.0))
+    assert who == "isaac" and sim > 0.99
+
+
+def test_raw_print_still_used_until_the_live_print_is_ready(tmp_path):
+    vid = VoiceId(fake_embed, enrolled(tmp_path))
+    for _ in range(3):
+        vid.learn(audio(2.0, tag=3.0), channel="live")
+    assert vid.who(audio(2.0, tag=0.0))[0] == "isaac"
+
+
+def test_live_print_survives_a_restart_and_status_reports_it(tmp_path):
+    vp = enrolled(tmp_path)
+    for _ in range(8):
+        vp.add(EMB[3.0], 2.0, channel="live")
+    again = VoicePrint(tmp_path / "voiceprint.json")
+    assert again.status()["live_clips"] == 8 and again.status()["clips"] == 8
+
+
+def test_clear_forgets_both_prints(tmp_path):
+    vp = enrolled(tmp_path)
+    vp.add(EMB[3.0], 2.0, channel="live")
+    vp.clear()
+    assert vp.status()["clips"] == 0 and vp.status()["live_clips"] == 0

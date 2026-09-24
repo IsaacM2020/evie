@@ -60,13 +60,14 @@ struct CoreClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: json)
         guard let (data, resp) = try? await URLSession.shared.data(for: req) else {
-            return .failure(CoreRefusal(detail: "Can't reach Evie's core."))
+            return .failure(CoreRefusal(detail: "Can't reach Evie's core.", status: 0))
         }
         if (resp as? HTTPURLResponse)?.statusCode == 200, let e = try? CoreJSON.decoder.decode(EarsDTO.self, from: data) {
             return .success(e)
         }
         let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String
-        return .failure(CoreRefusal(detail: detail ?? "Evie's core said no."))
+        return .failure(CoreRefusal(detail: detail ?? "Evie's core said no.",
+                                    status: (resp as? HTTPURLResponse)?.statusCode ?? 0))
     }
 
     func handsResult(id: String, _ o: HandsOutcome) async {
@@ -108,4 +109,17 @@ struct CoreClient {
 
 struct CoreRefusal: Error, Equatable {
     let detail: String
+    var status = 0  // 0 = couldn't reach the core at all
+}
+
+// Switching the Live mic on right after a restart (2026-09-24): the core answers 503 while it
+// warms up, and the app used to blame Isaac's voice. Now only a real 409 means "train me".
+enum LiveSwitch {
+    static func shouldRetry(status: Int) -> Bool { status == 0 || status == 503 }
+
+    static func note(status: Int, detail: String, clipsLeft: Int) -> String {
+        if status == 409 { return "Hold ⌃⌥ and talk \(clipsLeft) more times so I learn your voice" }
+        if shouldRetry(status: status) { return "Evie's still starting up, try again in a sec" }
+        return detail
+    }
 }

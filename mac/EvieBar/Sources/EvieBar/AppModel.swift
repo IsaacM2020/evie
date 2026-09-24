@@ -37,7 +37,20 @@ final class AppModel: ObservableObject {
     @Published var micDenied = false
     // Phase 2: open mic + voice ID + pill
     @Published var earsMode: String? = nil  // nil = core has no ear models
-    @Published var voiceprint = VoicePrintDTO(clips: 0, seconds: 0, ready: false)
+    // Cached across launches, so a relaunch never shows "0 clips" before the core answers.
+    @Published var voiceprint = AppModel.cachedVoiceprint() {
+        didSet {
+            UserDefaults.standard.set([Double(voiceprint.clips), voiceprint.seconds, voiceprint.ready ? 1 : 0],
+                                      forKey: "voiceprint")
+        }
+    }
+
+    static func cachedVoiceprint() -> VoicePrintDTO {
+        guard let v = UserDefaults.standard.array(forKey: "voiceprint") as? [Double], v.count == 3 else {
+            return VoicePrintDTO(clips: 0, seconds: 0, ready: false)
+        }
+        return VoicePrintDTO(clips: Int(v[0]), seconds: v[1], ready: v[2] == 1)
+    }
     @Published var enrolling = false
     @Published var enrollStartClips = 0
     @Published var shadowLog: [ShadowRow] = []
@@ -112,9 +125,11 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func setEarsMode(_ mode: String) async {
+    @discardableResult
+    func setEarsMode(_ mode: String) async -> CoreRefusal? {
         let old = earsMode
         earsMode = mode  // instant in the UI, rolled back if the core refuses
+        var refusal: CoreRefusal?
         switch await core.setEarsMode(mode) {
         case .success(let e):
             applyEars(e)
@@ -122,8 +137,10 @@ final class AppModel: ObservableObject {
         case .failure(let r):
             earsMode = old
             error = r.detail
+            refusal = r
         }
         syncEars()
+        return refusal
     }
 
     func toggleEnroll() async {
@@ -179,13 +196,19 @@ final class AppModel: ObservableObject {
     /// Left ⌃⌥⌘: Live open mic on, or off again.
     func toggleLive() async {
         let target = earsMode == "live" ? "off" : "live"
-        await setEarsMode(target)
-        if earsMode == target {
+        var refusal: CoreRefusal?
+        let until = Date().addingTimeInterval(10)
+        repeat {
+            refusal = await setEarsMode(target)
+            guard let r = refusal, LiveSwitch.shouldRetry(status: r.status), Date() < until else { break }
+            note("Starting up…", for: 2)
+            try? await Task.sleep(for: .seconds(1))
+        } while true
+        if refusal == nil {
             (target == "live" ? Earcon.liveOn : Earcon.liveOff).play()
             note(target == "live" ? "Live mic on" : "Live mic off", for: 3)
-        } else {
-            let left = max(0, 8 - voiceprint.clips)
-            note(voiceprint.ready ? (error ?? "Couldn't switch the mic") : "Hold ⌃⌥ and talk \(left) more times so I learn your voice", for: 5)
+        } else if let r = refusal {
+            note(LiveSwitch.note(status: r.status, detail: r.detail, clipsLeft: max(0, 8 - voiceprint.clips)), for: 5)
         }
     }
 
