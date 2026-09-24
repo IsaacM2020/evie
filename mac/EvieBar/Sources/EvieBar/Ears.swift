@@ -93,11 +93,12 @@ enum MicPicker {
         return nil
     }
 
-    static func use(_ id: AudioDeviceID, on engine: AVAudioEngine) -> Bool {
-        guard let unit = engine.inputNode.audioUnit else { return false }
+    /// noErr when the built-in mic is now the engine's input; otherwise the reason (-1: no audio unit yet).
+    static func use(_ id: AudioDeviceID, on engine: AVAudioEngine) -> OSStatus {
+        guard let unit = engine.inputNode.audioUnit else { return -1 }
         var dev = id
         return AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &dev,
-                                    UInt32(MemoryLayout<AudioDeviceID>.size)) == noErr
+                                    UInt32(MemoryLayout<AudioDeviceID>.size))
     }
 }
 
@@ -249,7 +250,9 @@ final class Ears: @unchecked Sendable {
         let input = engine.inputNode
         echoCancel = false
         if UserDefaults.standard.object(forKey: "useBuiltInMic") as? Bool ?? true, let mic = MicPicker.builtInInput() {
-            NSLog("Evie ears: built-in mic %@", MicPicker.use(mic, on: engine) ? "selected" : "couldn't be selected")
+            let st = MicPicker.use(mic, on: engine)
+            // 2026-09-24 14:06/14:08 it failed with no reason logged: keep the OSStatus so the next one says why
+            NSLog("Evie ears: built-in mic %@", st == noErr ? "selected" : "couldn't be selected (OSStatus \(st))")
         }
         if vp {
             do {
