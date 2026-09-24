@@ -271,3 +271,53 @@ async def test_unfinished_sentence_gets_more_time_before_it_is_cut(tmp_path):
         m.feed(frame(0.0))
     await settle()
     assert len(p["brain"].heard) == 1
+
+
+class SeqSTT:
+    def __init__(self, *texts):
+        self.texts, self.calls = list(texts), 0
+
+    async def transcribe_pcm(self, audio):
+        self.calls += 1
+        return self.texts.pop(0) if len(self.texts) > 1 else self.texts[0]
+
+
+class SlowBrain:
+    """Records what each turn heard, and which turns finished (a cancelled turn never finishes)."""
+
+    def __init__(self, delay=0.3):
+        self.delay, self.started, self.finished = delay, [], []
+
+    async def hear(self, text, speaker="isaac", addressed=True, shadow=False):
+        self.started.append(text)
+        await asyncio.sleep(self.delay)
+        self.finished.append(text)
+        return {}
+
+
+async def test_a_fragment_right_after_a_sentence_is_merged_into_one_turn(tmp_path):
+    """2026-09-24: chopped open-mic sentences became two turns and two answers talking over each other."""
+    modes = ModeStore(tmp_path / "ears.json")
+    modes.set("live")
+    brain = SlowBrain()
+    m = OpenMic(Segmenter(), lambda f: f[0] != 0.0, voiceid=FakeVoiceId(),
+                stt=SeqSTT("open a new tab in safari", "and play a mrbeast video"), brain=brain,
+                mouth=FakeMouth(), bus=EventBus(), modes=modes, clock=Clock())
+    await say(m, ISAAC)
+    await say(m, ISAAC)
+    await asyncio.sleep(0.5)
+    assert brain.finished == ["open a new tab in safari and play a mrbeast video"]
+
+
+async def test_sentences_far_apart_stay_separate_turns(tmp_path):
+    modes = ModeStore(tmp_path / "ears.json")
+    modes.set("live")
+    brain, clock = SlowBrain(delay=0.0), Clock()
+    m = OpenMic(Segmenter(), lambda f: f[0] != 0.0, voiceid=FakeVoiceId(),
+                stt=SeqSTT("what time is it", "pause the music"), brain=brain,
+                mouth=FakeMouth(), bus=EventBus(), modes=modes, clock=clock)
+    await say(m, ISAAC)
+    clock.t += 5
+    await say(m, ISAAC)
+    await asyncio.sleep(0.05)
+    assert brain.finished == ["what time is it", "pause the music"]

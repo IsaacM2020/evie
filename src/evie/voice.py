@@ -5,6 +5,7 @@ M4), so nothing is rendered to a file first. Replies jump ahead of job narration
 narrations get dropped, and stop() (Isaac pressing the talk key) cuts her off mid-word.
 """
 import asyncio
+import contextvars
 import logging
 import threading
 import time
@@ -16,6 +17,11 @@ from typing import Callable, Iterable, Iterator, Literal, Protocol
 import numpy as np
 
 log = logging.getLogger("evie.voice")
+
+# Which of Isaac's turns a line answers. The Brain sets it per turn; lines said from that turn's
+# code carry it, so a turn that's been replaced (he rephrased, or a fragment got merged) can have
+# its unspoken replies dropped instead of talking over the new answer.
+TURN: contextvars.ContextVar[int | None] = contextvars.ContextVar("evie_turn", default=None)
 
 ACKS = {"on_it": "On it.", "on_it_long": "On it, this might take a minute.", "for_me": "Was that for me?",
         "not_yet": "Can't do that one yet."}
@@ -131,13 +137,16 @@ class _Line:
     created: float
     ttl_s: float | None = None
     clip: np.ndarray | None = field(default=None, repr=False)
+    turn: int | None = None
 
 
 class Mouth:
     def __init__(self, voice, out: Out, clock: Callable[[], float] = time.monotonic,
                  on_say: Callable[[str], None] | None = None, clips: dict[str, np.ndarray] | None = None,
-                 on_quiet: Callable[[], None] | None = None, on_audio: Callable[[str], None] | None = None):
+                 on_quiet: Callable[[], None] | None = None, on_audio: Callable[[str], None] | None = None,
+                 trace: Callable[[dict], None] | None = None):
         self._voice, self._out, self._clock = voice, out, clock
+        self._trace = trace  # speech.jsonl: when each line started and ended (overlap hunting)
         self._on_say, self._on_quiet, self._on_audio = on_say, on_quiet, on_audio
         self._clips = clips or {}
         self._queue: deque[_Line] = deque()
@@ -155,7 +164,7 @@ class Mouth:
 
     def say(self, text: str, kind: Literal["reply", "narration"] = "reply", ttl_s: float | None = None,
             clip: np.ndarray | None = None) -> None:
-        line = _Line(text, kind, self._clock(), ttl_s, clip)
+        line = _Line(text, kind, self._clock(), ttl_s, clip, TURN.get())
         if kind == "reply":
             idx = next((i for i, q in enumerate(self._queue) if q.kind == "narration"), len(self._queue))
             self._queue.insert(idx, line)
@@ -170,10 +179,29 @@ class Mouth:
         self._queue.clear()
         self._cancel.set()
 
-    def _play(self, line: _Line, cancel: threading.Event) -> None:
+    def drop_turn(self, turn: int) -> None:
+        """A newer turn replaced this one: its replies not yet spoken go. The line already playing
+        finishes (cutting a word in half sounds worse than one extra sentence)."""
+        keep = deque()
+        for q in self._queue:
+            if q.turn == turn and q.kind == "reply":
+                self._log("dropped", q)
+            else:
+                keep.append(q)
+        self._queue = keep
+
+    def _log(self, ev: str, line: _Line, **extra) -> None:
+        if self._trace:
+            try:
+                self._trace({"t": time.time(), "ev": ev, "text": line.text, "kind": line.kind, "turn": line.turn}
+                            | extra)
+            except Exception:  # a log write must never stop her talking
+                log.exception("speech trace failed")
+
+    def _play(self, line: _Line, cancel: threading.Event) -> bool:
         audio = line.clip if line.clip is not None else self._voice.chunks(line.text)
         on_start = (lambda: self._on_audio(line.text)) if self._on_audio else None
-        self._out.play(audio, cancel, on_start)
+        return self._out.play(audio, cancel, on_start)
 
     async def _run(self) -> None:
         while True:
@@ -192,13 +220,16 @@ class Mouth:
                 self._on_say(line.text)
             self.current_text = line.text
             self.speaking = self._spoke = True
+            self._log("start", line)
+            ok = False
             try:
-                await asyncio.to_thread(self._play, line, cancel)
+                ok = bool(await asyncio.to_thread(self._play, line, cancel))
             except Exception:  # a voice or audio-device failure must never leave Evie mute for good
                 log.exception("couldn't speak %r", line.text)
             finally:
                 self.speaking = False
                 self.quiet_at = self._clock()
+                self._log("end", line, ok=ok)
 
     async def aclose(self) -> None:
         self._cancel.set()

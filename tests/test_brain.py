@@ -971,3 +971,50 @@ async def test_sending_a_message_needs_isaacs_own_voice():
     said = await b._quick("text mom on my way", (await b._sb.handle(b._context("x", "unknown", False))).decision,
                           speaker="unknown", addressed=False)
     assert b._computer.goals == [] and "talk key" in said
+
+
+class TurnMouth(FakeMouth):
+    """Remembers which turn each line was said from, and which turns were dropped."""
+
+    def __init__(self):
+        super().__init__()
+        self.turns, self.dropped = [], []
+
+    def say(self, text, kind="reply", ttl_s=None, clip=None):
+        from evie.voice import TURN
+        super().say(text, kind, ttl_s, clip)
+        self.turns.append(TURN.get())
+
+    def drop_turn(self, turn):
+        self.dropped.append(turn)
+
+
+async def test_each_turn_tags_what_it_says_and_a_quick_new_request_drops_the_old_turns_leftovers():
+    """Two answers talked over each other (2026-09-24): a new request within 3 s of the last one
+    replaces it, so the old turn's unspoken replies are dropped."""
+    b, p = brain_c(FakeSwitchboard())
+    b._mouth = p["mouth"] = TurnMouth()
+    await b.hear("what time")
+    await b.hear("what time is it in london")
+    assert p["mouth"].turns[0] != p["mouth"].turns[1]
+    assert p["mouth"].dropped == [p["mouth"].turns[0]]
+
+
+async def test_a_request_long_after_the_last_keeps_its_replies():
+    clock = Clock()
+    b, p = brain_c(FakeSwitchboard(), clock=clock)
+    b._mouth = p["mouth"] = TurnMouth()
+    await b.hear("what time is it")
+    clock.t += 10
+    await b.hear("pause the music")
+    assert p["mouth"].dropped == []
+
+
+async def test_ignored_chatter_never_drops_her_reply():
+    clock = Clock()
+    b, p = brain_c(FakeSwitchboard(), clock=clock)
+    b._mouth = p["mouth"] = TurnMouth()
+    await b.hear("what time is it")
+    b._sb = FakeSwitchboard("ignore", "not for Evie", "not_for_evie")
+    await b.hear("yeah mom one sec", addressed=False)
+    assert p["mouth"].dropped == []

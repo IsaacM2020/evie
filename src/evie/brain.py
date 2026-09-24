@@ -23,7 +23,7 @@ from evie.jobs import Busy
 from evie.skills.catalog import RISK, allowed
 from evie.switchboard.context import Context
 from evie.switchboard.policy import Action
-from evie.voice import ACKS
+from evie.voice import ACKS, TURN
 
 log = logging.getLogger("evie.brain")
 
@@ -31,6 +31,7 @@ TURNS_LOG = Path.home() / "Library/Logs/Evie/turns.jsonl"
 MAX_TURNS = 3
 PENDING_S = 15.0  # how long Evie waits for the answer to a question she asked
 FOLLOWUP_S = 10.0
+REPLACE_S = 3.0  # a new request this soon after the last replaces it (see _replace_recent_turn)
 COMPUTER_SKILLS = {"computer", "message_send"}  # Phase 3b: done on screen (or by message)
 SKILL_CONF_MIN = 0.5  # below this Jev isn't sure which fast skill: Claude Code handles it  # after she answers, a follow-up without her name may still be for her
 
@@ -101,6 +102,8 @@ class Brain:
         self._pending: Pending | None = None
         self._last_reply_at: float | None = None
         self.scene: Callable[[], dict] = dict  # the app's view of the Mac: front_app, in_call
+        self._turn_seq = 0
+        self._last_act: tuple[int, float] | None = None  # (turn, when) of the last turn she acted on
 
     async def hear(self, text: str, speaker: str = "isaac", addressed: bool = True, shadow: bool = False) -> dict:
         """addressed: Isaac held the talk key or typed to Evie, so it's certainly for her.
@@ -108,6 +111,8 @@ class Brain:
         shadow: open mic trial run. Decide and log what she WOULD do, do nothing."""
         if shadow:
             return await self._shadow(text, speaker)
+        self._turn_seq += 1
+        TURN.set(self._turn_seq)  # everything said from this turn (and tasks it starts) carries it
         # A delete (or a send) waiting on "say stop to cancel": stop calls it off, nothing else.
         if speaker != "other" and is_stop(text) and self._countdown is not None and self._countdown.cancel():
             self._mouth.stop()
@@ -227,6 +232,8 @@ class Brain:
         # On ACT the policy's pick wins (it can differ from Jev's top route when addressed).
         route = o.verdict.reason if o.verdict.action == Action.ACT else (o.decision.route if o.decision else None)
         t_verdict = time.perf_counter()
+        if o.verdict.action != Action.IGNORE:
+            self._replace_recent_turn()
         if not addressed and o.verdict.action == Action.IGNORE:
             # Overheard and not for her (Isaac talking to someone): keep it off the panel.
             self._bus.publish("overheard", text=text, reason=o.verdict.reason)
@@ -259,6 +266,16 @@ class Brain:
         })
         return {"text": text, "action": o.verdict.action.value, "reason": o.verdict.reason,
                 "route": route, "said": said}
+
+    def _replace_recent_turn(self) -> None:
+        """A new request within REPLACE_S of the last one replaces it (he rephrased, or finished
+        the sentence): the old turn's replies that haven't been spoken yet are dropped, so two
+        answers never queue up back to back."""
+        now, turn = self._clock(), TURN.get()
+        last = self._last_act
+        if last and last[0] != turn and now - last[1] <= REPLACE_S and hasattr(self._mouth, "drop_turn"):
+            self._mouth.drop_turn(last[0])
+        self._last_act = (turn, now)
 
     async def _act(self, verdict, route: str | None, text: str, draft: asyncio.Task | None = None,
                    speaker: str = "isaac", decision=None, addressed: bool = True) -> str | None:

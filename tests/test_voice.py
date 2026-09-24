@@ -193,3 +193,32 @@ async def test_mouth_remembers_what_it_last_said_and_when_it_went_quiet():
     await settle()
     assert m.current_text == "hello there" and m.quiet_at == clock.t and not m.speaking
     await m.aclose()
+
+
+async def test_trace_logs_when_each_line_starts_and_ends():
+    rows = []
+    m = mouth(trace=rows.append)
+    m.start()
+    m.say("hi there")
+    await settle()
+    assert [(r["ev"], r["text"]) for r in rows] == [("start", "hi there"), ("end", "hi there")]
+    assert rows[1]["ok"] is True
+
+
+async def test_a_turns_queued_replies_can_be_dropped_but_not_the_line_already_playing():
+    from evie.voice import TURN
+    out = FakeOut(hold=True)
+    rows = []
+    m = mouth(out=out, trace=rows.append)
+    m.start()
+    tok = TURN.set(7)
+    m.say("first half answer")
+    m.say("more for turn seven")
+    TURN.reset(tok)
+    m.say("job update", kind="narration")
+    await settle()
+    m.drop_turn(7)
+    out.release.set()
+    await settle()
+    assert out.played == ["first half answer", "job update"]
+    assert any(r["ev"] == "dropped" and r["text"] == "more for turn seven" for r in rows)

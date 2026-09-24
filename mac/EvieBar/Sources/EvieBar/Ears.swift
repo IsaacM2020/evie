@@ -225,6 +225,13 @@ final class Ears: @unchecked Sendable {
               let kind = obj["kind"] as? String, let id = obj["id"] as? String else { return }
         switch kind {
         case "start":
+            if MouthGate.onStart(playing: line, new: id) == .flushOldThenPlay, let old = line {
+                // Never two voices at once: a new line while one is still audible flushes it.
+                SpeechLog.write(["ev": "OVERLAP", "old": old, "new": id])
+                player.stop()
+                done(old)
+            }
+            SpeechLog.write(["ev": "start", "id": id])
             let rate = (obj["rate"] as? Double) ?? 24000
             if rate != voiceFormat.sampleRate, let f = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) {
                 voiceFormat = f
@@ -254,6 +261,7 @@ final class Ears: @unchecked Sendable {
     }
 
     private func done(_ id: String) {
+        SpeechLog.write(["ev": "done", "id": id])
         if line == id { line = nil }
         mouth?.send(.string(#"{"kind":"done","id":"\#(id)"}"#)) { _ in }
     }
@@ -292,5 +300,42 @@ final class Ears: @unchecked Sendable {
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let text = String(data: data, encoding: .utf8) else { return }
         queue.async { self.socket?.send(.string(text)) { _ in } }
+    }
+}
+
+
+// One voice at a time, as a pure rule the selftest can check.
+enum MouthGate {
+    enum Start: Equatable { case play, flushOldThenPlay }
+
+    static func onStart(playing: String?, new: String) -> Start {
+        guard let p = playing, p != new else { return .play }
+        return .flushOldThenPlay
+    }
+}
+
+// ~/Library/Logs/Evie/speech.jsonl, shared with the core: when each line really started and
+// finished playing. It's how an overlap gets caught in the act.
+enum SpeechLog {
+    private static let url = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Logs/Evie/speech.jsonl")
+    private static let q = DispatchQueue(label: "evie.speechlog")
+
+    static func write(_ row: [String: String]) {
+        let t = Date().timeIntervalSince1970
+        q.async {
+            var r: [String: Any] = row
+            r["src"] = "app"
+            r["t"] = t
+            guard var d = try? JSONSerialization.data(withJSONObject: r) else { return }
+            d.append(0x0A)
+            if let h = try? FileHandle(forWritingTo: url) {
+                h.seekToEndOfFile()
+                h.write(d)
+                try? h.close()
+            } else {
+                try? d.write(to: url)
+            }
+        }
     }
 }

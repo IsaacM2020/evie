@@ -30,6 +30,9 @@ MODES = ("off", "shadow", "live")
 EARS_FILE = Path.home() / "Library/Application Support/Evie/ears.json"
 ECHO_TAIL_S = 0.4
 UNFINISHED_END_MS = 1000  # room echo and buffered audio keep arriving just after she stops
+# A sentence that ends this soon after the previous one, while that turn is still being worked
+# out, is the rest of the same sentence (2026-09-24: chopped sentences got two answers).
+MERGE_S = 1.2
 
 
 def _words(s: str) -> str:
@@ -78,6 +81,7 @@ class OpenMic:
         self.context = {"front_app": "", "in_call": False}
         self.stats: Counter = Counter()  # segments by speaker, echo drops: for tuning, never words
         self.recorder = None  # debug recorder (evie.recorder), off unless Isaac turns it on
+        self._inflight: tuple[asyncio.Task, str, str, float] | None = None  # (turn, text, speaker, ended at)
 
     # -- the talk key owns its own turns --------------------------------------------------
     def ptt_start(self) -> None:
@@ -163,9 +167,26 @@ class OpenMic:
                 return
             if m.speaking:
                 m.stop()  # Isaac talked over her: she stops, like a person would
+        now = self._clock()
+        prev = self._inflight
+        if prev and not prev[0].done() and now - prev[3] <= MERGE_S:
+            prev[0].cancel()  # the first half's turn: one sentence gets one answer
+            text = f"{prev[1]} {text}"
+            speaker = "isaac" if "isaac" in (prev[2], speaker) else speaker
+            log.info("merged a fragment into the sentence before it")
+        task = asyncio.get_running_loop().create_task(self._hear(text, speaker))
+        self._inflight = (task, text, speaker, now)
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def _hear(self, text: str, speaker: str) -> None:
         async with self._lock:
             try:
                 await self._brain.hear(text, speaker, addressed=False, shadow=self.modes.mode == "shadow")
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 log.exception("open mic turn failed")
 

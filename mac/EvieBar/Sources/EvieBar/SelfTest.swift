@@ -141,6 +141,9 @@ enum SelfTest {
             #"{"kind":"do","id":"c1","op":"calendar_add","args":{"title":"Dentist","all_day":false,"n":3},"expires":1.5}"#.utf8))
         check(doEv?.op == "calendar_add" && doEv?.args?["title"]?.string == "Dentist"
               && doEv?.args?["all_day"]?.bool == false && doEv?.expires == 1.5, "decode do command")
+        check(MouthGate.onStart(playing: nil, new: "b") == .play
+              && MouthGate.onStart(playing: "a", new: "b") == .flushOldThenPlay
+              && MouthGate.onStart(playing: "b", new: "b") == .play, "mouth: one voice at a time, a new line flushes the old")
         let box = StatusBox()
         Task.detached {
             box.result = await CoreClient(base: URL(string: "http://127.0.0.1:1")!).status()

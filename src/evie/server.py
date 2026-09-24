@@ -10,6 +10,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Awaitable, Callable, Literal
 
 import numpy as np
@@ -469,8 +470,15 @@ def build_deps(s: Settings) -> Deps:
 
     mouth_link = MouthLink()
     out = RoutedOut(mouth_link, AppOut(mouth_link, voice.rate), SpeakerOut(voice.rate))
+    speech_log = Path.home() / "Library/Logs/Evie/speech.jsonl"
+
+    def trace(row: dict) -> None:  # when each line starts and ends: how overlaps get caught
+        speech_log.parent.mkdir(parents=True, exist_ok=True)
+        with speech_log.open("a") as f:
+            f.write(json.dumps({"src": "core"} | row) + "\n")
+
     mouth = Mouth(voice, out, on_say=on_say, clips=voice.prepare_clips(),
-                  on_quiet=on_quiet, on_audio=on_audio)
+                  on_quiet=on_quiet, on_audio=on_audio, trace=trace)
     brain = None
     narrator = Narrator(jev, talker, mouth, bus,
                         can_speak=lambda: not (brain and brain.scene().get("in_call", False)))
