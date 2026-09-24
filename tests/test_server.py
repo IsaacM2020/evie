@@ -368,3 +368,20 @@ def test_a_tap_on_a_which_one_row_goes_to_the_brain():
         assert c.post("/choose", json={"id": "m2"}).json() == {"ok": True}
         assert c.post("/choose", json={"id": ""}).status_code == 422
     assert d.brain.chose == "m2"
+
+
+def test_text_mode_toggle_through_settings():
+    from evie.quiet import Quiet
+    d = full_deps()
+    d.quiet = Quiet(d.calendar)
+    q = d.bus.subscribe()
+    with client(deps=d) as c:
+        out = c.post("/settings", json={"output": "text"}).json()
+        assert out["output"]["mode"] == "text" and out["output"]["setting"] == "text"
+        assert c.get("/settings").json()["output"]["mode"] == "text"
+        assert c.post("/settings", json={"output": "loud"}).status_code == 422
+        c.post("/settings", json={"output": "auto"})
+    kinds = []
+    while not q.empty():
+        kinds.append(q.get_nowait())
+    assert [e["mode"] for e in kinds if e["kind"] == "quiet"] == ["text", "voice"]

@@ -87,6 +87,8 @@ class OpenMic:
         self.stats: Counter = Counter()  # segments by speaker, echo drops: for tuning, never words
         self.recorder = None  # debug recorder (evie.recorder), off unless Isaac turns it on
         self._inflight: tuple[asyncio.Task, str, str, float] | None = None  # (turn, text, speaker, ended at)
+        self.paused: Callable[[], str | None] = lambda: None  # evie.quiet: the class that has the mic off
+        self._paused_for: str | None = None
 
     # -- the talk key owns its own turns --------------------------------------------------
     def ptt_start(self) -> None:
@@ -99,6 +101,15 @@ class OpenMic:
 
     # -- frames in ------------------------------------------------------------------------
     def feed(self, frame: np.ndarray) -> None:
+        why = self.paused()
+        if why != self._paused_for:
+            self._paused_for = why
+            self._bus.publish("mic_paused", why=why)
+        if why:
+            if self._seg.active:
+                self._seg.reset()
+                self._cancel_spec()
+            return
         if self.modes.mode == "off":
             if self._seg.active:
                 self._seg.reset()

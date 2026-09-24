@@ -111,6 +111,7 @@ class Deps:
     mouth_link: object | None = None  # the app's echo-cancelled speaker (/ws/mouth)
     close: Callable[[], Awaitable[None]] | None = None
     ui: dict = field(default_factory=lambda: {"show_work": True})  # settings the app sets (the orb's menu)
+    quiet: object | None = None  # evie.quiet: voice or text, from his calendar and his toggle
 
 
 async def keep_warm(pings: list[Callable[[], Awaitable[None]]], interval_s: float = 20.0) -> None:
@@ -262,16 +263,25 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
 
     class SettingsIn(BaseModel):
         show_work: bool | None = None
+        output: Literal["voice", "text", "auto"] | None = None  # text-only mode toggle
+
+    def settings_now() -> dict:
+        d: Deps = app.state.d
+        return dict(d.ui) | ({"output": d.quiet.state()} if d.quiet is not None else {})
 
     @app.get("/settings")
     async def settings_get() -> dict:
-        return dict(app.state.d.ui)
+        return settings_now()
 
     @app.post("/settings")
     async def settings_set(body: SettingsIn) -> dict:
+        d: Deps = app.state.d
         if body.show_work is not None:
-            app.state.d.ui["show_work"] = body.show_work
-        return dict(app.state.d.ui)
+            d.ui["show_work"] = body.show_work
+        if body.output is not None and d.quiet is not None:
+            d.quiet.set(body.output)
+            d.bus.publish("quiet", **d.quiet.state())
+        return settings_now()
 
     @app.post("/stop")
     async def stop_all() -> dict:
@@ -458,7 +468,8 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
 
 def build_deps(s: Settings) -> Deps:
     """The real thing: Jev, Groq, Pocket TTS, Whisper, Claude Code, all wired to one event bus."""
-    from evie.brain import Brain
+    from evie.brain import JOB_WINDOW_S, Brain
+    from evie.quiet import Quiet
     from evie.jobs import JobRunner
     from evie.facts import FactStore
     from evie.narrator import Narrator
@@ -510,9 +521,15 @@ def build_deps(s: Settings) -> Deps:
         with speech_log.open("a") as f:
             f.write(json.dumps({"src": "core"} | row) + "\n")
 
-    mouth = Mouth(voice, out, on_say=on_say, clips=voice.prepare_clips(),
-                  on_quiet=on_quiet, on_audio=on_audio, trace=trace)
     brain = None
+    quiet = Quiet(cal, in_call=lambda: bool(brain and brain.scene().get("in_call", False)))
+    text_now = lambda: quiet.mode() == "text"  # noqa: E731
+
+    def on_text(text: str, kind: str) -> None:  # text mode: the orb shows it, nothing is said
+        bus.publish("say", text=text, kind=kind, text_only=True)
+
+    mouth = Mouth(voice, out, on_say=on_say, clips=voice.prepare_clips(),
+                  on_quiet=on_quiet, on_audio=on_audio, trace=trace, text_only=text_now, on_text=on_text)
     narrator = Narrator(jev, talker, mouth, bus,
                         can_speak=lambda: not (brain and brain.scene().get("in_call", False)))
 
@@ -526,8 +543,11 @@ def build_deps(s: Settings) -> Deps:
     spotify = SpotifySearch(s.spotify_id, s.spotify_secret)
     timers = Timers(lambda t: mouth.say(done_line(t), kind="reply"))
     skills = Skills(hands, talker, jev, System(), spotify, timers, apps=installed_apps)
-    countdown = Countdown()  # deletes: 5 s to say stop
-    sends = Countdown(seconds=3.0)  # 3b sends and risky screen steps: their own window
+    # In text mode he can't say "stop" (class): windows are longer and the orb shows a Cancel bar.
+    show_window = lambda s: bus.publish("countdown", seconds=s)  # noqa: E731
+    countdown = Countdown(text_s=lambda: 7.0 if text_now() else 0.0, on_start=show_window)  # deletes: 5 s
+    sends = Countdown(seconds=3.0, text_s=lambda: 6.0 if text_now() else 0.0,
+                      on_start=show_window)  # 3b sends and risky screen steps: their own window
     ui = {"show_work": True}
     conversation = Conversation()
     skills.events = EventSkills(hands, talker, jev, cal, skills, countdown, conversation=conversation)
@@ -543,8 +563,20 @@ def build_deps(s: Settings) -> Deps:
     computer = Recipes(hands, jev, talker, planner, messages=messages)
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember,
                   countdown=Countdowns(countdown, sends), conversation=conversation, packs=packs, computer=computer)
+    brain._job_countdown = Countdown(seconds=JOB_WINDOW_S, text_s=lambda: 5.0 if text_now() else 0.0,
+                                     on_start=show_window)
     stt = Transcriber(s, backend=s.stt_backend)
     open_mic, voiceid = build_ears(stt, brain, mouth, bus)
+    if open_mic is not None:
+        open_mic.paused = quiet.mic_paused  # no open mic in class
+    seen_quiet: dict = {}
+
+    async def watch_quiet() -> None:  # a class starting or ending flips the mode: tell the orb
+        now = quiet.state()
+        if now != seen_quiet:
+            seen_quiet.clear()
+            seen_quiet.update(now)
+            bus.publish("quiet", **now)
 
     async def warm() -> dict:
         t0 = time.perf_counter()
@@ -566,9 +598,8 @@ def build_deps(s: Settings) -> Deps:
         await stt.aclose()
 
     return Deps(sb=sb, calendar=cal, bus=bus, brain=brain, mouth=mouth, stt=stt, runner=runner,
-                warm=warm, close=close, pings=[jev.warm, groq.warm, stt.warm, unload_idle], open_mic=open_mic,
-                voiceid=voiceid,
-                hands=hands, mouth_link=mouth_link, ui=ui)
+                warm=warm, close=close, pings=[jev.warm, groq.warm, stt.warm, unload_idle, watch_quiet],
+                open_mic=open_mic, voiceid=voiceid, hands=hands, mouth_link=mouth_link, ui=ui, quiet=quiet)
 
 
 def build_ears(stt, brain, mouth, bus):

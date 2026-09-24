@@ -144,8 +144,12 @@ class Mouth:
     def __init__(self, voice, out: Out, clock: Callable[[], float] = time.monotonic,
                  on_say: Callable[[str], None] | None = None, clips: dict[str, np.ndarray] | None = None,
                  on_quiet: Callable[[], None] | None = None, on_audio: Callable[[str], None] | None = None,
-                 trace: Callable[[dict], None] | None = None):
+                 trace: Callable[[dict], None] | None = None, text_only: Callable[[], bool] = lambda: False,
+                 on_text: Callable[[str, str], None] | None = None):
         self._voice, self._out, self._clock = voice, out, clock
+        # Text mode (evie.quiet): the ONE gate every line passes, replies, read-backs, narration,
+        # countdown lines and clips alike. In text mode nothing is synthesised; the words go to the orb.
+        self._text_only, self._on_text = text_only, on_text
         self._trace = trace  # speech.jsonl: when each line started and ended (overlap hunting)
         self._on_say, self._on_quiet, self._on_audio = on_say, on_quiet, on_audio
         self._clips = clips or {}
@@ -165,6 +169,11 @@ class Mouth:
     def say(self, text: str, kind: Literal["reply", "narration"] = "reply", ttl_s: float | None = None,
             clip: np.ndarray | None = None) -> None:
         line = _Line(text, kind, self._clock(), ttl_s, clip, TURN.get())
+        if self._text_only():
+            self._log("text", line)
+            if self._on_text:
+                self._on_text(text, kind)
+            return
         if kind == "reply":
             idx = next((i for i, q in enumerate(self._queue) if q.kind == "narration"), len(self._queue))
             self._queue.insert(idx, line)

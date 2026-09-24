@@ -11,8 +11,12 @@ log = logging.getLogger("evie.countdown")
 
 
 class Countdown:
-    def __init__(self, seconds: float = 5.0):
+    def __init__(self, seconds: float = 5.0, text_s: Callable[[], float] = lambda: 0.0,
+                 on_start: Callable[[float], None] | None = None):
+        """text_s: in text mode he has to read the line and tap Cancel, so the window is at least this
+        long. on_start: the orb shows the window as a bar with Cancel."""
         self.seconds = seconds
+        self._text_s, self._on_start = text_s, on_start
         self._task: asyncio.Task | None = None
 
     @property
@@ -21,7 +25,9 @@ class Countdown:
 
     def start(self, action: Callable[[], Awaitable[None]], seconds: float | None = None) -> None:
         self.cancel()
-        wait = self.seconds if seconds is None else seconds
+        wait = max(self.seconds if seconds is None else seconds, self._text_s())
+        if self._on_start:
+            self._on_start(wait)
 
         async def run() -> None:
             await asyncio.sleep(wait)
