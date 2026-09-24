@@ -44,10 +44,14 @@ class Screen:
                 bits.append(f"({e['region']})")
             if e.get("enabled") is False:
                 bits.append("[disabled]")
+            if e.get("selected"):
+                bits.append("[selected]")
             if e.get("onscreen") is False:
                 bits.append("[off screen]")
             if e.get("href"):
                 u = urlparse(e["href"])
                 bits.append(f"-> {u.netloc}{u.path}"[:70])
+            if e.get("meta"):
+                bits.append(f"· {e['meta'][:80]}")
             lines.append(" ".join(bits))
         return "\n".join(head + lines)

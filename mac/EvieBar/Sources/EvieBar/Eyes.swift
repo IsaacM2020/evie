@@ -73,13 +73,18 @@ enum KeyMap {
 
 enum WebReader {
     // Lists every visible element a person could click or type into, on-screen ones first.
+    // Reader v2 (Phase 3c): each element also carries its card's details (a video's channel and
+    // age, an article's teaser) so "the newest one" can be picked from one read; duplicate links
+    // (thumbnail + title to the same place) are listed once; selected tabs are marked.
     static let read = #"""
     (() => {
       const sel = 'a[href],button,input:not([type=hidden]),textarea,select,summary,video,[role=button],[role=link],[role=tab],[role=menuitem],[role=checkbox],[role=option],[role=switch],[role=searchbox],[role=textbox],[role=combobox],[contenteditable=""],[contenteditable=true],[tabindex]:not([tabindex="-1"])';
+      const cardSel = 'ytd-rich-item-renderer,ytd-video-renderer,ytd-grid-video-renderer,ytd-compact-video-renderer,ytd-playlist-video-renderer,ytd-channel-renderer,article,li,[role=listitem],[role=article]';
       document.querySelectorAll('[data-evie-id]').forEach(e => e.removeAttribute('data-evie-id'));
-      const vw = innerWidth, vh = innerHeight, found = [];
+      const vw = innerWidth, vh = innerHeight, found = [], seen = new Set(), cards = new Map();
+      const clean = t => (t || '').replace(/\s+/g, ' ').trim();
       for (const el of document.querySelectorAll(sel)) {
-        if (found.length >= 800) break;
+        if (found.length >= 900) break;
         const r = el.getBoundingClientRect();
         if (r.width < 2 || r.height < 2) continue;
         const st = getComputedStyle(el);
@@ -87,24 +92,58 @@ enum WebReader {
         const tag = el.tagName.toLowerCase();
         const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'input' ? 'input:' + (el.type || 'text') : tag);
         const typeable = tag === 'input' || tag === 'textarea' || el.isContentEditable || /textbox|searchbox|combobox/.test(role);
-        let label = (el.getAttribute('aria-label') || el.getAttribute('title') || el.innerText || el.getAttribute('alt') || '').trim();
+        let label = clean(el.getAttribute('aria-label') || el.getAttribute('title') || el.innerText || el.getAttribute('alt') || '');
         if (!label && typeable) label = el.getAttribute('placeholder') || el.name || '';
         if (!label && tag === 'video') label = 'video';
-        if (!label && tag === 'a') { const img = el.querySelector('img[alt]'); if (img) label = img.alt; }
-        label = label.replace(/\s+/g, ' ').slice(0, 100);
+        if (!label && tag === 'a') { const img = el.querySelector('img[alt]'); if (img) label = clean(img.alt); }
+        label = label.slice(0, 100);
         if (!label && !typeable) continue;
+        const href = el.href ? String(el.href).slice(0, 160) : '';
+        const key = href ? href + '|' + label : '';
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
         const onscreen = r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
         const region = (el.closest('header,nav,main,aside,footer,form,[role=dialog],[role=navigation],[role=main],[role=search]') || {}).tagName;
-        found.push({el, role, label, onscreen, typeable, region: region ? region.toLowerCase() : '',
-                    href: el.href ? String(el.href).slice(0, 160) : '', value: typeable && el.value ? String(el.value).slice(0, 80) : ''});
+        const card = el.closest(cardSel);
+        let meta = '', group = '';
+        if (card) {
+          if (!cards.has(card)) {
+            const m = card.querySelector('#metadata-line,#metadata,ytd-channel-name,time,.metadata,[class*=meta]');
+            let t = clean(m ? m.innerText : card.innerText);
+            cards.set(card, {n: cards.size + 1, meta: t.slice(0, 120)});
+          }
+          const c = cards.get(card);
+          group = 'c' + c.n;
+          meta = c.meta.replace(label, '').trim().slice(0, 90);
+        }
+        const selected = el.getAttribute('aria-selected') === 'true' || el.getAttribute('aria-current') === 'page' || el.getAttribute('aria-expanded') === 'true';
+        found.push({el, role, label, onscreen, typeable, region: region ? region.toLowerCase() : '', href, meta, group, selected,
+                    value: typeable && el.value ? String(el.value).slice(0, 80) : ''});
       }
       found.sort((a, b) => (b.onscreen - a.onscreen));
-      const out = found.slice(0, 250).map((f, i) => {
+      const out = found.slice(0, 300).map((f, i) => {
         const id = 'w' + (i + 1);
         f.el.setAttribute('data-evie-id', id);
-        return {id, role: f.role, label: f.label, href: f.href, value: f.value, onscreen: f.onscreen, region: f.region, typeable: f.typeable};
+        const o = {id, role: f.role, label: f.label, href: f.href, value: f.value, onscreen: f.onscreen, region: f.region, typeable: f.typeable};
+        if (f.meta) o.meta = f.meta;
+        if (f.group) o.group = f.group;
+        if (f.selected) o.selected = true;
+        return o;
       });
       return JSON.stringify({url: location.href, title: document.title, elements: out});
+    })()
+    """#
+
+    // wait_page v2: is the page loaded AND has it stopped changing? Single-page sites (YouTube)
+    // never reload, so "loaded" alone says nothing; 300 ms without DOM changes does.
+    static let probe = #"""
+    (() => {
+      if (!window.__evieMO) {
+        window.__evieLast = Date.now();
+        window.__evieMO = new MutationObserver(() => { window.__evieLast = Date.now(); });
+        window.__evieMO.observe(document, {subtree: true, childList: true});
+      }
+      return JSON.stringify({ready: document.readyState, url: location.href, quiet: Date.now() - window.__evieLast});
     })()
     """#
 
@@ -153,6 +192,60 @@ enum WebReader {
     }
 }
 
+enum PageSettle {
+    static func done(ready: String, url: String, before: String, quietMs: Double) -> Bool {
+        ready == "complete" && (before.isEmpty || url != before) && quietMs >= 300
+    }
+}
+
+// MARK: AppleScript, in-process
+
+/// Runs AppleScript inside the app (NSAppleScript) on one serial queue: no `osascript` process per
+/// call (~100 ms each before, 2026-09-24). Every script is wrapped in a timeout, and the caller
+/// stops waiting after `timeout` + 1 s, so a Safari permission prompt can never hang Evie.
+enum AppleRun {
+    private static let q = DispatchQueue(label: "evie.applescript", qos: .userInitiated)
+
+    /// An AppleScript string literal: anything (page text, a message) is safe inside it.
+    static func quote(_ s: String) -> String {
+        "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    }
+
+    final class Once: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done = false
+        func claim() -> Bool { lock.lock(); defer { lock.unlock() }; if done { return false }; done = true; return true }
+    }
+
+    static func run(_ source: String, timeout: Double = 6) async -> (ok: Bool, out: String) {
+        let wrapped = "with timeout of \(Int(timeout)) seconds\n\(source)\nend timeout"
+        return await withCheckedContinuation { cont in
+            let once = Once()
+            q.async {
+                var err: NSDictionary?
+                let r = NSAppleScript(source: wrapped)?.executeAndReturnError(&err)
+                guard once.claim() else { return }
+                if let e = err {
+                    cont.resume(returning: (false, (e[NSAppleScript.errorMessage] as? String) ?? "AppleScript error"))
+                } else {
+                    cont.resume(returning: (true, r?.stringValue ?? ""))
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout + 1) {
+                if once.claim() { cont.resume(returning: (false, "Safari didn't answer (is Evie allowed to control it?)")) }
+            }
+        }
+    }
+}
+
+/// Which Safari tab a page op goes to: one Evie opened or chose, never just "whatever's in front".
+struct WebTab: Equatable {
+    let window: Int
+    let index: Int
+
+    var ref: String { "tab \(index) of window id \(window)" }
+}
+
 // MARK: Eyes + fingers
 
 @MainActor
@@ -161,6 +254,7 @@ final class Eyes {
     private var axElements: [String: AXUIElement] = [:]
     private var webApp = ""  // the browser the w-ids belong to
     private var pid: pid_t = 0
+    private var webTab: WebTab?  // the tab page ops go to (set by open_url / use_tab)
 
     static let browsers = ["com.apple.Safari": "Safari"]
 
@@ -176,11 +270,14 @@ final class Eyes {
                                  snap: a["snapshot"]?.string ?? "")
         case "key": return key(a["combo"]?.string ?? "", app: a["app"]?.string)
         case "type": return typeText(a["text"]?.string ?? "", app: a["app"]?.string)
-        case "open_url": return openURL(a["url"]?.string ?? "", app: a["app"]?.string, front: a["front"]?.bool ?? false)
+        case "open_url": return await openURL(a["url"]?.string ?? "", app: a["app"]?.string, front: a["front"]?.bool ?? false,
+                                              newTab: a["new_tab"]?.bool ?? true, window: a["window"]?.int)
+        case "use_tab": return await useTab(window: a["window"]?.int ?? 0, index: a["index"]?.int ?? 1, front: a["front"]?.bool ?? false)
+        case "world": return await world()
         case "menu": return menu(a["path"]?.string ?? "", app: a["app"]?.string)
         case "activate": return activate(a["app"]?.string ?? "")
         case "screen_info": return await screenInfo(withPage: a["page"]?.bool ?? false)
-        case "wait_page": return await waitPage(a["app"]?.string ?? "Safari", seconds: 8)
+        case "wait_page": return await waitPage(from: a["from_url"]?.string ?? "", seconds: 8)
         default: return HandsOutcome(ok: false, detail: "I don't know how to \(op) yet")
         }
     }
@@ -204,7 +301,7 @@ final class Eyes {
         webApp = ""
         pid = target.processIdentifier
         if let browser = Self.browsers[target.bundleIdentifier ?? ""] {
-            let r = await Self.safariJS(WebReader.read)
+            let r = await safariJS(WebReader.read)
             if r.ok, let obj = try? JSONSerialization.jsonObject(with: Data(r.out.utf8)) as? [String: Any] {
                 webApp = browser
                 let els = (obj["elements"] as? [[String: Any]]) ?? []
@@ -259,7 +356,7 @@ final class Eyes {
     private func press(_ id: String, snap: String) async -> HandsOutcome {
         guard snap == snapshot else { return HandsOutcome(ok: false, detail: "the screen changed, look again") }
         if id.hasPrefix("w"), !webApp.isEmpty {
-            let r = await Self.safariJS(WebReader.click(id))
+            let r = await safariJS(WebReader.click(id))
             return r.ok && r.out.contains("ok") ? HandsOutcome(ok: true, detail: "pressed") : HandsOutcome(ok: false, detail: "that button's gone")
         }
         guard let el = axElements[id] else { return HandsOutcome(ok: false, detail: "no such element") }
@@ -282,7 +379,7 @@ final class Eyes {
     private func setText(_ id: String, _ text: String, submit: Bool, snap: String) async -> HandsOutcome {
         guard snap == snapshot else { return HandsOutcome(ok: false, detail: "the screen changed, look again") }
         if id.hasPrefix("w"), !webApp.isEmpty {
-            let r = await Self.safariJS(WebReader.setText(id, text, submit: submit))
+            let r = await safariJS(WebReader.setText(id, text, submit: submit))
             return r.ok && r.out.contains("ok") ? HandsOutcome(ok: true, detail: "typed") : HandsOutcome(ok: false, detail: "that field's gone")
         }
         guard let el = axElements[id] else { return HandsOutcome(ok: false, detail: "no such element") }
@@ -330,18 +427,126 @@ final class Eyes {
         return HandsOutcome(ok: true, detail: "typed")
     }
 
-    private func openURL(_ s: String, app name: String?, front: Bool) -> HandsOutcome {
+    private func openURL(_ s: String, app name: String?, front: Bool, newTab: Bool, window: Int?) async -> HandsOutcome {
         guard let url = URL(string: s), ["http", "https", "whatsapp", "mailto", "spotify", "notion"].contains(url.scheme ?? "") else {
             return HandsOutcome(ok: false, detail: "that link isn't safe to open")
         }
+        let web = url.scheme == "http" || url.scheme == "https"
+        if web, (name ?? "Safari").lowercased() == "safari" {
+            // A new tab in the window Evie was pointed at (or Safari's front window), and remember
+            // it: every read and click after this goes to THIS tab, whatever else is in front.
+            let u = AppleRun.quote(url.absoluteString)
+            let win = window.map { "window id \($0)" } ?? "front window"
+            let script = """
+            tell application "Safari"
+              if (count of windows) = 0 then
+                make new document with properties {URL:\(u)}
+                set w to front window
+              else
+                set w to \(win)
+                if \(newTab) then
+                  tell w to set current tab to (make new tab at end of tabs with properties {URL:\(u)})
+                else
+                  set URL of current tab of w to \(u)
+                end if
+              end if
+              \(front ? "set index of w to 1\nactivate" : "")
+              return ((id of w) as text) & "," & ((index of current tab of w) as text)
+            end tell
+            """
+            let r = await AppleRun.run(script)
+            let parts = r.out.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            guard r.ok, parts.count == 2 else { return HandsOutcome(ok: false, detail: "Safari: \(r.out)") }
+            webTab = WebTab(window: parts[0], index: parts[1])
+            return HandsOutcome(ok: true, detail: "opened", data: ["window": "\(parts[0])", "index": "\(parts[1])"])
+        }
         let cfg = NSWorkspace.OpenConfiguration()
-        cfg.activates = front  // background first: don't pull Isaac out of what he's doing
+        cfg.activates = front
         if let n = name, let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.bundle(for: n)) {
-            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: cfg)
+            _ = try? await NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: cfg)
         } else {
-            NSWorkspace.shared.open(url, configuration: cfg)
+            _ = try? await NSWorkspace.shared.open(url, configuration: cfg)
         }
         return HandsOutcome(ok: true, detail: "opened")
+    }
+
+    /// Point Evie at one of Isaac's tabs ("this page", "my gmail"), bringing it up if asked.
+    private func useTab(window: Int, index: Int, front: Bool) async -> HandsOutcome {
+        let t = WebTab(window: window, index: index)
+        let script = """
+        tell application "Safari"
+          set w to window id \(window)
+          set current tab of w to tab \(index) of w
+          \(front ? "set index of w to 1\nactivate" : "")
+          return URL of tab \(index) of w
+        end tell
+        """
+        let r = await AppleRun.run(script)
+        guard r.ok else { return HandsOutcome(ok: false, detail: "that tab's gone") }
+        webTab = t
+        return HandsOutcome(ok: true, detail: "using that tab", data: ["url": r.out])
+    }
+
+    /// Everything on screen in one go: the app in front, running apps, windows front to back,
+    /// every Safari tab, and selected text.
+    private func world() async -> HandsOutcome {
+        let front = NSWorkspace.shared.frontmostApplication
+        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+            .compactMap(\.localizedName)
+        var windows: [[String: Any]] = []
+        let list = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]]) ?? []
+        var titles: [pid_t: [String]] = [:]
+        for w in list where (w[kCGWindowLayer as String] as? Int) == 0 {
+            guard let owner = w[kCGWindowOwnerName as String] as? String, owner != "Evie", owner != "EvieBar",
+                  let pid = w[kCGWindowOwnerPID as String] as? pid_t else { continue }
+            if titles[pid] == nil {  // window titles come from Accessibility (no Screen Recording needed)
+                let root = AXUIElementCreateApplication(pid)
+                let ws: [AXUIElement] = Self.attr(root, kAXWindowsAttribute) ?? []
+                titles[pid] = ws.prefix(6).map { (Self.attr($0, kAXTitleAttribute) as String?) ?? "" }
+            }
+            let seenForApp = windows.filter { ($0["app"] as? String) == owner }.count
+            let title = (titles[pid] ?? []).dropFirst(seenForApp).first ?? ""
+            windows.append(["app": owner, "title": title])
+            if windows.count >= 15 { break }
+        }
+        var tabs: [[String: Any]] = []
+        if apps.contains("Safari") {
+            let script = """
+            tell application "Safari"
+              set out to ""
+              set n to 0
+              repeat with w in windows
+                set n to n + 1
+                set ci to index of current tab of w
+                repeat with t in tabs of w
+                  set out to out & (id of w) & tab & n & tab & (index of t) & tab & (ci = (index of t)) & tab & (name of t) & tab & (URL of t) & linefeed
+                end repeat
+              end repeat
+              return out
+            end tell
+            """
+            let r = await AppleRun.run(script, timeout: 3)
+            if r.ok {
+                for line in r.out.split(separator: "\n") {
+                    let f = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                    guard f.count >= 6, let w = Int(f[0]), let o = Int(f[1]), let i = Int(f[2]) else { continue }
+                    tabs.append(["window": w, "order": o, "index": i, "current": f[3] == "true", "title": f[4], "url": f[5]])
+                }
+            }
+        }
+        var selected = ""
+        if let f = front {
+            let root = AXUIElementCreateApplication(f.processIdentifier)
+            if let focused: AXUIElement = Self.attr(root, kAXFocusedUIElementAttribute),
+               let sel: String = Self.attr(focused, kAXSelectedTextAttribute) {
+                selected = String(sel.prefix(2000))
+            }
+        }
+        let body: [String: Any] = ["front_app": front?.localizedName ?? "", "apps": apps, "windows": windows,
+                                   "tabs": tabs, "selected": selected]
+        let json = (try? JSONSerialization.data(withJSONObject: body)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return HandsOutcome(ok: true, detail: "\(windows.count) windows, \(tabs.count) tabs", data: ["world": json])
     }
 
     private static func bundle(for name: String) -> String {
@@ -395,7 +600,7 @@ final class Eyes {
             data["selected"] = String(sel.prefix(2000))
         }
         if front.bundleIdentifier == "com.apple.Safari" {
-            let r = await Self.safariJS(withPage ? WebReader.pageText : "JSON.stringify({url: location.href, title: document.title, selected: String(getSelection()||'').slice(0,2000)})")
+            let r = await safariJS(withPage ? WebReader.pageText : "JSON.stringify({url: location.href, title: document.title, selected: String(getSelection()||'').slice(0,2000)})")
             if r.ok, let obj = try? JSONSerialization.jsonObject(with: Data(r.out.utf8)) as? [String: Any] {
                 data["url"] = obj["url"] as? String ?? ""
                 if let t = obj["text"] as? String { data["page_text"] = t }
@@ -405,13 +610,18 @@ final class Eyes {
         return HandsOutcome(ok: true, detail: "ok", data: data)
     }
 
-    private func waitPage(_ name: String, seconds: Double) async -> HandsOutcome {
+    /// Loaded, on the new address (when one was given), and 300 ms without the page changing.
+    private func waitPage(from before: String, seconds: Double) async -> HandsOutcome {
         let end = Date().addingTimeInterval(seconds)
-        try? await Task.sleep(for: .milliseconds(400))  // let the new page start loading
+        try? await Task.sleep(for: .milliseconds(150))
         while Date() < end {
-            let r = await Self.safariJS(WebReader.ready)
-            if r.ok, r.out.contains("complete") { return HandsOutcome(ok: true, detail: "loaded") }
-            try? await Task.sleep(for: .milliseconds(250))
+            let r = await safariJS(WebReader.probe)
+            if r.ok, let o = try? JSONSerialization.jsonObject(with: Data(r.out.utf8)) as? [String: Any],
+               PageSettle.done(ready: o["ready"] as? String ?? "", url: o["url"] as? String ?? "", before: before,
+                               quietMs: (o["quiet"] as? Double) ?? 0) {
+                return HandsOutcome(ok: true, detail: "loaded", data: ["url": o["url"] as? String ?? ""])
+            }
+            try? await Task.sleep(for: .milliseconds(120))
         }
         return HandsOutcome(ok: false, detail: "the page is taking too long")
     }
@@ -433,27 +643,14 @@ final class Eyes {
         return (Double(s.width), Double(s.height))
     }
 
-    /// Runs a page script in Safari's front tab. The script travels as an argument, never pasted
-    /// into AppleScript source, so nothing on a page can break out of it.
-    nonisolated static func safariJS(_ js: String) async -> (ok: Bool, out: String) {
-        await withCheckedContinuation { cont in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let p = Process()
-                p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-                p.arguments = ["-e", "on run argv", "-e",
-                               "tell application \"Safari\" to do JavaScript (item 1 of argv) in current tab of front window",
-                               "-e", "end run", js]
-                let out = Pipe(), err = Pipe()
-                p.standardOutput = out
-                p.standardError = err
-                do { try p.run() } catch { cont.resume(returning: (false, "\(error)")); return }
-                // Never hang on a page (or on macOS still waiting for "allow Evie to control Safari").
-                DispatchQueue.global().asyncAfter(deadline: .now() + 6) { if p.isRunning { p.terminate() } }
-                p.waitUntilExit()
-                let o = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                let e = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                cont.resume(returning: (p.terminationStatus == 0, p.terminationStatus == 0 ? o.trimmingCharacters(in: .whitespacesAndNewlines) : e))
-            }
+    /// Runs a page script in Evie's tab (or Safari's front tab if she hasn't picked one).
+    func safariJS(_ js: String) async -> (ok: Bool, out: String) {
+        let target = webTab?.ref ?? "current tab of front window"
+        let r = await AppleRun.run("tell application \"Safari\" to do JavaScript \(AppleRun.quote(js)) in \(target)")
+        if !r.ok, webTab != nil, r.out.contains("Invalid index") || r.out.contains("Can’t get") {
+            webTab = nil  // the tab was closed: fall back to the front tab
+            return await AppleRun.run("tell application \"Safari\" to do JavaScript \(AppleRun.quote(js)) in current tab of front window")
         }
+        return r
     }
 }

@@ -77,7 +77,7 @@ class EnrollIn(BaseModel):
     on: bool
 
 
-DEBUG_OPS = {"observe", "screen_info", "wait_page", "calendar_query", "spotify_state"}
+DEBUG_OPS = {"observe", "screen_info", "wait_page", "calendar_query", "spotify_state", "world"}
 
 
 class DoIn(BaseModel):

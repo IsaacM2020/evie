@@ -156,6 +156,14 @@ enum SelfTest {
         let w = WAV.encode([1, -1, 300], rate: 16000)
         check(w.count == 44 + 6 && String(data: w.prefix(4), encoding: .ascii) == "RIFF"
               && w[24] == 0x80 && w[25] == 0x3E && w[34] == 16, "talk key: 16 kHz 16-bit mono WAV")
+        check(AppleRun.quote(#"say "hi" \ bye"#) == #""say \"hi\" \\ bye""#,
+              "safari: page scripts and messages can't break out of the AppleScript string")
+        check(!PageSettle.done(ready: "complete", url: "https://y.com/a", before: "https://y.com/a", quietMs: 900)
+              && !PageSettle.done(ready: "complete", url: "https://y.com/b", before: "https://y.com/a", quietMs: 100)
+              && PageSettle.done(ready: "complete", url: "https://y.com/b", before: "https://y.com/a", quietMs: 350)
+              && PageSettle.done(ready: "complete", url: "https://y.com/a", before: "", quietMs: 300),
+              "safari: a page is ready when it's loaded, on the new address and quiet for 300 ms")
+        check(WebTab(window: 42, index: 3).ref == "tab 3 of window id 42", "safari: page ops go to Evie's own tab")
         // Orb: momentum snapping, spring motion, layout, and the crash that made the app "quit".
         let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let flick = OrbSnap.rest(center: CGPoint(x: 600, y: 450), velocity: CGVector(dx: 1500, dy: 0), in: screen)

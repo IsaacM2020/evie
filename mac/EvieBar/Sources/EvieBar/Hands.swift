@@ -17,6 +17,7 @@ enum JSONValue: Decodable, Equatable {
 
     var string: String? { if case .string(let s) = self { return s } else { return nil } }
     var bool: Bool? { if case .bool(let b) = self { return b } else { return nil } }
+    var int: Int? { if case .number(let n) = self { return Int(n) } else { return nil } }
 }
 
 // Every command runs at most once, and never after it expired (an app that reconnects, or a
@@ -51,7 +52,7 @@ final class Hands {
     private let store = EKEventStore()
     private let eyes = Eyes()
     static let eyeOps: Set<String> = ["observe", "press", "set_text", "key", "type", "open_url", "menu", "activate",
-                                      "screen_info", "wait_page"]
+                                      "screen_info", "wait_page", "world", "use_tab"]
 
     func run(_ ev: CoreEvent) async -> HandsOutcome? {
         guard let id = ev.id, let op = ev.op,

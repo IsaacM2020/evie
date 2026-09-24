@@ -168,3 +168,12 @@ async def test_no_recipe_goes_to_the_planner():
 
     r = await Recipes(FakeHands(), FakeJev("none"), FakeTalker({"app": "Notes"}), planner=P()).run("make a new note")
     assert r.said == "planned: make a new note in Notes"
+
+
+def test_compact_screen_shows_card_details_and_selected_tabs():
+    els = [{"id": "w1", "role": "tab", "label": "Videos", "selected": True, "region": "main"},
+           {"id": "w2", "role": "link", "label": "I hacked my own network", "href": "https://www.youtube.com/watch?v=n1",
+            "meta": "412K views 2 days ago", "group": "c1", "region": "main"}]
+    text = Screen.from_data(obs(els).data).compact()
+    assert 'w1 tab "Videos" (main) [selected]' in text
+    assert "412K views 2 days ago" in text
