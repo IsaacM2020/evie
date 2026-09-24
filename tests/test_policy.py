@@ -116,3 +116,14 @@ def test_named_by_isaac_acts_on_a_lukewarm_for_evie():
 def test_named_but_clearly_about_her_is_still_ignored():
     d = D(for_evie=0.15, route="not_for_evie", conf=0.9)
     assert decide(d, "isaac", named=True).action == Action.IGNORE
+
+
+def test_after_his_answer_she_never_asks_again_even_when_the_route_is_unclear():
+    # 2026-09-24 18:26:52-18:27:06: "Message anyone" -> "Anyone." -> "Do you want a simple hi or a
+    # list?" -> "Play, pause, or both?". One question per request: after his answer she goes with
+    # her best guess.
+    unclear = Dp(0.8, {"quick_action": 0.4, "deep_job": 0.35, "answer": 0.25})
+    v = decide(unclear, "isaac", addressed=True, answered=True)
+    assert v.action is Action.ACT and v.reason == "quick_action"
+    v = decide(Dp(0.8, {"not_for_evie": 1.0}), "isaac", addressed=True, answered=True)
+    assert v.action is Action.ACT and v.reason == "answer"  # nothing to go on: she answers, never asks

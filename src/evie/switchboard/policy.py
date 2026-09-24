@@ -75,9 +75,10 @@ def _addressed(d: Decision, t: Thresholds, followup: bool, answered: bool = Fals
     probs = {r: p for r, p in d.route_probs.items() if r != "not_for_evie"}
     total = sum(probs.values())
     if not probs or total <= 0:
-        return Verdict(Action.CLARIFY, "unsure what you meant", followup)
+        # answered: she already asked once, so no second question (2026-09-24 "Play, pause, or both?")
+        return Verdict(Action.ACT, "answer", followup) if answered else Verdict(Action.CLARIFY, "unsure what you meant", followup)
     route = max(probs, key=probs.get)
-    if probs[route] / total < t.route_conf_min:
+    if probs[route] / total < t.route_conf_min and not answered:
         return Verdict(Action.CLARIFY, "unsure what you meant", followup)
     if route in NEEDS_DETAIL and d.complete < t.incomplete_below and not answered:
         return Verdict(Action.CLARIFY, "missing detail", followup)

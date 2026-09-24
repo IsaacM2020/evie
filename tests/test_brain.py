@@ -1137,3 +1137,14 @@ async def test_the_stop_button_also_cancels_a_job_waiting_to_start():
     out = await b.stop_all()
     await asyncio.sleep(0.35)
     assert p["runner"].started == [] and "job_start" in out["stopped"]
+
+
+async def test_after_his_answer_a_job_starts_instead_of_a_second_question():
+    """One question per request (2026-09-24 18:26: four questions in a row). Her read-back is still
+    unsure after he answered: she goes with her best guess."""
+    b, p = job_brain(ReadbackTalker(unsure=True, question="Your iGEM wiki or your own website?"))
+    await b._turn("check how my website is doing. Evie asked \"Which one?\", Isaac answered \"the iGEM one\".",
+                  "isaac", addressed=True, answered=True)
+    await asyncio.sleep(0.1)
+    assert p["runner"].started and "?" not in p["mouth"].said[-1]
+    assert b._pending is None

@@ -37,6 +37,9 @@ FOLLOWUP_S = 10.0
 JOB_WINDOW_S = 3.0  # read back a job, then start it this long after unless he says stop
 STT_SURE = 0.5  # Whisper confidence below this: ask before starting anything long
 STT_CONF: contextvars.ContextVar[float] = contextvars.ContextVar("evie_stt_conf", default=1.0)
+# He already answered one question of hers for this request: nothing downstream (job read-back,
+# screen work, remember) may ask another; each goes with its best guess (2026-09-24 18:26, four in a row).
+ANSWERED: contextvars.ContextVar[bool] = contextvars.ContextVar("evie_answered", default=False)
 MULTI_AT = 0.7  # Jev's multi_request: this sure it's two separate requests
 SPLIT_Q = ('Isaac asked for several separate things in one sentence. Return {"parts": [each request as its own '
            'complete sentence, in the order he said them]}. Keep his words; fill in what "it" or "that" means.')
@@ -484,7 +487,11 @@ class Brain:
             resolving.cancel()
             resolving = None
         act_text = await self._resolved(resolving, text)
-        said = await self._act(o.verdict, route, text, draft, speaker, o.decision, addressed, act_text=act_text)
+        tok = ANSWERED.set(answered)
+        try:
+            said = await self._act(o.verdict, route, text, draft, speaker, o.decision, addressed, act_text=act_text)
+        finally:
+            ANSWERED.reset(tok)
         t_said = time.perf_counter()
         if speaker != "other":
             now = self._clock()
@@ -605,6 +612,8 @@ class Brain:
         except Exception:
             log.exception("remember failed")
             return self._say("Couldn't save that, try again.")
+        if r.ask and ANSWERED.get():  # asked once already: say what's missing instead of asking again
+            return self._say(f"I still don't have that, so I didn't save it. {r.ask.rstrip('?')} was missing.")
         if r.ask:  # e.g. "What time?": his next sentence is merged in and this runs again
             self._pending = Pending("detail", text, speaker, self._clock(), asked=r.ask)
             return self._say(r.ask)
@@ -653,6 +662,8 @@ class Brain:
             self._pending = Pending("pick", goal, "isaac", self._clock(), asked=out.said, data=out.pick)
             self._bus.publish("options", asked=out.said, options=out.options)
             self._say(out.said)
+        elif out.ask and ANSWERED.get():  # asked once already: no second question
+            self._say("I still couldn't work out which one you meant, so I stopped there.")
         elif out.ask:
             self._pending = Pending("detail", goal, "isaac", self._clock(), asked=out.said)
             self._say(out.said)
@@ -676,6 +687,7 @@ class Brain:
             return self._say(f"I'm on {running.goal}. I'll do this right after.")
         rb = await self._talker.readback(goal) if hasattr(self._talker, "readback") else {}
         unsure = STT_CONF.get() < STT_SURE or bool(rb.get("unsure")) or (decision is not None and decision.complete < 0.3)
+        unsure = unsure and not ANSWERED.get()
         if unsure:
             q = rb.get("question") or f'Just checking, you want me to {goal.rstrip(".?!")}?'
             self._pending = Pending("detail", text, "isaac", self._clock(), asked=q)
