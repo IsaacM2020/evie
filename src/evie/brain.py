@@ -33,7 +33,7 @@ TURNS_LOG = Path.home() / "Library/Logs/Evie/turns.jsonl"
 MAX_TURNS = 3
 PENDING_S = 15.0  # how long Evie waits for the answer to a question she asked
 PICK_S = 120.0  # a "Which one?" list stays on screen (and answerable) this long
-FOLLOWUP_S = 10.0
+FOLLOWUP_S = 12.0  # counted from when she STOPS talking (2026-09-24 18:22: a 6 s line ate the window)
 JOB_WINDOW_S = 3.0  # read back a job, then start it this long after unless he says stop
 STT_SURE = 0.5  # Whisper confidence below this: ask before starting anything long
 STT_CONF: contextvars.ContextVar[float] = contextvars.ContextVar("evie_stt_conf", default=1.0)
@@ -67,7 +67,10 @@ _WAKE = re.compile(r"^\s*(hey\s+)?(evie|eve|evey|ivy)\b[\s,.:!]*", re.IGNORECASE
 
 _STOP = re.compile(r"^((hey )?(evie|eve|evey|ivy) )?(stop( talking| it)?|shut up|be quiet|quiet|"
                    r"never ?mind|cancel( that)?|thats enough|enough)$")
-_YES = re.compile(r"^(yes|yeah|yep|yup|ya|yah|sure|mhm+|mm hmm|uh huh|correct|it was|i was)\b")
+# "And it's for you." (2026-09-24 18:25:29) is a yes too: fillers first, then yes or "for you" / "to you".
+_YES = re.compile(r"^(?:(?:and|um+|uh+|so|well|oh)\s+)*(?:yes|yeah|yep|yup|ya|yah|sure|mhm+|mm hmm|uh huh|correct|"
+                  r"it was|i was|obviously|of course|definitely|(?:(?:yes|yeah)\s+)?(?:its|it is|it was|that was|"
+                  r"this is|that is|im talking|i was talking|talking)?\s*(?:for|to) you)\b")
 _NO = re.compile(r"^(no|nope|nah|not you|it wasnt|i wasnt)\b")
 # An answer that says she's doing something on screen ("Opening that BBC article now") when the
 # answer route can't do anything (2026-09-24 18:29:32): she does it instead of saying it.
@@ -194,12 +197,26 @@ class Brain:
         if answered is not None:
             return answered
         waiting = self._pending
-        named = not addressed and speaker == "isaac" and bool(_WAKE.match(text))
+        # Isaac's own voice right after she spoke is a reply to her, like saying her name (the talk
+        # key never had this problem; Live ignored "pretty good" after "How's your day?").
+        since = self._since_reply()
+        named = not addressed and speaker == "isaac" and (bool(_WAKE.match(text))
+                                                          or (since is not None and since <= FOLLOWUP_S))
         out = await self._turn(text, speaker, addressed, named=named)
         # A new real request replaces her question; chatter, echo and fragments don't.
         if self._pending is waiting and out.get("action") == "act":
             self._pending = None
         return out
+
+    def _since_reply(self) -> float | None:
+        """Seconds since her last reply ENDED (0 while she's still saying it)."""
+        if self._last_reply_at is None:
+            return None
+        if getattr(self._mouth, "speaking", False):
+            return 0.0
+        quiet = getattr(self._mouth, "quiet_at", None)
+        end = max(self._last_reply_at, quiet) if isinstance(quiet, (int, float)) else self._last_reply_at
+        return max(0.0, self._clock() - end)
 
     def _recent(self) -> list[str]:
         now = self._clock()
@@ -220,7 +237,7 @@ class Brain:
     def _context(self, text: str, speaker: str, addressed: bool, named: bool = False,
                  answered: bool = False) -> Context:
         job = self._runner.current
-        since = None if self._last_reply_at is None else self._clock() - self._last_reply_at
+        since = self._since_reply()
         scene = self.scene()
         return Context(utterance=text, speaker=speaker, recent=tuple(self._turns),
                        in_call=bool(scene.get("in_call", False)), front_app=str(scene.get("front_app", "")),

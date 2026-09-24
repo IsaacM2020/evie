@@ -1194,3 +1194,32 @@ async def test_claude_code_gets_what_the_screen_hands_already_tried():
     await b.hear("evie go to netflix and play the mentalist")
     await asyncio.sleep(0.05)
     assert tried in p["runner"].started[0]
+
+
+async def test_his_reply_right_after_she_finishes_talking_is_for_her():
+    """2026-09-24 18:22: she asked "How's your day been going?" (a 6 s line, 18:22:27-33) and his
+    answers at 18:22:40/45/49 were all ignored: the follow-up window counted from when she STARTED."""
+    clock = Clock()
+    sb = SeqSwitchboard(("act", "answer", "answer"), ("act", "answer", "answer"), ("act", "answer", "answer"))
+    b, p = brain_c(sb, clock=clock)
+    b._mouth.quiet_at = clock.t - 60
+    await b.hear("evie what's up", "isaac", addressed=False)  # she replies at t=500
+    clock.t += 6
+    b._mouth.quiet_at = clock.t  # her line took 6 s
+    clock.t += 7  # 13 s after she started, 7 s after she stopped
+    await b.hear("pretty good, school was long", "isaac", addressed=False)
+    assert sb.contexts[1].named and sb.contexts[1].followup_s is not None
+    clock.t += 60  # a minute later: just talking in the room again
+    await b.hear("pretty good, school was long", "isaac", addressed=False)
+    assert not sb.contexts[2].named
+
+
+async def test_its_for_you_is_a_yes_to_was_that_for_me():
+    """18:25:29: "And it's for you." got another "Was that for me?"."""
+    for yes in ["And it's for you.", "it was for you", "yes I'm talking to you", "obviously", "of course",
+                "um yeah", "yes Evie", "For you."]:
+        sb = SeqSwitchboard(("clarify", "unsure it was for me", "quick_action"), ("act", "answer", "answer"))
+        b, p = brain_c(sb)
+        await b.hear("set a timer for 30 seconds", "isaac", addressed=False)
+        await b.hear(yes, "isaac", addressed=False)
+        assert sb.contexts[-1].utterance == "set a timer for 30 seconds" and sb.contexts[-1].addressed, yes
