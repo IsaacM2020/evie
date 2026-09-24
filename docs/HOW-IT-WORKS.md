@@ -567,7 +567,93 @@ If the handle were wrong (a 404), the `expect` fails and ONE replan sees the 404
 - **Jev latency was ~500 ms all day** (vs ~370 the day before) for the same questions: service speed, not the question set.
 - **Pre-roll only when the mic engine is warm** (open mic on, or within 30 s of the last talk-key use), so the orange mic light isn't on all day.
 
+# Phase 4/5: she remembers what was just said, brings things up herself, stays silent in class, and looks like herself (2026-09-24)
+
+Isaac's friends tested Evie. "Play a MrBeast video" got "Which one?" before anything opened. "Play that song" (right after someone said "Trance, Travis Scott") got "Which song?", then "Who's the artist?", then "Spotify isn't open". He asked for: context, autonomy ("ask when required, but be autonomous"), the proactive phase, a text-only mode for school, and a look that isn't generic AI purple.
+
+## The big idea in 5 lines
+
+1. **Words point backwards.** "That song", "open it", "the other one" are filled in from the last 2 minutes of speech, while Jev decides (0 ms added). She asks at most one question per request, and never for something already said.
+2. **Autonomous by default.** The obvious best guess wins (the popular "Trance", the newest video); she says what she picked, and "no, the other one" moves to her next guess without a question or a model call.
+3. **Show, then ask.** With no hint at all ("a MrBeast video") she opens the list first and asks "Which one?" there; the answer (voice or a tap) picks from the SAME rows.
+4. **She brings things up, but only when he's free.** A queue of follow-ups (overheard plans, a class in 15, what's due, a finished job, deadlines, the morning brief, being stuck, where he left off) goes through code gates first: present, not talking, not in a call, not at dinner, 5 min apart, 3 an hour. In class they become chips.
+5. **Text only in class, decided by his calendar.** One gate in `Mouth.say`: in text mode nothing is ever synthesised; the words go to the card, and the open mic pauses.
+
+## Background concepts
+
+- **Coreference.** "That" refers to something earlier. A language model rewrites "play that song on Spotify" + the conversation into a standalone request: "play Trance, Travis Scott on Spotify". Jev still judges his real words (so routing never depends on the rewrite).
+- **Popularity as a prior.** When a title matches many songs, the one most people mean is the most popular one with that exact name (Spotify's `popularity`). A named artist must match.
+- **Interruptibility.** Good assistants ask "is this a good moment?" before speaking. Cheap, certain checks (is someone talking? a call? class?) run in code first; only borderline things ask Jev.
+- **Presence.** The app reports "idle" after 20 minutes without keyboard or mouse and "back" when input returns; nothing is brought up to an empty room.
+- **One layout for drawing and tapping.** The card's `CardLayout` returns rects; SwiftUI draws from them and AppKit hit-tests from them, so SwiftUI never needs mouse events (the crash class stays gone).
+
+## File map (new or changed)
+
+| file | what it does |
+|---|---|
+| `brain.py` | `resolve` in parallel with Jev (RAM-only 2-min buffer), one question per request (`Context.answered`), "Which one?" pending lists (2 min) + `/choose` taps, "the other one", overheard plans → proactive, answers to her own questions/offers |
+| `talk.py` | `resolve`, a context-aware `clarify`, the morning `brief`; hedged Groq calls always read the loser's error |
+| `computer/planner.py` | `ask` on picks + `vague_pick()` in code, `choose()` (same rows, found again by link, ordinals in code), runner-up rows after she picks by herself |
+| `skills/music.py`, `skills/catalog.py` | ranked Spotify search (exact title + popularity, artist must match, album fallback, "trance" as an artist nobody is called → the song), `play_other` |
+| `quiet.py` | voice vs text from his calendar (school/class/lesson/exam...) + his toggle; mic paused in class; "busy" non-class events |
+| `proactive/queue.py`, `engine.py`, `sources.py` | the follow-up queue (once each, only extracted facts), WHEN to bring things up, and the 8 sources |
+| `voice.py`, `countdown.py`, `open_mic.py` | the text-mode gate, longer say-stop windows with a Cancel bar, the class pause |
+| `server.py` | `/choose`, `/followup(s)`, `/activity`, `/screen_text`, settings `output` + `proactive`, the 20 s proactive tick |
+| `mac/.../Orb.swift` | the capsule + one glass card, `OrbCard.pick` (what shows), `CardLayout` (draw + tap), the AppKit type box |
+| `mac/.../Activity.swift` | active / idle / back, and the front dev app's window text for the stuck detector (local only) |
+| `mac/.../Hands.swift` | Spotify closed → open it, wait until it answers AppleScript, play, check the track switched |
+| `evals/run_proactive.py` | a simulated day of his real Thursday: the gate for everything proactive |
+
+## Two things, traced end to end
+
+**"Trance, Travis Scott" … "Play that song on Spotify."** (Spotify closed)
+
+1. The first sentence is overheard chatter: Jev says it's not for Evie, but it goes into the 2-minute buffer (RAM only).
+2. "Play that song on Spotify": the word "that" + something said in the last 2 min → `Talker.resolve` starts **in parallel** with Jev.
+3. Jev: quick_action, skill `music_play`, and **complete** (its wording now says "a song just mentioned makes 'that song' complete").
+4. The resolved request "Play Trance, Travis Scott on Spotify" reaches the skill. `MUSIC_Q` → title "Trance", artist "Travis Scott".
+5. Spotify search (10 results) → the exact "Trance" songs by Travis Scott → most popular: *Trance (with Travis Scott & Young Thug)* by Metro Boomin. The next two are kept as runners-up.
+6. The app: Spotify isn't running → open it in the background → poll `player state` until it answers (≤10 s) → `play track` → check the current track is that one.
+7. "**Playing Trance (with Travis Scott & Young Thug) by Metro Boomin.**" If he says "no, the other one", she plays runner-up #1 with no model call.
+
+**"Mom, I've got the dentist on Wednesday."** (said to his mom, Live mic on)
+
+1. Jev: not for Evie, but `has_event` 0.95 → the policy marks it a follow-up.
+2. `Sources.overheard`: Groq extracts `{what: "the dentist", day: "Wednesday", time: ""}`; the sentence itself is dropped. A follow-up is queued: "Heard you've got the dentist on Wednesday. What time?"
+3. Every 20 s the engine checks: calendar loaded, he's present, not quiet hours, nobody spoke for a minute, not in a call or at dinner, 5 min since her last one, under 3 this hour. Then one Jev "good moment?".
+4. She asks. He says "4pm". It's handled like any answer to her questions: "remember I have the dentist on Wednesday. Evie asked 'What time?', Isaac answered '4pm'" → the remember route → a calendar event. The chip clears.
+5. If it had been class time, it would have been a chip on the capsule, with a type box for "4pm".
+
+## Why each choice beat the alternatives
+
+- **Resolve in parallel, not before Jev.** A rewrite first would add ~400 ms to every "that/it" sentence; in parallel it's free, and Jev judging the raw words means a bad rewrite can't change the route.
+- **One question max instead of "ask until sure".** The Parrot request asked twice; each question costs him a sentence. After one answer, her best guess plus "no, the other one" is faster.
+- **Ordinals in code.** Jev picked #2 for "the newest one" once. "Newest/first/second/third" is arithmetic, not judgement.
+- **Code gates before Jev.** "Is anyone talking? Is it class?" must never be a probability. Jev only weighs "is this worth it right now?".
+- **Hold, don't chip, while he's away or asleep.** The simulated day showed chips at 6:00 used up follow-ups while he slept, and the brief at 6:45 went silent.
+- **No Jev check for the stuck detector.** The error text must not leave the Mac unless he taps yes; the rule "same error, 10 min, he's there" is enough for a chip that's never spoken.
+- **The capsule grows into the card.** One object at the screen edge (his pick from the mockups: C's glass + A's calm, no circle), one ember accent only while she's doing something.
+
+## Numbers (2026-09-24)
+
+| what | result |
+|---|---|
+| Switchboard eval (188 cases, +10 context cases) | false_action **0**, route 0.968, complete **0.976** (was 0.958), skill 1.0, p95 **626 ms** |
+| Hands eval, 33 tasks (+3 "Which one?" flows) | **33/33**, unsafe **0**, median 2 model calls |
+| Simulated proactive day | PASS: 9 spoken, 3 chips, 0 in class / call / conversation / dinner, max 3 an hour |
+| Narration eval | 0.92 |
+| Tests | **720** offline + app selftest **55** + orb stress 60 s clean |
+| Core footprint | 925 MB, one process |
+
+## Known limits
+
+- **Live checks need Isaac** (music, his screen, his calendar): Spotify closed → "play Trance", the MrBeast/Trance conversations by voice, text mode in a real class, the dentist line, the morning brief.
+- **Right after a core restart** the calendar takes a few seconds to arrive: proactive waits for it, but a reply in that window would still be spoken.
+- **Classroom calendars:** the app only reads Isaac + the Classroom calendars CalendarPick allows (mostly empty today), so the deadline radar leans on Todoist.
+- **The stuck detector reads Accessibility text:** Terminal works; VS Code's integrated terminal usually doesn't expose its text.
+
 # Change log
 
 - **2026-09-23, keys + pill crash.** The talk key moved from 🌐 (Fn) to **hold left ⌃⌥**, and **left ⌃⌥⌘** flips the Live open mic on and off (left keys only, so Right Option stays Ripple's). `Chord` in `PushToTalk.swift` reads the left/right bits of the modifier flags. The pill crashed the app: its window was set to resize itself to fit its text, and a text change ("Listening…") started an endless resize → layout → resize loop (stack overflow, 2 crash reports). The pill is now a fixed 400×60 transparent window with the capsule on the left, SwiftUI is never allowed to size it, and a `DragPanel` starts the window drag itself (SwiftUI was swallowing the mouse, which is why it couldn't be moved).
 - **2026-09-24, the orb.** The pill crashed twice more (SwiftUI hover dispatch; window auto-sizing). Replaced by the orb (Phase 3c T4): AppKit panels own every mouse event, the SwiftUI views sit in an `InertHostingView` (no hit testing, no tracking areas), no window ever resizes, and a 60 s stress test runs the real panels.
+- **2026-09-24, the capsule.** Isaac's pick from hi-fi mockups (C's liquid glass + A's calm, no circle): the orb became a glass capsule with one line that grows into a single card at the same edge. The card's `CardLayout` drives both drawing and AppKit hit-testing, so rows, pills, Cancel, Stop and the type box are tappable while SwiftUI still never receives a mouse event. Stress test 60 s clean.
