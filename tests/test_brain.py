@@ -1,5 +1,6 @@
 import asyncio
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 import pytest
@@ -1148,3 +1149,38 @@ async def test_after_his_answer_a_job_starts_instead_of_a_second_question():
     await asyncio.sleep(0.1)
     assert p["runner"].started and "?" not in p["mouth"].said[-1]
     assert b._pending is None
+
+
+class PromiseTalker(FakeTalker):
+    async def reply(self, utterance, facts):
+        self.calls.append(("reply", utterance, facts))
+        return "Opening that BBC article now. Give me a second to read through it for you."
+
+
+async def test_an_answer_that_promises_an_action_does_it_instead_of_lying():
+    """2026-09-24 18:29:32: the answer route said "Opening that BBC article now" and nothing opened."""
+    from evie.computer.planner import Outcome as CO
+    b, p = brain(FakeSwitchboard("act", "answer", "answer"))
+    b._talker = p["talker"] = PromiseTalker()
+    b._computer = FakeComputer(CO(True, "Opened it. Australia is reviewing its Medicare portal."))
+    await b.hear("evie click on the openai story and read through it")
+    await asyncio.sleep(0.05)
+    assert b._computer.goals == ["click on the openai story and read through it"]
+    assert not any(line.startswith("Opening that BBC") for line in p["mouth"].said)
+
+
+async def test_his_answer_keeps_the_route_of_what_he_asked():
+    """The merged "click on it ... Isaac answered 'the OpenAI one'" went to the answer route (18:29:32)."""
+    from evie.computer.planner import Outcome as CO
+    class SkillSeq(SeqSwitchboard):  # Jev had picked the screen skill for the first request
+        async def handle(self, ctx):
+            o = await super().handle(ctx)
+            first = len(self.contexts) == 1
+            return replace(o, decision=replace(o.decision, skill="computer" if first else None, skill_conf=0.9))
+    sb = SkillSeq(("clarify", "missing detail", "quick_action"), ("act", "answer", "answer"))
+    b, p = brain_c(sb, jev=AnswerJev(0.9))
+    b._computer = FakeComputer(CO(True, "Opened it."))
+    await b.hear("evie can you click on it and read through it")
+    await b.hear("the openai one", "isaac", addressed=False)
+    await asyncio.sleep(0.05)
+    assert len(b._computer.goals) == 1 and "the openai one" in b._computer.goals[0]

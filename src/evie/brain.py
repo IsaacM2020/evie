@@ -11,7 +11,7 @@ import logging
 import re
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
@@ -69,6 +69,13 @@ _STOP = re.compile(r"^((hey )?(evie|eve|evey|ivy) )?(stop( talking| it)?|shut up
                    r"never ?mind|cancel( that)?|thats enough|enough)$")
 _YES = re.compile(r"^(yes|yeah|yep|yup|ya|yah|sure|mhm+|mm hmm|uh huh|correct|it was|i was)\b")
 _NO = re.compile(r"^(no|nope|nah|not you|it wasnt|i wasnt)\b")
+# An answer that says she's doing something on screen ("Opening that BBC article now") when the
+# answer route can't do anything (2026-09-24 18:29:32): she does it instead of saying it.
+_PROMISE = re.compile(r"^(?:(?:okay|ok|sure|alright|got it)[,!.]?\s+)?(?:opening|clicking|playing|sending|"
+                      r"going to|heading to|pulling up|(?:let me|i'?ll|i will|i'?m going to) (?:open|click|play|"
+                      r"send|go to|pull up|read through)|i'?m (?:opening|clicking|playing|sending|pulling up))\b",
+                      re.IGNORECASE)
+ACTION_ROUTES = {"quick_action", "deep_job", "remember"}
 
 
 def _norm(text: str) -> str:
@@ -111,6 +118,8 @@ class Pending:
     at: float
     asked: str = ""  # what she asked ("What time?")
     data: dict | None = None  # kind "pick": what the planner needs to finish it (rows shown, the tab)
+    route: str | None = None  # what Jev made of the request she asked about: his answer keeps it
+    skill: str | None = None
 
 
 def strip_wake(text: str) -> str:
@@ -290,7 +299,7 @@ class Brain:
             queue.remove(p.data["followup"])
             self._bus.publish("followup_done", id=p.data["followup"])
         merged = f'{p.text}. Evie asked "{p.asked}", Isaac answered "{text}".' if p.asked else f"{p.text}. {text}"
-        return await self._turn(merged, p.speaker, addressed=True, answered=True)
+        return await self._turn(merged, p.speaker, addressed=True, answered=True, hint=p)
 
     def idle_s(self) -> float:
         """Seconds since anyone spoke near her or she last spoke."""
@@ -443,7 +452,7 @@ class Brain:
                 "said": None, "shadow": True, "would": would}
 
     async def _turn(self, text: str, speaker: str, addressed: bool, named: bool = False,
-                    answered: bool = False) -> dict:
+                    answered: bool = False, hint: Pending | None = None) -> dict:
         t0 = time.perf_counter()
         if addressed:
             self._bus.publish("heard", text=text)
@@ -467,6 +476,12 @@ class Brain:
             raise
         # On ACT the policy's pick wins (it can differ from Jev's top route when addressed).
         route = o.verdict.reason if o.verdict.action == Action.ACT else (o.decision.route if o.decision else None)
+        if (hint and hint.route in ACTION_ROUTES and o.verdict.action == Action.ACT and route == "answer"
+                and o.decision is not None):
+            # His answer to her question finishes the request he made: it stays a thing to DO.
+            route = hint.route
+            if hint.skill and (not o.decision.skill or o.decision.skill == "other"):
+                o = replace(o, decision=replace(o.decision, skill=hint.skill, skill_conf=1.0))
         t_verdict = time.perf_counter()
         if o.verdict.action != Action.IGNORE:
             self._replace_recent_turn()
@@ -537,7 +552,8 @@ class Brain:
         doing = act_text or text  # "that song" filled in from the conversation
         if verdict.action == Action.CLARIFY:
             kind = "for_me" if verdict.reason == "unsure it was for me" else "detail"
-            pending = self._pending = Pending(kind, text, speaker, self._clock())
+            pending = self._pending = Pending(kind, text, speaker, self._clock(), route=route,
+                                              skill=decision.skill if decision else None)
             if verdict.reason == "missing detail":
                 pending.asked = self._say(await self._talker.clarify(text, "a detail is missing",
                                                                      recent=self._recent()))
@@ -590,7 +606,7 @@ class Brain:
         extra = names - {"calendar"} or ({"calendar"} if far_day else set())
         hard = bool(decision and decision.hard >= self.HARD_AT)
         if not extra and not hard and draft is not None:
-            return self._say(await draft)
+            return self._say_answer(text, await draft)
         if draft is not None:
             draft.cancel()
         if "web" in extra:
@@ -599,12 +615,21 @@ class Brain:
         if extra and self._packs is not None:
             facts |= await self._packs.gather(extra | ({"calendar"} if "calendar" in names else set()), text)
         if not hard:
-            return self._say(await self._talker.reply(text, facts))
+            return self._say_answer(text, await self._talker.reply(text, facts))
         task = asyncio.create_task(self._talker.reply(text, facts, hard=True))
         done, _ = await asyncio.wait({task}, timeout=self.THINK_AFTER_S)
         if not done:
             self._say("Let me think.")
-        return self._say(await task)
+        return self._say_answer(text, await task)
+
+    def _say_answer(self, text: str, reply: str) -> str | None:
+        """Speak an answer, unless it promises screen work the answer route can't do: then do it."""
+        if not _PROMISE.match(reply.strip()):
+            return self._say(reply)
+        log.info("answer promised an action (%r): doing it on screen", reply[:60])
+        if self._computer is not None:
+            return self._start_computer(strip_wake(text), "computer")
+        return self._say("I can't do that from here yet.")
 
     async def _remember_it(self, text: str, decision, speaker: str) -> str:
         try:
