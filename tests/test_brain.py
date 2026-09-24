@@ -1184,3 +1184,13 @@ async def test_his_answer_keeps_the_route_of_what_he_asked():
     await b.hear("the openai one", "isaac", addressed=False)
     await asyncio.sleep(0.05)
     assert len(b._computer.goals) == 1 and "the openai one" in b._computer.goals[0]
+
+
+async def test_claude_code_gets_what_the_screen_hands_already_tried():
+    from evie.computer.planner import Outcome as CO
+    b, p = brain(SkillSB("computer"))
+    tried = "opened https://www.netflix.com / FAILED: couldn't find 'Darrell'"
+    b._computer = FakeComputer(CO(False, "I got stuck doing that on screen.", stuck=True, tried=tried))
+    await b.hear("evie go to netflix and play the mentalist")
+    await asyncio.sleep(0.05)
+    assert tried in p["runner"].started[0]

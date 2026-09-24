@@ -694,8 +694,10 @@ class Brain:
             self._say(out.said)
         elif out.stuck:
             self._say("That's fiddly on screen, I'll get Claude Code to do it.")
-            await self._start_job(f"{goal} (Evie tried this in the app's interface and got stuck. Do it another "
-                                  "way, like osascript or Shortcuts; a screenshot only if there's truly no other way.)")
+            tried = f" What she tried: {out.tried}." if getattr(out, "tried", "") else ""
+            await self._start_job(f"{goal} (Evie tried this in the app's interface and got stuck.{tried} Do it "
+                                  "another way, like osascript or Shortcuts; a screenshot only if there's truly no "
+                                  "other way. It's a quick screen task: be fast.)")
         else:
             if out.ok and out.pick and out.pick.get("rows"):  # she picked by herself: keep the runners-up
                 self._last_pick = ("screen", out.pick, self._clock())

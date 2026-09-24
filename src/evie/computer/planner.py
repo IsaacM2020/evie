@@ -117,6 +117,7 @@ class Outcome:
     stuck: bool = False  # couldn't do it on screen: the Brain may hand it to Claude Code
     options: list[dict] = field(default_factory=list)  # "Which one?": the rows shown to Isaac
     pick: dict | None = None  # what Planner.choose needs to finish once he answers
+    tried: str = ""  # stuck: the steps it took and what failed, so Claude Code doesn't start blind
 
 
 class _Fail(Exception):
@@ -200,7 +201,8 @@ class Planner:
                 log.info("computer step failed (%s), replan %d", f, replans + 1)
                 if replans >= MAX_REPLANS:
                     log.info("computer goal stuck: %s | %s", goal, " / ".join(self._history[-6:]))
-                    return Outcome(False, "I got stuck doing that on screen.", stuck=True)
+                    return Outcome(False, "I got stuck doing that on screen.", stuck=True,
+                                   tried=" / ".join(self._history[-8:]))
                 replans += 1
                 await self._look()
                 steps = await self._plan(first=False)
