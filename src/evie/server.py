@@ -227,7 +227,12 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
                         "voiceprint": d.voiceid.print.status()}
             if d.voiceid:
                 asyncio.get_running_loop().create_task(learn_voice(d, audio, channel))
-            return await transcribe_and_hear(d, audio)
+            out = await transcribe_and_hear(d, audio)
+            rec = getattr(d.open_mic, "recorder", None) if d.open_mic else None
+            if rec is not None and rec.enabled and out.get("text"):  # talk-key clips too, for the ear test
+                from evie.ears import wav_to_pcm
+                rec.save(wav_to_pcm(audio), "isaac", 1.0, out["text"], False, source="ptt")
+            return out
         finally:
             if d.open_mic:
                 d.open_mic.ptt_end()

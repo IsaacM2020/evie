@@ -33,14 +33,16 @@ class SegmentRecorder:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._switch.write_text(json.dumps({"on": on}))
 
-    def save(self, audio: np.ndarray, speaker: str, sim: float, text: str, evie_speaking: bool) -> str | None:
+    def save(self, audio: np.ndarray, speaker: str, sim: float, text: str, evie_speaking: bool,
+             source: str = "live") -> str | None:
+        """source: "live" (an open-mic sentence) or "ptt" (a talk-key clip), so the two can be compared."""
         if not self.enabled or speaker == "other":
             return None
         self._dir.mkdir(parents=True, exist_ok=True)
         name = f"{int(self._clock())}-{uuid.uuid4().hex[:6]}"
         (self._dir / f"{name}.wav").write_bytes(pcm_to_wav(audio))
         row = {"name": name, "t": self._clock(), "speaker": speaker, "sim": round(float(sim), 2), "text": text,
-               "evie_speaking": evie_speaking, "seconds": round(len(audio) / RATE, 2)}
+               "evie_speaking": evie_speaking, "seconds": round(len(audio) / RATE, 2), "source": source}
         with (self._dir / "segments.jsonl").open("a") as f:
             f.write(json.dumps(row) + "\n")
         return name

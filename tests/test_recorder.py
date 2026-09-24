@@ -27,7 +27,7 @@ def test_saves_isaac_segment_with_its_facts(tmp_path):
     assert (tmp_path / f"{name}.wav").exists()
     row = json.loads((tmp_path / "segments.jsonl").read_text().splitlines()[0])
     assert row == {"name": name, "t": 1_000_000.0, "speaker": "isaac", "sim": 0.81, "text": "pause the music",
-                   "evie_speaking": True, "seconds": 1.0}
+                   "evie_speaking": True, "seconds": 1.0, "source": "live"}
 
 
 def test_never_saves_other_people(tmp_path):
@@ -63,3 +63,13 @@ def test_wer_counts_word_edits():
     assert wer("set a timer", "") == 1.0
     assert wer("my code is four one two nine", "my code is 4129") == 0.0
     assert wer("question six", "question 6") == 0.0
+
+
+def test_talk_key_clips_are_kept_and_marked(tmp_path):
+    """Isaac, 2026-09-24: the talk key hears him well, Live doesn't. Keeping both kinds lets
+    evals/replay.py compare them on his real voice."""
+    r = SegmentRecorder(tmp_path)
+    r.set(True)
+    r.save(np.zeros(16000, dtype=np.float32), "isaac", 1.0, "open a video by Parrot", False, source="ptt")
+    r.save(np.zeros(16000, dtype=np.float32), "isaac", 0.8, "open a video by Barrett", False)
+    assert [row["source"] for row in r.rows()] == ["ptt", "live"]
