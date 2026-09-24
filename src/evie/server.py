@@ -672,6 +672,9 @@ def build_deps(s: Settings) -> Deps:
 def text_to_orb(bus: EventBus) -> Callable[[str, str], None]:
     """Text mode: what she would have said goes to the orb instead (nothing is synthesised)."""
     def on_text(text: str, line_kind: str) -> None:
+        # He can't say "stop" in class: the orb has a Cancel button instead
+        text = text.replace("Say stop to cancel.", "Tap Cancel to stop it.").replace(
+            "Say stop if that's wrong.", "Tap Cancel if that's wrong.")
         bus.publish("say", text=text, line_kind=line_kind, text_only=True)
     return on_text
 

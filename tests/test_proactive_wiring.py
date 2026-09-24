@@ -94,3 +94,27 @@ async def test_idle_seconds_counts_speech_near_her():
     await b.hear("so anyway", addressed=False)
     clock.t += 10
     assert 9 <= b.idle_s() <= 11
+
+
+async def test_answering_her_spoken_question_clears_its_chip():
+    """Self-review: the chip for "What time?" stayed on the orb for 8 h after he answered by voice."""
+    from evie.proactive.engine import Engine
+    from evie.proactive.queue import FollowUps
+    import tempfile
+    from pathlib import Path
+    sb = SeqSwitchboard(("act", "remember", "remember"))
+    b, p = brain_c(sb)
+    q = p["bus"].subscribe()
+    eng = Engine(FollowUps(Path(tempfile.mkdtemp()) / "f.json"), p["mouth"], p["bus"], None, act=None,
+                 idle_s=lambda: 999, text_mode=lambda: False, in_call=lambda: False)
+    b.engine = eng
+    it = FollowUp("overheard", "Heard you've got the dentist on Wednesday. What time?", "k", ask=True,
+                  request="remember I have the dentist on Wednesday")
+    eng.add(it)
+    b.expect_followup(it)
+    await b.hear("4pm")
+    assert eng.queue.get(it.id) is None
+    kinds = []
+    while not q.empty():
+        kinds.append(q.get_nowait())
+    assert any(e["kind"] == "followup_done" and e["id"] == it.id for e in kinds)

@@ -211,6 +211,7 @@ final class AppModel: ObservableObject {
     }
 
     private func applyQuiet(_ q: QuietDTO) {
+        Earcon.muted = q.mode == "text"
         quietMode = q.mode
         quietWhy = q.why
         quietSetting = q.setting
@@ -706,8 +707,10 @@ enum Earcon {
         return m
     }()
 
+    nonisolated(unsafe) static var muted = false  // text mode (class): not even a click sound
+
     func play() {
-        guard let s = Earcon.sounds[self] else { return }
+        guard !Earcon.muted, let s = Earcon.sounds[self] else { return }
         s.stop()
         s.play()
     }

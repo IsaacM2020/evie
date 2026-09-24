@@ -182,3 +182,14 @@ def test_busy_with_something_that_isnt_a_class():
     assert q.busy_event() is None  # a class is text mode, not "busy"
     now.t = at(22)
     assert q.busy_event() is None
+
+
+def test_in_text_mode_say_stop_becomes_tap_cancel():
+    from evie.events import EventBus
+    from evie.server import text_to_orb
+    bus = EventBus()
+    q = bus.subscribe()
+    text_to_orb(bus)("Sending hi to Mom. Say stop to cancel.", "reply")
+    text_to_orb(bus)("Checking why the deploy failed. Say stop if that's wrong.", "reply")
+    assert q.get_nowait()["text"] == "Sending hi to Mom. Tap Cancel to stop it."
+    assert q.get_nowait()["text"] == "Checking why the deploy failed. Tap Cancel if that's wrong."

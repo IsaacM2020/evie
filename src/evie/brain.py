@@ -282,6 +282,10 @@ class Brain:
         if not await self._answers(p, text):
             return None
         self._pending = None
+        queue = getattr(self.engine, "queue", None)
+        if p.data and p.data.get("followup") and queue is not None:  # her own question: its chip goes too
+            queue.remove(p.data["followup"])
+            self._bus.publish("followup_done", id=p.data["followup"])
         merged = f'{p.text}. Evie asked "{p.asked}", Isaac answered "{text}".' if p.asked else f"{p.text}. {text}"
         return await self._turn(merged, p.speaker, addressed=True, answered=True)
 
@@ -294,7 +298,8 @@ class Brain:
     def expect_followup(self, it) -> None:
         """She just asked something by herself: his next sentence is probably the answer."""
         if it.ask:  # "What time?": answered like any question of hers
-            self._pending = Pending("detail", it.request, "isaac", self._clock(), asked=it.line)
+            self._pending = Pending("detail", it.request, "isaac", self._clock(), asked=it.line,
+                                    data={"followup": it.id})
         elif it.on_yes:
             self._pending = Pending("offer", it.line, "isaac", self._clock(), asked=it.line, data={"id": it.id})
 
