@@ -22,7 +22,7 @@ class CountingGroq:
     def __init__(self):
         self.calls = 0
 
-    async def chat(self, system, user, max_tokens=400, json_mode=False, model=None, reasoning=None):
+    async def chat(self, system, user, max_tokens=400, json_mode=False, model=None, reasoning=None, fallbacks=None):
         self.calls += 1
         return f"reply {self.calls}"
 

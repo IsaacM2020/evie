@@ -26,8 +26,9 @@ class FakeBrain:
     def __init__(self, bus):
         self.bus, self.heard = bus, []
 
-    async def hear(self, text, speaker="isaac"):
+    async def hear(self, text, speaker="isaac", confidence=1.0):
         self.heard.append((text, speaker))
+        self.confidence = confidence
         self.bus.publish("heard", text=text)
         return {"text": text, "action": "act", "reason": "answer", "route": "answer", "said": "Hi."}
 
@@ -341,3 +342,17 @@ def test_show_her_work_setting_round_trips():
         assert c.get("/settings").json() == {"show_work": True}
         assert c.post("/settings", json={"show_work": False}).json() == {"show_work": False}
     assert d.ui["show_work"] is False
+
+
+def test_the_talk_key_passes_how_sure_whisper_was():
+    from evie.stt import Heard
+
+    class SureSTT(FakeSTT):
+        async def transcribe_detail(self, audio):
+            return Heard("evie fix the chase bug", confidence=0.42)
+
+    d = full_deps()
+    d.stt = SureSTT()
+    with client(deps=d) as c:
+        c.post("/voice", content=b"RIFFfake", headers={"Content-Type": "audio/wav"})
+    assert d.brain.heard == [("evie fix the chase bug", "isaac")] and d.brain.confidence == 0.42

@@ -5,7 +5,7 @@ import json
 from evie.computer.planner import Planner
 from evie.countdown import Countdown
 from evie.jev import JevResult
-from tests.simhands import SimHands
+from evals.sim import SimHands
 
 CH = "https://www.youtube.com/@NetworkChuck/videos"
 CHANNEL_PAGE = [
@@ -31,7 +31,7 @@ class PlanGroq:
     def __init__(self, *plans, text="It says hi."):
         self.plans, self.text, self.calls = list(plans), text, []
 
-    async def chat(self, system, user, max_tokens=400, json_mode=False, model=None, reasoning=None):
+    async def chat(self, system, user, max_tokens=400, json_mode=False, model=None, reasoning=None, fallbacks=None):
         self.calls.append(user)
         if json_mode:
             return json.dumps(self.plans.pop(0))
@@ -217,3 +217,113 @@ async def test_a_number_that_is_not_a_box_presses_nothing():
     p, _ = planner(hands, LookGroq(plan, plan, plan, n=9))
     r = await p.run("pick the crop tool in pixelmator")
     assert not r.ok and not any(op == "press" for op, _ in hands.calls)
+
+
+async def test_a_check_right_after_a_scripted_action_is_not_held_against_it():
+    """Actions are fixed scripts that report success themselves; what they change often isn't on the
+    screen being read (a new note, Wi-Fi), so an expect right after one can't fail the task."""
+    world = {"front_app": "Finder", "apps": ["Finder"], "windows": [], "tabs": []}
+    plan = {"steps": [{"do": "action", "name": "wifi", "args": {"on": False}}, {"do": "expect", "element": "Wi-Fi off"},
+                      {"do": "done", "say": "Wi-Fi's off."}]}
+    p, _ = planner(SimHands(world=world), PlanGroq(plan))
+    r = await p.run("turn off wifi")
+    assert r.ok and r.said == "Wi-Fi's off."
+
+
+async def test_the_screenshot_question_says_json_as_groq_requires():
+    world = {"front_app": "Pixelmator", "apps": ["Pixelmator"], "windows": [], "tabs": []}
+    plan = {"steps": [{"do": "find", "what": "crop tool", "then": "press"}, {"do": "done", "say": "ok"}]}
+    groq = LookGroq(plan, n=1)
+    p, _ = planner(SimHands(apps={"Pixelmator": [{"id": "a1", "role": "button", "label": ""}]}, world=world), groq)
+    await p.run("pick the crop tool in pixelmator")
+    assert "json" in groq.looked[0].lower()
+
+
+async def test_a_settings_address_goes_through_the_settings_action():
+    world = {"front_app": "Finder", "apps": ["Finder"], "windows": [], "tabs": []}
+    plan = {"steps": [{"do": "open_url", "url": "x-apple.systempreferences:com.apple.Focus-Settings.extension"},
+                      {"do": "done", "say": "Opened Focus."}]}
+    hands = SimHands(world=world)
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("open focus settings")
+    assert r.ok and any(op == "applescript" and "Focus-Settings" in a["source"] for op, a in hands.calls)
+
+
+async def test_an_unknown_action_fails_with_the_real_names_for_the_replan():
+    world = {"front_app": "Finder", "apps": ["Finder"], "windows": [], "tabs": []}
+    bad = {"steps": [{"do": "action", "name": "new_note", "args": {}}]}
+    good = {"steps": [{"do": "action", "name": "notes_new", "args": {"title": "a", "body": "b"}}, {"do": "done", "say": "ok"}]}
+    groq = PlanGroq(bad, good)
+    p, _ = planner(SimHands(world=world), groq)
+    assert (await p.run("new note")).ok and "notes_new" in groq.calls[1]
+
+
+async def test_she_only_reads_things_out_when_isaac_asked_for_something():
+    """The eval: 'open the most interesting bbc article' opened it and then read out a summary nobody asked for."""
+    news = "https://www.bbc.com/news"
+    page = [{"id": "w2", "role": "link", "label": "AI model beats doctors at spotting rare diseases",
+             "href": "https://www.bbc.com/news/articles/c3", "region": "main"}]
+    plan = {"steps": [{"do": "open_url", "url": news}, {"do": "pick", "among": "articles", "want": "most interesting",
+                                                        "then": "press"},
+                      {"do": "read", "what": "summarise it"}, {"do": "done", "say": "Opened {picked}."}]}
+    hands = SimHands(pages={news: page, "https://www.bbc.com/news/articles/c3": []}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan, text="A long summary."))
+    r = await p.run("open the most interesting bbc article")
+    assert r.said == "Opened AI model beats doctors at spotting rare diseases."
+
+
+async def test_a_plan_that_never_did_anything_is_not_reported_as_done():
+    """The eval: 'delete old.txt' got a plan that only looked; she said 'Done.' having done nothing."""
+    world = {"front_app": "Finder", "apps": ["Finder"], "windows": [], "tabs": []}
+    looks_only = {"steps": [{"do": "read", "what": "is old.txt on the desktop"}]}
+    does_it = {"steps": [{"do": "action", "name": "finder_trash", "args": {"path": "~/Desktop/old.txt"}}]}
+    hands = SimHands(world=world)
+    p, said = planner(hands, PlanGroq(looks_only, does_it))
+    r = await p.run("delete old.txt from my desktop")
+    assert r.ok and r.said == "Moved it to the Bin." and any(op == "applescript" for op, _ in hands.calls)
+    assert said[0].endswith("Say stop to cancel.")
+
+
+async def test_without_a_closing_line_she_says_what_she_picked():
+    plan = {"steps": [{"do": "open_url", "url": CH}, {"do": "pick", "among": "videos", "want": "newest", "then": "press"}]}
+    hands = SimHands(pages={CH: CHANNEL_PAGE}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("play the newest networkchuck video")
+    assert r.said == "Opened I hacked my own network (don't try this)."
+
+
+async def test_a_rate_limited_plan_waits_and_tries_once_more():
+    from evie.talk import TalkError
+
+    class Busy(PlanGroq):
+        def __init__(self, *plans):
+            super().__init__(*plans)
+            self.n = 0
+
+        async def chat(self, system, user, **k):
+            self.n += 1
+            if self.n == 1:
+                raise TalkError("rate limited")
+            return await super().chat(system, user, **k)
+
+    world = {"front_app": "Finder", "apps": ["Finder"], "windows": [], "tabs": []}
+    groq = Busy({"steps": [{"do": "action", "name": "wifi", "args": {"on": False}}, {"do": "done", "say": "Wi-Fi's off."}]})
+    p, _ = planner(SimHands(world=world), groq)
+    p._rate_wait = 0.01
+    assert (await p.run("turn off wifi")).said == "Wi-Fi's off."
+
+
+async def test_she_says_what_she_understood_as_soon_as_the_plan_is_ready():
+    steps = [{"do": "open_url", "url": SEARCH}, {"do": "find", "what": "NetworkChuck channel", "href": "/@", "then": "press"},
+             {"do": "open_url", "url": CH, "same_tab": True},
+             {"do": "pick", "among": "videos", "want": "newest", "then": "press"}, {"do": "done", "say": "Playing {picked}."}]
+    long = {"understood": "Finding NetworkChuck's newest video", "steps": steps}
+    hands = SimHands(pages={SEARCH: SEARCH_PAGE, CH: CHANNEL_PAGE}, world=SAFARI_FRONT)
+    p, said = planner(hands, PlanGroq(long))
+    await p.run("play the newest network chuck video")
+    assert said[0] == "Finding NetworkChuck's newest video. Say stop if that's wrong."
+    short = {"understood": "Turning off Wi-Fi", "steps": [{"do": "action", "name": "wifi", "args": {"on": False}},
+                                                          {"do": "done", "say": "Wi-Fi's off."}]}
+    p, said = planner(SimHands(world={"front_app": "Finder", "apps": [], "windows": [], "tabs": []}), PlanGroq(short))
+    await p.run("turn off wifi")
+    assert said == ["Turning off Wi-Fi."]  # a short one: no stop window to mention

@@ -35,3 +35,10 @@ def test_destructive_actions_are_marked_risky():
 def test_wifi_and_dark_mode_are_simple_switches():
     assert "networksetup -setairportpower" in render_action("wifi", {"on": False}).script
     assert "dark mode" in render_action("dark_mode", {"on": True}).script
+
+
+def test_cards_also_come_from_what_the_goal_is_about():
+    """The eval's 'turn on do not disturb' (with Finder in front) never saw the Settings card."""
+    assert "settings_open" in card_for("Finder", "turn on do not disturb")
+    assert "notes_new" in card_for("Safari", "make a note called groceries")
+    assert "mail_unread" in card_for("Finder", "any unread emails in mail")

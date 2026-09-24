@@ -56,6 +56,9 @@ class FakeMouth:
     def play_clip(self, name):
         self.clips.append(name)
 
+    def stop(self):
+        pass
+
 
 class FakeRunner:
     def __init__(self, running=None, busy=False):
@@ -125,6 +128,8 @@ def brain(sb=None, runner=None, jev=None, calendar=None, log=None):
                  runner=runner or FakeRunner(), narrator=FakeNarrator(), bus=EventBus(), jev=jev or FakeJev())
     b = Brain(parts["sb"], parts["talker"], parts["mouth"], parts["runner"], parts["narrator"],
               calendar or CalendarStore(), parts["bus"], parts["jev"], turns_log=log)
+    from evie.countdown import Countdown
+    b._job_countdown = Countdown(seconds=0)  # jobs start on the next loop turn (tests await briefly)
     return b, parts
 
 
@@ -176,13 +181,55 @@ async def test_answer_without_calendar_sync_says_so_in_facts():
     assert "not connected" in facts["calendar_today"]
 
 
-async def test_deep_job_says_on_it_then_starts_job():
-    b, p = brain(FakeSwitchboard("act", "deep_job", "deep_job"))
+class ReadbackTalker(FakeTalker):
+    def __init__(self, line="Fixing the chase bug in your cricket model", unsure=False, question=None):
+        super().__init__()
+        self.rb = {"line": line, "unsure": unsure, "question": question}
+
+    async def readback(self, text):
+        self.calls.append(("readback", text))
+        return self.rb
+
+
+def job_brain(talker=None, window=0.05, **kw):
+    from evie.countdown import Countdown
+    b, p = brain(FakeSwitchboard("act", "deep_job", "deep_job"), **kw)
+    b._talker = p["talker"] = talker or ReadbackTalker()
+    b._job_countdown = Countdown(seconds=window)
+    return b, p
+
+
+async def test_a_deep_job_is_read_back_and_starts_after_the_window():
+    """Isaac (2026-09-24): long tasks read back what she understood, then go after 3 s."""
+    b, p = job_brain()
     out = await b.hear("Evie, fix the chase bug in my cricket model")
-    assert p["mouth"].clips == ["on_it"]
+    assert out["said"] == "Fixing the chase bug in your cricket model. Say stop if that's wrong."
+    assert p["runner"].started == []  # not yet: he can still say stop
+    await asyncio.sleep(0.1)
     assert p["runner"].started == ["fix the chase bug in my cricket model"]
     assert p["narrator"].started == ["fix the chase bug in my cricket model"]
-    assert out["said"] == ACKS["on_it"]
+
+
+async def test_stop_in_the_window_means_the_job_never_starts():
+    b, p = job_brain(window=0.3)
+    await b.hear("Evie, fix the chase bug in my cricket model")
+    out = await b.hear("stop")
+    await asyncio.sleep(0.35)
+    assert p["runner"].started == [] and out["said"] == "Okay, cancelled."
+
+
+async def test_a_mumbled_request_gets_a_question_not_a_job():
+    b, p = job_brain()
+    out = await b.hear("evie fix the chase bug in my cricket model", confidence=0.35)
+    await asyncio.sleep(0.1)
+    assert p["runner"].started == [] and out["said"].endswith("?")
+
+
+async def test_when_the_read_back_cant_tell_what_he_meant_she_asks():
+    b, p = job_brain(ReadbackTalker(unsure=True, question="Your iGEM wiki or your own website?"))
+    out = await b.hear("evie check how my website is doing")
+    await asyncio.sleep(0.1)
+    assert out["said"] == "Your iGEM wiki or your own website?" and p["runner"].started == []
 
 
 async def test_deep_job_while_busy_is_queued_not_refused():
@@ -191,20 +238,6 @@ async def test_deep_job_while_busy_is_queued_not_refused():
     await b.hear("evie research MIT")
     assert runner.queue == ["research MIT"]
     assert p["mouth"].said == ["I'm on fix the chase bug. I'll do this right after."] and p["mouth"].clips == []
-
-
-async def test_long_job_says_it_might_take_a_minute():
-    from evie.switchboard.decision import Decision
-
-    class LongSB(FakeSwitchboard):
-        async def handle(self, ctx):
-            self.contexts.append(ctx)
-            d = Decision(0.9, "deep_job", 1.0, {"deep_job": 1.0}, 0.9, 0.0, 300.0, 0.0, long_job=0.9)
-            return Outcome(ctx, d, Verdict(Action.ACT, "deep_job"))
-
-    b, p = brain(LongSB())
-    out = await b.hear("evie research the best IB physics IA topics")
-    assert p["mouth"].clips == ["on_it_long"] and out["said"] == ACKS["on_it_long"]
 
 
 async def test_job_control_queue_status_and_cancel_next():
@@ -324,6 +357,7 @@ class PolicyPickedSwitchboard(FakeSwitchboard):
 async def test_act_uses_the_route_the_policy_picked():
     b, p = brain(PolicyPickedSwitchboard())
     out = await b.hear("please edit the cricket files")
+    await asyncio.sleep(0.01)  # jobs start after the say-stop window (0 s in tests)
     assert p["runner"].started == ["please edit the cricket files"] and out["route"] == "deep_job"
 
 
@@ -377,7 +411,7 @@ async def test_drafted_answer_is_dropped_when_jev_picks_a_job():
     b, p = brain(SlowSwitchboard("act", "deep_job", "deep_job", log=log))
     b._talker = LoggingTalker(log)
     await b.hear("fix the chase bug")
-    assert p["mouth"].said == [] and p["mouth"].clips == ["on_it"]
+    assert p["mouth"].said == ["Okay, fix the chase bug. Say stop if that's wrong."]  # the read-back, not the draft
 
 
 async def test_no_draft_for_speech_not_addressed_to_evie():
@@ -615,6 +649,7 @@ async def test_unknown_quick_thing_goes_to_claude_code():
         b, p = brain(SkillSwitchboard(skill, conf))
         b._skills = FakeSkills()
         await b.hear("evie rename my screenshots by date")
+        await asyncio.sleep(0.01)
         assert p["runner"].started == ["rename my screenshots by date"], skill
 
 
@@ -622,6 +657,7 @@ async def test_skill_that_isnt_fast_falls_to_claude_code():
     b, p = brain(SkillSwitchboard("open_app"))
     b._skills = FakeSkills(said=None)
     await b.hear("evie open the thing")
+    await asyncio.sleep(0.01)
     assert p["runner"].started == ["open the thing"]
 
 
@@ -928,7 +964,7 @@ async def test_computer_goal_runs_in_the_background_and_reports():
     b, p = brain(SkillSB("computer"))
     b._computer = FakeComputer(CO(True, "Playing I Spent 7 Days Buried Alive."), delay=0.02)
     out = await b.hear("evie play a video by mrbeast")
-    assert out["said"] == ACKS["on_it"]  # answered straight away, the work carries on
+    assert out["said"] is None  # no "On it": the planner says what it understood, the work carries on
     await asyncio.sleep(0.05)
     assert b._computer.goals == ["play a video by mrbeast"]
     assert p["mouth"].said[-1] == "Playing I Spent 7 Days Buried Alive."
@@ -941,7 +977,7 @@ async def test_stuck_on_screen_hands_it_to_claude_code():
     await b.hear("evie turn on do not disturb")
     await asyncio.sleep(0.05)
     assert p["runner"].started and "turn on do not disturb" in p["runner"].started[0]
-    assert "Claude Code" in p["mouth"].said[-1] or p["mouth"].clips[-1] == "on_it"
+    assert any("Claude Code" in line for line in p["mouth"].said)
 
 
 async def test_computer_question_back_waits_for_the_answer():

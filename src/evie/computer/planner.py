@@ -15,26 +15,34 @@ back with 3 s to say stop, and in an app Evie has no card for, she asks first.
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Callable
 
-from evie.computer.cards import CARDS, card_for, render_action
+from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
 from evie.computer.find import candidates, find_in_code, pick_pool
 from evie.computer.observe import Screen
 from evie.computer.safety import is_risky
 from evie.computer.world import Target, World
 from evie.countdown import Countdown
 from evie.jev import JevError
+from evie.talk import TalkError
 
 log = logging.getLogger("evie.computer")
 
 MODEL = "openai/gpt-oss-120b"
+# Each Groq model has its own 8k tokens/minute (on-demand tier, 2026-09-24): a rate-limited plan
+# moves down this list instead of failing.
+FALLBACKS = ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
 MAX_REPLANS = 2
 MAX_STEPS = 20
+LONG_STEPS = 3  # plans with this many doing steps take long enough to mention "say stop"
 VISION_BELOW = 5  # an app showing fewer labelled elements than this gets looked at
 
 SYSTEM = """You plan tasks on Isaac's Mac for his assistant Evie. Write the WHOLE route to the goal as steps, in one go,
-using what's open, the app guide and the screen shown. Reply with one JSON object: {"steps": [ ... ]}.
+using what's open, the app guide and the screen shown. Reply with one JSON object:
+{"understood": "what you're about to do, as Evie would say it out loud, 3-9 words starting with an -ing verb",
+ "steps": [ ... ]}.
 Steps (each an object with "do"):
 - {"do":"open_url","url":"https://...","same_tab":false}   open a page (a new tab unless same_tab)
 - {"do":"find","what":"words on the element","role":"tab|button|link|input|...","href":"part of its link",
@@ -47,11 +55,20 @@ Steps (each an object with "do"):
 - {"do":"message","to":"who","body":"exact words","via":"whatsapp|imessage"}   sending always uses this
 - {"do":"ask","say":"a short question"}   only when Isaac's goal is truly unclear
 - {"do":"done","say":"one short spoken sentence; {picked} = the label of what you picked"}
-Rules: prefer direct addresses and actions over clicking. After each page change put an expect that proves it
-worked. "Newest" on a channel's Videos page is the first video. When several could match, use pick and choose the
+Rules: when the app guide has an action for the task, use that one step, never clicks. open_url already opens a
+new tab (never key cmd+t before it). Use read only when Isaac wants to know or hear something. A message step does the
+whole send by itself (finds the person, opens the chat, reads it back): use it alone. Otherwise prefer direct
+addresses over clicking. After a page change put an expect that proves it worked (never after an action or message). "Newest" on a channel's Videos page is the first video. When several could match, use pick and choose the
 best: don't ask. Mark "risky": true on any step that sends, posts, buys, deletes or submits for Isaac, with a "say"
 read-back. Never type passwords or pay. Isaac's words came from speech-to-text and may contain misheard words:
 read them for what he most likely meant. End with done."""
+
+
+_DOING = {"open_url", "find", "pick", "key", "menu", "action", "message", "activate"}
+
+# Isaac asked to KNOW something (so a read step's answer is what she says).
+_WANTS_ANSWER = re.compile(r"\?|\b(what|what's|whats|who|which|when|where|how|why|any|anything|summari[sz]e|read|"
+                           r"tell me|is there|are there|do i|did|does|explain|check)\b", re.I)
 
 
 @dataclass
@@ -80,10 +97,12 @@ class Planner:
         self._settle, self._window, self._show_work = settle_s, window_s, show_work
         self._progress = progress or (lambda _t: None)
         self._messages, self._talker = messages, talker
+        self._rate_wait = 8.0  # seconds to wait when every planner model hit its per-minute limit
 
     # -- the run --------------------------------------------------------------------------------
     async def run(self, goal: str, app: str | None = None) -> Outcome:
         self._goal, self._picked, self._history = goal, "", []
+        self._did, self._last_say = False, ""  # something was actually done (across replans)
         self._screen: Screen | None = None
         self._new_tab_done = False
         world = await self._world()
@@ -94,7 +113,11 @@ class Planner:
             target = await self._choose_tab(goal, target)
         self._target, self._world_now = target, world
         await self._go_to(target)
+        self._understood = ""
         steps = await self._plan(first=True)
+        if self._understood:  # what she's about to do, said as soon as she knows (a long one can be stopped)
+            long = sum(1 for st in steps if st.get("do") not in ("expect", "done")) >= LONG_STEPS
+            self._say(f"{self._understood}. Say stop if that's wrong." if long else f"{self._understood}.")
         replans = 0
         while True:
             try:
@@ -114,22 +137,42 @@ class Planner:
     async def _run_steps(self, steps: list[dict]) -> Outcome:
         if not steps:
             raise _Fail("the plan was empty")
+        prev, did = None, False
         for st in steps[:MAX_STEPS]:
             do = st.get("do")
+            if do == "read" and not _WANTS_ANSWER.search(self._goal):
+                continue  # he asked to open or do something, not to hear about it
+            if do == "expect" and prev == "action":
+                prev = do  # a fixed script reports its own success; what it changed may not be on this screen
+                continue
+            prev = do
             self._progress(_describe(st))
             if do == "done":
-                return Outcome(True, str(st.get("say") or "Done.").replace("{picked}", self._picked))
+                if not did and not self._did:
+                    raise _Fail("the plan stopped before doing anything")
+                return Outcome(True, str(st.get("say") or self._closing()).replace("{picked}", self._picked))
             if do == "ask":
                 raise _Ask(str(st.get("say") or "What exactly should I do?"))
             said = await self._step(do, st)
+            did = did or do in _DOING
             if said is not None:  # read / action results end the task with what she found
                 return Outcome(True, said)
-        return Outcome(True, "Done.")
+        if not did and not self._did:
+            raise _Fail("the plan stopped before doing anything")
+        return Outcome(True, self._closing())
+
+    def _closing(self) -> str:
+        if self._last_say:
+            return self._last_say
+        return f"Opened {self._picked}." if self._picked else "Done."
 
     # -- one step ---------------------------------------------------------------------------------
     async def _step(self, do: str, st: dict) -> str | None:
         if do == "open_url":
             url = str(st.get("url") or "")
+            if url.startswith("x-apple.systempreferences:"):  # a Settings pane: the safe, fixed action
+                return await self._action({"name": "settings_open",
+                                           "args": {"pane": url.removeprefix("x-apple.systempreferences:")}})
             if not url.startswith(("https://", "http://")):
                 raise _Fail(f"not a web address: {url!r}")
             new_tab = not st.get("same_tab") and not self._new_tab_done and self._target.kind != "tab"
@@ -138,6 +181,7 @@ class Planner:
             self._new_tab_done = True
             self._screen = None
             self._check(r, f"open {url}")
+            self._did = True
             await self._wait_page("")
             self._history.append(f"opened {url}")
         elif do == "expect":
@@ -224,7 +268,7 @@ class Planner:
         try:
             out = json.loads(await self._groq.look(
                 f'Isaac asked: "{self._goal}". In this screenshot of {self._app()}, which numbered box is {what}? '
-                'Reply {"n": the number} or {"n": null} if none is.', str(r.data.get("png", ""))))
+                'Answer in JSON: {"n": the number} or {"n": null} if none is.', str(r.data.get("png", ""))))
         except Exception as e:  # noqa: BLE001
             raise _Fail(f"couldn't look for {what!r}: {e}")
         eid = marks.get(str(out.get("n")))
@@ -269,7 +313,8 @@ class Planner:
         known = self._app() in CARDS
         if is_risky(op, el, text, flagged=bool(st.get("risky"))):
             if not known:
-                raise _Ask(f"That would {st.get('say') or 'do something I can’t undo'} in {self._app()}. Should I?")
+                what = el.get("label") or "that"
+                raise _Ask(f"That's {what} in {self._app()}, and I can't undo it. Should I go ahead?")
             line = str(st.get("say") or f"About to press {el.get('label', '')}").strip()
             self._say(f"{line.rstrip('.')}. Say stop to cancel.")
             if not await self._countdown.wait(self._window):
@@ -280,6 +325,7 @@ class Planner:
             args |= {"text": text, "submit": bool(st.get("submit"))}
         r = await self._hands.do(op, **args)
         self._check(r, f"{op} {el.get('label')!r}")
+        self._did = True
         self._history.append(f"{op} {el.get('label')!r}")
         self._screen = None  # the screen changed: look again before the next step
         if self._web():
@@ -290,7 +336,9 @@ class Planner:
     async def _action(self, st: dict) -> str | None:
         try:
             a = render_action(str(st.get("name")), dict(st.get("args") or {}))
-        except (KeyError, ValueError) as e:
+        except KeyError:
+            raise _Fail(f"there's no action {st.get('name')!r}; the actions are: {', '.join(ACTIONS)}")
+        except ValueError as e:
             raise _Fail(f"action {st.get('name')!r}: {e}")
         if a.risky:
             self._say(f"{(st.get('say') or a.say or 'About to do that').rstrip('.')}. Say stop to cancel.")
@@ -300,6 +348,10 @@ class Planner:
         r = await self._hands.do("applescript", timeout=12.0, source=a.script)
         self._check(r, f"action {a.name}")
         self._history.append(f"did {a.name}")
+        self._did, self._last_say = True, a.say
+        if a.opens:  # the next steps happen in the app this brought up
+            self._target = Target("app", a.opens, why=f"{a.name} opened it")
+            await self._settle_now()
         if a.returns:
             return await self._answer(str(r.data.get("out", "")), f"the result of {a.name}")
         return None
@@ -374,14 +426,28 @@ class Planner:
         if not first:
             user += "Steps so far: " + " / ".join(self._history[-10:]) + "\nThe plan went wrong. Plan the rest again.\n\n"
         user += f"Screen now:\n{screen}"
-        try:
-            out = json.loads(await self._groq.chat(SYSTEM, user, max_tokens=900, json_mode=True, model=MODEL,
-                                                   reasoning="low"))
-        except Exception as e:  # noqa: BLE001 - a bad plan is a failed plan, never a crash
-            log.warning("plan call failed: %s", str(e)[:120])
-            return []
+        out = None
+        for attempt in range(2):
+            try:
+                out = json.loads(await self._groq.chat(SYSTEM, user, max_tokens=700, json_mode=True, model=MODEL,
+                                                       reasoning="low", fallbacks=FALLBACKS))
+                break
+            except TalkError as e:
+                if "rate limited" in str(e) and attempt == 0:
+                    log.info("every planner model is rate limited: waiting %.0f s", self._rate_wait)
+                    await asyncio.sleep(self._rate_wait)  # the per-minute budget refills
+                    continue
+                log.warning("plan call failed: %s", str(e)[:120])
+                return []
+            except Exception as e:  # noqa: BLE001 - a bad plan is a failed plan, never a crash
+                log.warning("plan call failed: %s", str(e)[:120])
+                return []
+        if first and isinstance(out, dict) and out.get("understood"):
+            self._understood = str(out["understood"]).strip().rstrip(".")
         steps = out.get("steps") if isinstance(out, dict) else None
-        return [s for s in steps if isinstance(s, dict)] if isinstance(steps, list) else []
+        steps = [s for s in steps if isinstance(s, dict)] if isinstance(steps, list) else []
+        log.info("plan (%s): %s", "first" if first else "replan", json.dumps(steps)[:900])
+        return steps
 
     async def _wait_page(self, before: str) -> None:
         await self._hands.do("wait_page", timeout=10.0, from_url=before or "")

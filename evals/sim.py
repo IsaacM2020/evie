@@ -21,17 +21,29 @@ class SimHands:
             if t.get("current") and t.get("order") == 1:
                 self.url = t["url"]
 
+    def _page(self, url: str) -> list[dict] | None:
+        """Exact address (ignoring a trailing /), else a key ending in * matches as a prefix."""
+        for k, els in self.pages.items():
+            if k.rstrip("/") == url.rstrip("/"):
+                return els
+        for k, els in self.pages.items():
+            if k.endswith("*") and url.startswith(k[:-1]):
+                return els
+        return None
+
     def _screen(self) -> dict:
         self.snap += 1
         if self.focus == "web":
-            els = self.pages.get(self.url, [{"id": "w1", "role": "heading", "label": "404 Not Found"}])
+            els = self._page(self.url)
+            if els is None:
+                els = [{"id": "w1", "role": "heading", "label": "404 Not Found"}]
             return {"snapshot": f"s{self.snap}", "app": "Safari", "kind": "web", "url": self.url, "window": self.url,
                     "elements": json.dumps(els)}
         return {"snapshot": f"s{self.snap}", "app": self.focus, "kind": "app", "window": self.focus,
                 "elements": json.dumps(self.apps.get(self.focus, []))}
 
     def _el(self, eid: str) -> dict | None:
-        els = self.pages.get(self.url, []) if self.focus == "web" else self.apps.get(self.focus, [])
+        els = (self._page(self.url) or []) if self.focus == "web" else self.apps.get(self.focus, [])
         return next((e for e in els if e["id"] == eid), None)
 
     async def do(self, op, timeout=5.0, **a):
@@ -67,7 +79,8 @@ class SimHands:
             self.front, self.focus = a["app"], (a["app"] if a["app"] != "Safari" else "web")
             return HandsResult(True, "ok")
         if op == "screen_info":
-            return HandsResult(True, "ok", {"url": self.url, "page_text": self.page_text.get(self.url, "")})
+            text = next((v for k, v in self.page_text.items() if k.rstrip("/") == self.url.rstrip("/")), "")
+            return HandsResult(True, "ok", {"url": self.url, "page_text": text})
         if op == "marked_shot":  # a screenshot with numbered boxes over the elements it read
             els = self.apps.get(self.focus, [])
             return HandsResult(True, "ok", {"png": "iVBORw0KGgo=",

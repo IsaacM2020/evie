@@ -67,10 +67,10 @@ class CachedGroq:
         self._groq, self.cassette = groq, cassette
 
     async def chat(self, system: str, user: str, max_tokens: int = 400, json_mode: bool = False,
-                   model: str | None = None, reasoning: str | None = None) -> str:
+                   model: str | None = None, reasoning: str | None = None, fallbacks: list[str] | None = None) -> str:
         k = Cassette.key("groq", system, user, max_tokens, json_mode, model, reasoning)
         return await self.cassette.get_or(k, lambda: self._groq.chat(system, user, max_tokens, json_mode, model,
-                                                                      reasoning))
+                                                                      reasoning, fallbacks=fallbacks))
 
     def __getattr__(self, name: str) -> Any:  # anything else (aclose, settings) goes to the real client
         return getattr(self._groq, name)

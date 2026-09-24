@@ -52,3 +52,21 @@ def test_pick_pool_for_articles_takes_long_headline_links_in_the_main_part():
 
 def test_candidates_never_include_ids_that_are_not_on_screen():
     assert all(c["id"] in CHANNEL.ids for c in candidates(CHANNEL, "anything at all"))
+
+
+def test_a_role_filter_never_hands_back_an_unrelated_button():
+    """Found in the 3c eval: 'find mom (button)' on WhatsApp left only Send, and code took it."""
+    wa = Screen(snapshot="s", app="WhatsApp", kind="app", elements=[
+        {"id": "a2", "role": "row", "label": "Mom, Are you coming for dinner?"},
+        {"id": "a5", "role": "button", "label": "Send"}])
+    el, _ = find_in_code(wa, "mom", role="button")
+    assert el is None
+
+
+def test_symbol_buttons_are_found_by_symbol_or_name():
+    calc = Screen(snapshot="s", app="Calculator", kind="app", elements=[
+        {"id": "a1", "role": "button", "label": "="}, {"id": "a2", "role": "button", "label": "×"},
+        {"id": "a3", "role": "button", "label": "+"}])
+    assert find_in_code(calc, "=")[0]["id"] == "a1"
+    assert find_in_code(calc, "equals")[0]["id"] == "a1"
+    assert find_in_code(calc, "times button")[0]["id"] == "a2"

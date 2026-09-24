@@ -68,27 +68,30 @@ class GroqClient:
         self._hedge = hedge_after_s
 
     async def chat(self, system: str, user: str, max_tokens: int = 400, json_mode: bool = False,
-                   model: str | None = None, reasoning: str | None = None) -> str:
+                   model: str | None = None, reasoning: str | None = None, fallbacks: list[str] | None = None) -> str:
+        """fallbacks: models to try, in order, when the one before is rate limited (each Groq model has
+        its own tokens-per-minute budget). Default: the everyday model."""
         model = model or self._s.groq_model
-        body = {
+        chain = [model] + [m for m in (fallbacks if fallbacks is not None else [self._s.groq_model]) if m != model]
+        for i, m in enumerate(chain):
+            try:
+                return await self._hedged(self._body(system, user, max_tokens, json_mode, m, reasoning if i == 0 else None))
+            except RateLimited:
+                if i == len(chain) - 1:
+                    raise TalkError("rate limited")
+                log.warning("%s rate limited, falling back to %s", m, chain[i + 1])
+        raise TalkError("rate limited")
+
+    def _body(self, system: str, user: str, max_tokens: int, json_mode: bool, model: str, reasoning: str | None) -> dict:
+        return {
             "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "max_tokens": max_tokens,
             **({"response_format": {"type": "json_object"}} if json_mode else {}),
             # Evie's lines are short: no thinking. gpt-oss can't switch it off, so hide it.
             **({"reasoning_effort": reasoning or "low", "include_reasoning": False}
-               if model.startswith("openai/gpt-oss") else {"reasoning_effort": reasoning or "none"}),
+               if model.startswith("openai/gpt-oss") else {"reasoning_effort": "none"}),
         }
-        try:
-            return await self._hedged(body)
-        except RateLimited:
-            if model == self._s.groq_model:
-                raise TalkError("rate limited")
-            # The big model has a much smaller rate limit: fall back to the everyday one.
-            log.warning("%s rate limited, falling back to %s", model, self._s.groq_model)
-            body = dict(body, model=self._s.groq_model, reasoning_effort="none")
-            body.pop("include_reasoning", None)
-            return await self._hedged(body)
 
     async def look(self, prompt: str, png_b64: str, max_tokens: int = 60) -> str:
         """Qwen with a screenshot (tested 2026-09-24: Groq's qwen3.8-27b reads images). Only the
@@ -320,6 +323,25 @@ class Talker:
             f'Isaac said: "{utterance}". You can\'t do it yet because of this: {reason}. '
             "Ask him one short question to get what you need."
         )
+
+    async def readback(self, text: str) -> dict:
+        """Before a long job: what Evie understood, as a short spoken line ("Checking why your website
+        deploy failed"), or, when the words look misheard or a key detail is missing, one question.
+        {"line": str, "unsure": bool, "question": str}. Falls back to the plain words on failure."""
+        system = ("Isaac asked his assistant Evie, by voice, to do a job that takes a while. His words came through "
+                  "speech-to-text and may contain misheard words. Return JSON: {\"line\": what Evie is about to do, "
+                  "as she'd say it, 4-12 words starting with an -ing verb, using the most likely meaning of his words, "
+                  "\"unsure\": true only if the words don't make sense or it's unclear WHICH thing he means, "
+                  "\"question\": if unsure, one short question to ask him}. No em dashes.")
+        try:
+            out = json.loads(await self._groq.chat(system, f'Isaac said: "{text}"', max_tokens=120, json_mode=True))
+        except (TalkError, ValueError) as e:
+            log.warning("readback failed: %s", str(e)[:120])
+            return {"line": "", "unsure": False, "question": ""}
+        if not isinstance(out, dict):
+            return {"line": "", "unsure": False, "question": ""}
+        return {"line": str(out.get("line") or "").strip().rstrip("."), "unsure": bool(out.get("unsure")),
+                "question": str(out.get("question") or "").strip()}
 
     async def narrate(self, goal: str, event: str) -> str:
         return await self._say(

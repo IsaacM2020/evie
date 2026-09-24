@@ -28,6 +28,7 @@ class ActionSpec:
     risky: bool = False
     returns: bool = False  # the script's result is what she reads out
     say: str = ""
+    opens: str = ""  # the app this leaves in front, where the next steps happen
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class Action:
     risky: bool
     returns: bool
     say: str
+    opens: str = ""
 
 
 ACTIONS: dict[str, ActionSpec] = {
@@ -46,9 +48,9 @@ ACTIONS: dict[str, ActionSpec] = {
     "notes_latest": ActionSpec((), 'tell application "Notes" to return (name of note 1) & ": " & (plaintext of note 1)',
                                returns=True),
     "finder_open": ActionSpec(("path",), 'tell application "Finder"\nopen (POSIX file ({path}) as alias)\nactivate\nend tell',
-                              say="Opened it."),
+                              say="Opened it.", opens="Finder"),
     "finder_reveal": ActionSpec(("path",), 'tell application "Finder"\nreveal (POSIX file ({path}) as alias)\nactivate\nend tell',
-                                say="There it is."),
+                                say="There it is.", opens="Finder"),
     "finder_new_folder": ActionSpec(("where", "name"),
                                     'tell application "Finder" to make new folder at (POSIX file ({where}) as alias) '
                                     'with properties {{name:{name}}}', say="Folder made."),
@@ -62,7 +64,8 @@ ACTIONS: dict[str, ActionSpec] = {
     "brightness": ActionSpec(("direction", "steps"),
                              'tell application "System Events"\nrepeat {steps} times\nkey code {direction}\nend repeat\nend tell',
                              say="Done."),
-    "settings_open": ActionSpec(("pane",), 'open location "x-apple.systempreferences:" & {pane}', say="Opened it."),
+    "settings_open": ActionSpec(("pane",), 'open location "x-apple.systempreferences:" & {pane}', say="Opened it.",
+                                opens="System Settings"),
     "mail_unread": ActionSpec((), 'tell application "Mail"\nset out to ""\nset ms to (messages of inbox whose read status is false)\n'
                                   'repeat with m in items 1 thru (min(5, count of ms)) of ms\n'
                                   'set out to out & (sender of m) & ": " & (subject of m) & linefeed\nend repeat\nreturn out\nend tell',
@@ -71,7 +74,7 @@ ACTIONS: dict[str, ActionSpec] = {
                              'tell application "Mail"\nset m to make new outgoing message with properties '
                              '{{subject:{subject}, content:{body}, visible:true}}\n'
                              'tell m to make new to recipient with properties {{address:{to}}}\nactivate\nend tell',
-                             say="Draft's open, have a look before you send it."),
+                             say="Draft's open, have a look before you send it.", opens="Mail"),
 }
 # AppleScript has no min(): mail_unread uses this helper.
 _MIN = "on min(a, b)\nif a < b then return a\nreturn b\nend min\n"
@@ -99,7 +102,7 @@ def render_action(name: str, args: dict) -> Action:
     script = spec.template.format(**vals)
     if "min(" in script:
         script = _MIN + script
-    return Action(name, script, spec.risky, spec.returns, spec.say)
+    return Action(name, script, spec.risky, spec.returns, spec.say, spec.opens)
 
 
 # -- the guides ---------------------------------------------------------------------------------
@@ -150,12 +153,26 @@ Menus: menu "File > New". Fields: find the field (typeable) and set_text. Keys: 
 If the app isn't open, activate it first."""
 
 
+# Cards the goal itself calls for, whatever app happens to be in front.
+_GOAL_CARDS = [
+    ("System Settings", r"wi-?fi|dark mode|light mode|brightness|brighter|dimmer|do not disturb|focus|bluetooth|settings"),
+    ("Notes", r"\bnotes?\b"),
+    ("Mail", r"\b(unread|inbox|e-?mails?|mail)\b(?!.*gmail)"),
+    ("Finder", r"\b(files?|folders?|finder|downloads|desktop|documents)\b"),
+    ("WhatsApp", r"whatsapp"),
+    ("Notion", r"notion"),
+]
+
+
 def card_for(app: str, goal: str) -> str:
-    parts = [f"== {app} ==", CARDS.get(app, GENERAL)]
     g = goal.lower()
-    if app == "Safari":
-        if re.search(r"youtube|video|watch|channel|vlog|song video|trailer", g):
-            parts.append(_YOUTUBE)
-        if re.search(r"news|article|headline|story|bbc|cna|straits|times", g):
-            parts.append(_NEWS)
+    apps = [app] + [a for a, pat in _GOAL_CARDS if a != app and re.search(pat, g)]
+    parts = []
+    for a in apps[:3]:
+        parts += [f"== {a} ==", CARDS.get(a, GENERAL)]
+        if a == "Safari":
+            if re.search(r"youtube|video|watch|channel|vlog|song video|trailer", g):
+                parts.append(_YOUTUBE)
+            if re.search(r"news|article|headline|story|bbc|cna|straits|times", g):
+                parts.append(_NEWS)
     return "\n".join(parts)

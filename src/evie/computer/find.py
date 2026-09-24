@@ -17,8 +17,18 @@ _FILLER = {"the", "a", "an", "button", "link", "tab", "box", "field", "on", "in"
            "click", "press", "open", "go", "page"}
 
 
+# Buttons that are just a symbol (Calculator, media controls): matched by the symbol or its name.
+_SYMBOLS = {"=": "equals", "+": "plus", "−": "minus", "-": "minus", "×": "times", "*": "times", "÷": "divide",
+            "/": "divide", "%": "percent", ".": "point", "±": "negate"}
+_NAMES = {"equals": "equals", "equal": "equals", "plus": "plus", "add": "plus", "minus": "minus", "subtract": "minus",
+          "times": "times", "multiply": "times", "multiplied": "times", "divide": "divide", "divided": "divide",
+          "percent": "percent", "point": "point", "decimal": "point"}
+
+
 def _words(s: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z0-9]+", s.lower()) if w not in _FILLER}
+    words = {w for w in re.findall(r"[a-z0-9]+", s.lower()) if w not in _FILLER}
+    words |= {_SYMBOLS[c] for c in s if c in _SYMBOLS and len(s.strip()) <= 2}
+    return {_NAMES.get(w, w) for w in words}
 
 
 def score(el: dict, what: str) -> float:
@@ -68,7 +78,11 @@ def find_in_code(screen: Screen, what: str, role: str | None = None, href: str |
     nxt = score(cands[1], what) if len(cands) > 1 else 0.0
     if top >= CLEAR_WIN and top - nxt >= CLEAR_GAP:
         return cands[0], cands
-    if (role or href) and len(cands) == 1:
+    # One candidate left by a link pattern is that link; a role filter alone isn't enough (it once
+    # left only "Send" when looking for a chat called Mom).
+    if href and len(cands) == 1:
+        return cands[0], cands
+    if role and len(cands) == 1 and top >= 0.5:
         return cands[0], cands
     return None, cands
 

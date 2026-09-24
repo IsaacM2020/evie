@@ -231,14 +231,19 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
 
     async def transcribe_and_hear(d: Deps, audio: bytes) -> dict:
         t0 = time.perf_counter()
-        text = await d.stt.transcribe(audio)
+        confidence = 1.0
+        if hasattr(d.stt, "transcribe_detail"):
+            heard = await d.stt.transcribe_detail(audio)
+            text, confidence = heard.text, heard.confidence
+        else:
+            text = await d.stt.transcribe(audio)
         stt_ms = round((time.perf_counter() - t0) * 1000)
         if not text:
             d.bus.publish("heard", text="")
             d.bus.publish("state", state="working" if d.runner and d.runner.current else "idle")
             return {"text": "", "action": "ignore", "reason": "heard nothing", "route": None, "said": None,
                     "stt_ms": stt_ms}
-        return {**await d.brain.hear(text), "stt_ms": stt_ms}
+        return {**await d.brain.hear(text, confidence=confidence), "stt_ms": stt_ms}
 
     @app.get("/job")
     async def job() -> dict | None:

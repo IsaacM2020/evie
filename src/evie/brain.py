@@ -5,6 +5,7 @@ speak an answer, ask a question, start a Claude Code job, control the running jo
 quiet. Everything that happens goes onto the event bus so the menu bar panel can show it.
 """
 import asyncio
+import contextvars
 import json
 import logging
 import re
@@ -17,6 +18,7 @@ from typing import Callable
 
 from evie.calendar_store import TZ, CalendarStore
 from evie.context_packs import named_days, rails
+from evie.countdown import Countdown
 from evie.events import EventBus
 from evie.jev import JevError
 from evie.jobs import Busy
@@ -31,6 +33,9 @@ TURNS_LOG = Path.home() / "Library/Logs/Evie/turns.jsonl"
 MAX_TURNS = 3
 PENDING_S = 15.0  # how long Evie waits for the answer to a question she asked
 FOLLOWUP_S = 10.0
+JOB_WINDOW_S = 3.0  # read back a job, then start it this long after unless he says stop
+STT_SURE = 0.5  # Whisper confidence below this: ask before starting anything long
+STT_CONF: contextvars.ContextVar[float] = contextvars.ContextVar("evie_stt_conf", default=1.0)
 MULTI_AT = 0.7  # Jev's multi_request: this sure it's two separate requests
 SPLIT_Q = ('Isaac asked for several separate things in one sentence. Return {"parts": [each request as its own '
            'complete sentence, in the order he said them]}. Keep his words; fill in what "it" or "that" means.')
@@ -97,6 +102,7 @@ class Brain:
         self._bus, self._jev, self._log, self._clock = bus, jev, turns_log, clock
         self._skills, self._remember = skills, remember
         self._countdown = countdown  # a pending "say stop to cancel" (event delete, 3b sends)
+        self._job_countdown = Countdown(seconds=JOB_WINDOW_S)  # read back, then the job starts
         self._conv = conversation  # today's turns with Isaac (evie.memory), for follow-ups
         self._packs = packs  # context packs (evie.context_packs): the knowledge each answer needs
         self._computer = computer  # Phase 3b: operating apps on screen (evie.computer.recipes)
@@ -108,16 +114,19 @@ class Brain:
         self._turn_seq = 0
         self._last_act: tuple[int, float] | None = None  # (turn, when) of the last turn she acted on
 
-    async def hear(self, text: str, speaker: str = "isaac", addressed: bool = True, shadow: bool = False) -> dict:
+    async def hear(self, text: str, speaker: str = "isaac", addressed: bool = True, shadow: bool = False,
+                   confidence: float = 1.0) -> dict:
         """addressed: Isaac held the talk key or typed to Evie, so it's certainly for her.
         addressed=False is the open mic: Jev and the policy decide whether it was for her.
         shadow: open mic trial run. Decide and log what she WOULD do, do nothing."""
         if shadow:
             return await self._shadow(text, speaker)
         self._turn_seq += 1
-        TURN.set(self._turn_seq)  # everything said from this turn (and tasks it starts) carries it
+        TURN.set(self._turn_seq)
+        STT_CONF.set(confidence)  # how sure Whisper was of these words  # everything said from this turn (and tasks it starts) carries it
         # A delete (or a send) waiting on "say stop to cancel": stop calls it off, nothing else.
-        if speaker != "other" and is_stop(text) and self._countdown is not None and self._countdown.cancel():
+        if speaker != "other" and is_stop(text) and ((self._countdown is not None and self._countdown.cancel())
+                                                     | self._job_countdown.cancel()):
             self._mouth.stop()
             self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "cancelled", "route": None})
             return {"text": text, "action": "act", "reason": "cancelled", "route": None,
@@ -322,7 +331,7 @@ class Brain:
         if route == "answer":
             return await self._answer(text, draft, decision)
         if route == "deep_job":
-            return await self._start_job(text, long=bool(decision and decision.long_job >= 0.6))
+            return await self._start_job(text, decision=decision)
         if route == "job_control":
             return await self._job_control(text)
         if route == "quick_action" and (self._skills or self._computer):
@@ -397,13 +406,15 @@ class Brain:
                 return self._say(done.said)
         return await self._start_job(text)
 
-    def _start_computer(self, goal: str, skill: str | None = None) -> str:
-        """On screen work takes a few seconds: say "On it." now, keep listening, report when done."""
+    def _start_computer(self, goal: str, skill: str | None = None) -> str | None:
+        """Screen work takes a few seconds: it runs in the background, she keeps listening, and
+        reports when done."""
         if self._computer_task and not self._computer_task.done():
             self._computer_task.cancel()
-        said = self._clip("on_it")
+        # No "On it": the planner says what it understood about a second from now, and the orb shows
+        # she's working straight away.
         self._computer_task = asyncio.create_task(self._run_computer(goal, skill))
-        return said
+        return None
 
     async def _run_computer(self, goal: str, skill: str | None = None) -> None:
         self._bus.publish("state", state="working")
@@ -429,20 +440,35 @@ class Brain:
         else:
             self._say(out.said)
 
-    async def _start_job(self, text: str, long: bool = False) -> str:
+    async def _start_job(self, text: str, long: bool = False, decision=None) -> str:
+        """A job that takes a while: she says what she understood and starts it 3 s later, unless
+        Isaac says stop. If the words were mumbled (low speech-to-text confidence), the request isn't
+        complete, or it's unclear which thing he means, she asks one question instead."""
         running = self._runner.current
+        goal = strip_wake(text)
         if running:  # it waits its turn (Phase 6's night queue builds on this)
-            self._runner.enqueue(strip_wake(text))
+            self._runner.enqueue(goal)
             return self._say(f"I'm on {running.goal}. I'll do this right after.")
-        said = self._clip("on_it_long" if long else "on_it")
-        try:
-            job = await self._runner.start(strip_wake(text))
-        except Busy as e:
-            self._runner.enqueue(strip_wake(text))
-            return self._say(f"I'm on {e}. I'll do this right after.")
-        self._narrator.start(job)
-        self._bus.publish("job_started", id=job.id, goal=job.goal)
-        return said
+        rb = await self._talker.readback(goal) if hasattr(self._talker, "readback") else {}
+        unsure = STT_CONF.get() < STT_SURE or bool(rb.get("unsure")) or (decision is not None and decision.complete < 0.3)
+        if unsure:
+            q = rb.get("question") or f'Just checking, you want me to {goal.rstrip(".?!")}?'
+            self._pending = Pending("detail", text, "isaac", self._clock(), asked=q)
+            return self._say(q)
+        line = rb.get("line") or f"Okay, {goal.rstrip('.?!')}"
+
+        async def go() -> None:
+            try:
+                job = await self._runner.start(goal)
+            except Busy as e:
+                self._runner.enqueue(goal)
+                self._say(f"I'm on {e}. I'll do this right after.")
+                return
+            self._narrator.start(job)
+            self._bus.publish("job_started", id=job.id, goal=job.goal)
+
+        self._job_countdown.start(go)
+        return self._say(f"{line}. Say stop if that's wrong.")
 
     async def _job_control(self, text: str) -> str:
         if not self._runner.current:

@@ -46,7 +46,7 @@ class FakeBrain:
     def __init__(self):
         self.heard = []
 
-    async def hear(self, text, speaker="isaac", addressed=True, shadow=False):
+    async def hear(self, text, speaker="isaac", addressed=True, shadow=False, confidence=1.0):
         self.heard.append({"text": text, "speaker": speaker, "addressed": addressed, "shadow": shadow})
         return {}
 
@@ -288,7 +288,7 @@ class SlowBrain:
     def __init__(self, delay=0.3):
         self.delay, self.started, self.finished = delay, [], []
 
-    async def hear(self, text, speaker="isaac", addressed=True, shadow=False):
+    async def hear(self, text, speaker="isaac", addressed=True, shadow=False, confidence=1.0):
         self.started.append(text)
         await asyncio.sleep(self.delay)
         self.finished.append(text)

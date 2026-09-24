@@ -268,3 +268,47 @@ async def test_look_sends_the_screenshot_to_qwen_as_an_image():
     out = await GroqClient(Settings(openrouter_key="k", groq_key="g")).look("which box?", "iVBORw0KGgo=")
     body = route.calls[0].request.content.decode()
     assert out == '{"n": 3}' and "data:image/png;base64,iVBORw0KGgo=" in body and "qwen/qwen3.8-27b" in body
+
+
+@respx.mock
+async def test_a_rate_limited_planner_falls_back_down_its_chain_of_models():
+    """Each Groq model has its own 8k tokens/minute (2026-09-24): the planner tries gpt-oss-120b,
+    then gpt-oss-20b, then qwen."""
+    from evie.config import Settings
+    from evie.talk import GroqClient
+    seen = []
+
+    def reply(request):
+        import json as _j
+        m = _j.loads(request.content)["model"]
+        seen.append(m)
+        if m == "openai/gpt-oss-120b":
+            return httpx.Response(429, json={"error": {"message": "rate limit"}})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    respx.post("https://api.groq.com/openai/v1/chat/completions").mock(side_effect=reply)
+    g = GroqClient(Settings(openrouter_key="k", groq_key="g"), hedge_after_s=5)
+    out = await g.chat("s", "u", json_mode=True, model="openai/gpt-oss-120b",
+                       fallbacks=["openai/gpt-oss-20b", "qwen/qwen3.8-27b"])
+    assert out == "{}" and seen == ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+
+
+async def test_readback_turns_the_request_into_a_short_line_or_a_question():
+    import json as _j
+
+    from evie.talk import Talker
+
+    class G:
+        def __init__(self, out):
+            self.out, self.prompts = out, []
+
+        async def chat(self, system, user, max_tokens=400, json_mode=False, model=None, reasoning=None, fallbacks=None):
+            self.prompts.append(system + user)
+            return _j.dumps(self.out)
+
+    g = G({"line": "Checking why your website deploy failed", "unsure": False})
+    rb = await Talker(g).readback("why did my website deploy fail")
+    assert rb["line"] == "Checking why your website deploy failed" and not rb["unsure"]
+    assert "speech-to-text" in g.prompts[0]
+    g = G({"line": "", "unsure": True, "question": "Which website?"})
+    assert (await Talker(g).readback("check my site thingy"))["question"] == "Which website?"

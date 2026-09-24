@@ -135,21 +135,22 @@ class OpenMic:
             self._spec.cancel()
             self._spec = None
 
-    async def _understand(self, audio: np.ndarray) -> tuple[str, float, str]:
+    async def _understand(self, audio: np.ndarray) -> tuple[str, float, str, float]:
+        """(speaker, voice similarity, words, how sure Whisper was of them)."""
         speaker, sim = await asyncio.get_running_loop().run_in_executor(self._pool, self._vid.who, audio)
         if speaker == "other":
-            return speaker, sim, ""
+            return speaker, sim, "", 1.0
         if hasattr(self._stt, "transcribe_pcm_detail"):
             heard = await self._stt.transcribe_pcm_detail(audio)
             if heard.noise:  # words Whisper wrote over silence or room noise
                 log.info("open mic dropped noise (no_speech %.2f)", heard.no_speech)
-                return speaker, sim, ""
-            return speaker, sim, heard.text.strip()
-        return speaker, sim, (await self._stt.transcribe_pcm(audio)).strip()
+                return speaker, sim, "", 1.0
+            return speaker, sim, heard.text.strip(), heard.confidence
+        return speaker, sim, (await self._stt.transcribe_pcm(audio)).strip(), 1.0
 
     async def _finish(self, task: asyncio.Task, tainted: bool, echo_start: bool, audio=None) -> None:
         try:
-            speaker, sim, text = await task
+            speaker, sim, text, conf = await task
         except asyncio.CancelledError:
             return
         except Exception:
@@ -189,17 +190,18 @@ class OpenMic:
             text = f"{prev[1]} {text}"
             speaker = "isaac" if "isaac" in (prev[2], speaker) else speaker
             log.info("merged a fragment into the sentence before it")
-        task = asyncio.get_running_loop().create_task(self._hear(text, speaker))
+        task = asyncio.get_running_loop().create_task(self._hear(text, speaker, conf))
         self._inflight = (task, text, speaker, now)
         try:
             await task
         except asyncio.CancelledError:
             pass
 
-    async def _hear(self, text: str, speaker: str) -> None:
+    async def _hear(self, text: str, speaker: str, confidence: float = 1.0) -> None:
         async with self._lock:
             try:
-                await self._brain.hear(text, speaker, addressed=False, shadow=self.modes.mode == "shadow")
+                await self._brain.hear(text, speaker, addressed=False, shadow=self.modes.mode == "shadow",
+                                       confidence=confidence)
             except asyncio.CancelledError:
                 raise
             except Exception:
