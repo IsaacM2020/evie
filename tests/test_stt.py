@@ -196,3 +196,29 @@ async def test_whisper_writing_words_over_silence_is_marked_noise():
 async def test_local_whisper_has_no_confidence_so_it_counts_as_sure():
     h = await Transcriber(S, backend="local", local_fn=FakeModel()).transcribe_detail(wav(1.0))
     assert h.text == "what time is it" and h.confidence == 1.0 and not h.noise
+
+
+# -- 2026-09-24 18:23: "a video by Parrot" came out as "Barrett and Svendel" ---------------------
+def test_spelled_out_letters_become_the_word():
+    from evie.stt import join_spelled
+    text, words = join_spelled("Jarvis, can you please open a video by Parrot, please? P-A-R-R-O-T on Safari.")
+    assert "Parrot on Safari" in text and words == ["Parrot"]
+    assert join_spelled("his name is Parrot, P-A-R-R-O-T-X-D.")[1] == ["Parrotxd"]
+    assert join_spelled("I got an A-B in the test")[1] == []  # two letters aren't a spelled name
+    assert join_spelled("the U.S. and IB")[1] == []
+
+
+@respx.mock
+async def test_names_he_spells_are_learned_into_whispers_vocabulary(tmp_path):
+    from evie.stt import Vocab
+    route = respx.post(GROQ_STT).mock(side_effect=[
+        respx.MockResponse(200, json={"text": "Open a video by Parrot. P-A-R-R-O-T."}),
+        respx.MockResponse(200, json={"text": "play Parrot's newest"})])
+    v = Vocab(tmp_path / "vocab.json", people={"dad": "Dada", "mom": "Mamma"})
+    t = Transcriber(S, backend="groq", local_fn=FakeModel(), vocab=v)
+    assert await t.transcribe(wav(1.0)) == "Open a video by Parrot. Parrot."
+    await t.transcribe(wav(1.0))
+    second = route.calls[1].request.content
+    assert b"Parrot" in second and b"Dada" in second and b"Mamma" in second and b"Todoist" in second
+    assert "Parrot" in Vocab(tmp_path / "vocab.json").prompt()  # kept for next time
+    assert len(v.prompt()) <= 700  # Whisper reads at most ~224 tokens of prompt

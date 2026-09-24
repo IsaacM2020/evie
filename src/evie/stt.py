@@ -6,8 +6,9 @@ frees ~470 MB of GPU memory. Only Isaac's own sentences get here (voice ID drops
 on the Mac first). If Groq is down or slow, local MLX Whisper takes over, loaded only then and
 unloaded again after 10 idle minutes."""
 import asyncio
-import math
 import io
+import json
+import math
 import logging
 import re
 import tempfile
@@ -15,6 +16,7 @@ import time
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 import httpx
@@ -31,7 +33,58 @@ GROQ_TIMEOUT_S = 2.5
 IDLE_UNLOAD_S = 600
 # Words Whisper should expect: names it would otherwise mangle.
 VOCAB = ("Evie, Isaac, IsaacOS, Todoist, Spotify, WhatsApp, iGEM, IB, TOK, Jev, Claude Code, Notion, "
-         "Safari, Sabrina Carpenter, Mr Tan, chem IA, Singapore.")
+         "Safari, Netflix, YouTube, MrBeast, Sabrina Carpenter, Mr Tan, chem IA, Singapore.")
+VOCAB_FILE = Path.home() / "Library/Application Support/Evie/vocab.json"  # names he's spelled out
+PROMPT_MAX = 700  # characters: Whisper only reads the last ~224 tokens of a prompt
+
+
+class Vocab:
+    """The words Whisper is told to expect: the fixed list, the people he talks about (people.json)
+    and names he spelled out loud ("Parrot, P-A-R-R-O-T", 2026-09-24), newest first."""
+
+    def __init__(self, path: Path = VOCAB_FILE, people: dict[str, str] | None = None, keep: int = 40):
+        self._path, self._keep = path, keep
+        self._people = list(dict.fromkeys((people or {}).values()))
+        try:
+            self._learned = [str(w) for w in json.loads(path.read_text())][:keep]
+        except (OSError, ValueError, TypeError):
+            self._learned = []
+
+    def learn(self, word: str) -> None:
+        if not word or word in self._learned:
+            return
+        self._learned = [word, *self._learned][: self._keep]
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(json.dumps(self._learned))
+        except OSError:
+            log.warning("couldn't save a learned word")
+
+    def prompt(self) -> str:
+        words = list(dict.fromkeys([*self._learned, *self._people, *[w.strip(" .") for w in VOCAB.split(",")]]))
+        out = ""
+        for w in words:
+            if len(out) + len(w) + 2 > PROMPT_MAX:
+                break
+            out = f"{out}, {w}" if out else w
+        return out + "."
+
+
+# "P-A-R-R-O-T": three or more letters joined by dashes is Isaac spelling a name.
+_SPELLED = re.compile(r"\b[A-Za-z](?:-[A-Za-z]){2,}\b")
+
+
+def join_spelled(text: str) -> tuple[str, list[str]]:
+    words: list[str] = []
+
+    def one(m: re.Match) -> str:
+        w = m.group(0).replace("-", "")
+        w = w[0].upper() + w[1:].lower()
+        words.append(w)
+        return w
+    return _SPELLED.sub(one, text), words
+
+
 # Whisper spells her name like the Pokemon. Only exact known mishearings: "eve" stays, since
 # "the eve of the match" is a real phrase (Jev is told about those in its state text instead).
 _NAME_FIXES = re.compile(r"\beevee\b", re.IGNORECASE)
@@ -86,12 +139,14 @@ class Heard:
 class Transcriber:
     def __init__(self, settings: Settings, backend: str = "groq",
                  local_fn: Callable[[str], str] = _mlx_transcribe, http: httpx.AsyncClient | None = None,
-                 unload_fn: Callable[[], None] = _mlx_unload, clock: Callable[[], float] = time.monotonic):
+                 unload_fn: Callable[[], None] = _mlx_unload, clock: Callable[[], float] = time.monotonic,
+                 vocab: Vocab | None = None):
         if backend not in ("local", "groq"):
             raise ValueError(f"unknown stt backend {backend!r}")
         self._s, self.backend, self._local, self._unload = settings, backend, local_fn, unload_fn
         self._http = http or httpx.AsyncClient(timeout=GROQ_TIMEOUT_S)
         self._clock = clock
+        self._vocab = vocab
         # MLX isn't thread safe, so every local transcription runs on this one thread.
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whisper")
         self._local_used_at: float | None = None  # None: the local model isn't loaded
@@ -113,7 +168,11 @@ class Transcriber:
                 self.offline = True
         if heard is None:
             heard = Heard(await asyncio.get_running_loop().run_in_executor(self._pool, self._run_local, audio))
-        return Heard(_NAME_FIXES.sub("Evie", heard.text), heard.confidence, heard.no_speech)
+        text, spelled = join_spelled(_NAME_FIXES.sub("Evie", heard.text))
+        for w in spelled:
+            if self._vocab is not None:
+                self._vocab.learn(w)
+        return Heard(text, heard.confidence, heard.no_speech)
 
     async def transcribe_pcm(self, audio) -> str:
         return (await self.transcribe_pcm_detail(audio)).text
@@ -144,7 +203,7 @@ class Transcriber:
             f"{self._s.groq_url}/audio/transcriptions",
             headers={"Authorization": f"Bearer {self._s.groq_key}"},
             data={"model": "whisper-large-v3-turbo", "language": "en", "response_format": "verbose_json",
-                  "temperature": "0", "prompt": VOCAB},
+                  "temperature": "0", "prompt": self._vocab.prompt() if self._vocab else VOCAB},
             files={"file": ("speech.wav", audio, "audio/wav")},
         )
         r.raise_for_status()

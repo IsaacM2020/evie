@@ -606,7 +606,10 @@ def build_deps(s: Settings) -> Deps:
                   countdown=Countdowns(countdown, sends), conversation=conversation, packs=packs, computer=computer)
     brain._job_countdown = Countdown(seconds=JOB_WINDOW_S, text_s=lambda: 5.0 if text_now() else 0.0,
                                      on_start=show_window)
-    stt = Transcriber(s, backend=s.stt_backend)
+    from evie.computer.messages import load_people
+    from evie.stt import Vocab
+    # Whisper is told the names he uses: people.json (Dada, Mamma) + names he's spelled out loud
+    stt = Transcriber(s, backend=s.stt_backend, vocab=Vocab(people=load_people()))
     open_mic, voiceid = build_ears(stt, brain, mouth, bus)
     if open_mic is not None:
         open_mic.paused = quiet.mic_paused  # no open mic in class
