@@ -20,6 +20,9 @@ from evie.skills.parse import match_app, normalize_url, parse_duration, parse_vo
 log = logging.getLogger("evie.skills")
 
 ACTIONS_LOG = Path.home() / "Library/Logs/Evie/actions.jsonl"
+# The app waits up to 10 s for a closed Spotify to open, then checks the song for 1.5 s: the core
+# waits longer than that (2026-09-24 18:24:45, it gave up at 10 s: "can't reach my hands").
+SPOTIFY_OPEN_S = 20.0
 
 # What could go wrong if Evie acts on the wrong sentence. Everything in Phase 3 is read-only or
 # undoable; sends (3b), deletes and money will need Isaac's own voice (see allowed()).
@@ -94,7 +97,7 @@ class Skills:
 
     # -- music (the Evie app drives Spotify) -------------------------------------------------
     async def _spotify_op(self, op: str, said: Callable[[dict], str], **args) -> Done:
-        r = await self._hands.do(op, timeout=10.0 if op == "spotify_play" else 5.0, **args)
+        r = await self._hands.do(op, timeout=SPOTIFY_OPEN_S if op in ("spotify_play", "spotify_resume") else 5.0, **args)
         if not r.ok:
             return failed(r.detail)
         return Done(said(r.data), verified=r.data.get("state") in ("playing", "paused") or None, detail=r.detail)
@@ -120,7 +123,7 @@ class Skills:
 
     async def _play(self, ranked: list) -> Done:
         uri, label = ranked[0]
-        r = await self._hands.do("spotify_play", timeout=10.0, uri=uri)  # may have to launch Spotify
+        r = await self._hands.do("spotify_play", timeout=SPOTIFY_OPEN_S, uri=uri)  # may have to launch Spotify
         if not r.ok:
             return failed(r.detail)
         # Worked means: for a song, Spotify's current track IS that song; otherwise it's playing.

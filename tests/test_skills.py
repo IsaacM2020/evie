@@ -408,3 +408,17 @@ async def test_after_a_guess_the_other_options_are_kept_for_no_the_other_one(tmp
     assert hands.calls[-1] == ("spotify_play", {"uri": "spotify:track:quavo00001"})
     assert nxt.said == "Playing Trance (Walk It Down) by Quavo." and nxt.others == sp.more[1:]
     assert (await s.play_other([])).ok is False
+
+
+async def test_playing_waits_long_enough_for_spotify_to_open(tmp_path):
+    """2026-09-24 18:24:45: Spotify was closed. The app waits up to 10 s for it to open and then
+    checks the song, but the core gave up at 10 s: "can't reach my hands"."""
+    class Timed(FakeHands):
+        async def do(self, op, timeout=5.0, **args):
+            self.timeouts = getattr(self, "timeouts", []) + [(op, timeout)]
+            return await super().do(op, timeout, **args)
+    hands = Timed()
+    s, _ = skills(tmp_path, hands=hands, spotify=FakeSpotify(), talker=FakeTalker({"query": "Espresso", "kind": "track"}))
+    await s.run("music_play", "play espresso")
+    await s.run("music_resume", "resume the music")
+    assert all(t >= 20 for op, t in hands.timeouts if op in ("spotify_play", "spotify_resume"))
