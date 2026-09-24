@@ -130,6 +130,8 @@ async def test_task_nudge_after_school_and_in_the_evening():
     nudges = [i for i in e.items if i.kind == "tasks"]
     assert len(nudges) == 1 and nudges[0].line == "Email bio teacher is due today, plus 1 more. Want help getting it done?"
     assert nudges[0].on_yes == {"do": "job", "goal": "help me get this done: Email bio teacher"}
+    # a chip from 15:45 was still there to be tapped at 18:25 (2026-09-24): two hours, then it's gone
+    assert nudges[0].expires == (at(15, 45) + timedelta(hours=2)).timestamp()
     now.t = at(19, 40)
     await s.collect()
     assert len([i for i in e.items if i.kind == "tasks"]) == 1  # the same two tasks aren't offered again

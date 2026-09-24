@@ -104,7 +104,7 @@ class Sources:
             first, more = tasks[0].content, len(tasks) - 1
             line = f"{first} is due today" + (f", plus {more} more" if more else "") + ". Want help getting it done?"
             self.engine.add(FollowUp("tasks", line, key, on_yes={"do": "job", "goal": f"help me get this done: {first}"},
-                                     expires=(moment + timedelta(hours=3)).timestamp()))
+                                     expires=(moment + timedelta(hours=2)).timestamp()))  # 18:25 tap on a 15:45 chip
 
     async def _deadlines(self) -> None:
         if self._clock() - self._radar_at < RADAR_EVERY_S:

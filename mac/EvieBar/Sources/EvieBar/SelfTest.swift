@@ -202,6 +202,12 @@ enum SelfTest {
               && hitSet(cards[6]) == [.field, .no, .mark] && hitSet(cards[7]) == [.cancel, .mark]
               && hitSet(cards[8]) == [.stop, .mark] && hitSet(cards[2]) == [.field, .mark],
               "card: rows, Yes/Later/No, the type box, Cancel and Stop are each tappable")
+        // 2026-09-24 18:25:36: a click landed on Yes of a chip that had just grown out of the capsule
+        // and started a job he never asked for.
+        check(!CardLayout.counts(.yes, shownFor: 0.2) && !CardLayout.counts(.row(0), shownFor: 0.3)
+              && CardLayout.counts(.yes, shownFor: 0.8) && CardLayout.counts(.mark, shownFor: 0)
+              && CardLayout.counts(.cancel, shownFor: 0.1) && CardLayout.counts(.stop, shownFor: 0.1),
+              "card: Yes/rows only count once the card has been up 0.6 s (Cancel/Stop always do)")
         for side in [OrbSide.left, .right] {
             let c = CGPoint(x: side == .left ? 41 : 1399, y: 450)
             let m = OrbGeometry.markFrame(center: c)

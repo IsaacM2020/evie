@@ -262,6 +262,17 @@ enum CardLayout {
         return out
     }
 
+    /// A choice (Yes, a row) only counts once the card has been up this long: a click meant for the
+    /// capsule can't land on a button that just appeared under it (2026-09-24 18:25:36, a job he
+    /// never asked for). Stopping things always counts at once.
+    static let settleS: TimeInterval = 0.6
+    static func counts(_ hit: Hit, shownFor s: TimeInterval) -> Bool {
+        switch hit {
+        case .yes, .later, .no, .row: return s >= settleS
+        case .stop, .cancel, .field, .mark: return true
+        }
+    }
+
     /// What's tappable, in card-glass coordinates (her line counts as the mark: click to talk).
     static func hits(_ c: OrbCard, side: OrbSide) -> [(Hit, CGRect)] {
         var out: [(Hit, CGRect)] = parts(c, side: side).compactMap { p in
@@ -609,6 +620,7 @@ final class OrbController: NSObject, OrbMouse {
     private weak var model: AppModel?
     private var center = CGPoint.zero
     private var shown: OrbCard = .none
+    private var shownAt: TimeInterval = 0  // uptime when `shown` changed (NSEvent.timestamp's clock)
     private var observers: [Any] = []
     // drag state
     private var downAt: CGPoint?
@@ -691,6 +703,7 @@ final class OrbController: NSObject, OrbMouse {
         guard want != shown else { return }
         let was = shown
         shown = want
+        shownAt = ProcessInfo.processInfo.systemUptime
         let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if want != .none {
             card.setFrame(cardFrame(want), display: true)
@@ -785,7 +798,7 @@ final class OrbController: NSObject, OrbMouse {
             settle(velocity: v)
             return
         }
-        guard let hit = downHit else { return }
+        guard let hit = downHit, CardLayout.counts(hit, shownFor: e.timestamp - shownAt) else { return }
         model.tap(hit, on: shown)
     }
 
