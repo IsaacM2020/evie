@@ -143,7 +143,7 @@ struct PanelView: View {
                     .font(.caption)
                     .help("Keeps your open-mic sentences on this Mac for 7 days so Claude can measure the ears. Never other people's.")
             }
-            Toggle("Pill", isOn: Binding(get: { model.showPill }, set: { model.setShowPill($0) }))
+            Toggle("Orb", isOn: Binding(get: { model.showPill }, set: { model.setShowPill($0) }))
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .font(.caption)

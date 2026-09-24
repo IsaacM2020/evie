@@ -155,6 +155,26 @@ class Brain:
         self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "stop", "route": None})
         return {"text": text, "action": "act", "reason": "stop", "route": None, "said": None}
 
+    async def stop_all(self) -> dict:
+        """The orb's Stop button: she stops talking, drops any say-stop countdown, abandons screen
+        work and stops the background job. Everything, no questions."""
+        stopped = ["speech"]
+        self._mouth.stop()
+        self._pending = None
+        if self._countdown is not None and self._countdown.cancel():
+            stopped.append("countdown")
+        if self._computer_task and not self._computer_task.done():
+            self._computer_task.cancel()
+            stopped.append("screen")
+        job = self._runner.current
+        if job:
+            await self._runner.stop()
+            self._bus.publish("job_done", id=job.id, status="stopped", summary="Stopped.", result="")
+            stopped.append("job")
+        self._bus.publish("state", state="idle")
+        self._write_log({"t": time.time(), "text": None, "action": "act", "reason": "stop button", "route": None})
+        return {"stopped": stopped}
+
     async def _answer_pending(self, text: str, speaker: str) -> dict | None:
         """If Evie just asked something, is this the answer? A yes/no or a real answer is used up;
         anything else (an echo, a fragment, Isaac talking to someone) leaves her question waiting,

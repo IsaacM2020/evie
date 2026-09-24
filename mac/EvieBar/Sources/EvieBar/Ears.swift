@@ -75,6 +75,7 @@ final class Ears: @unchecked Sendable {
     private var keeper: Task<Void, Never>?
     private(set) var running = false
     private(set) var echoCancel = false
+    var onVoiceLevel: ((Float) -> Void)?  // Evie's own loudness as she plays (the orb's speaking bars)
 
     @MainActor
     func start() -> Bool {
@@ -258,6 +259,11 @@ final class Ears: @unchecked Sendable {
     private func schedule(_ data: Data) {
         guard line != nil, let buf = AudioCopy.floats(data, format: voiceFormat) else { return }
         player.scheduleBuffer(buf, completionHandler: nil)
+        if let cb = onVoiceLevel, let ch = buf.floatChannelData, buf.frameLength > 0 {
+            var sum: Float = 0
+            for i in 0..<Int(buf.frameLength) { sum += ch[0][i] * ch[0][i] }
+            cb(min(1, (sum / Float(buf.frameLength)).squareRoot() * 5))
+        }
     }
 
     private func done(_ id: String) {

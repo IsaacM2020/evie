@@ -19,6 +19,10 @@ struct EvieBarApp: App {
             }
             exit(0)
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--orbstress"), i + 1 < CommandLine.arguments.count {
+            let secs = Double(CommandLine.arguments[i + 1]) ?? 60
+            exit(MainActor.assumeIsolated { OrbStress.run(seconds: secs) } ? 0 : 1)
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLine.arguments.count {
             MainActor.assumeIsolated { Snapshot.run(to: CommandLine.arguments[i + 1]) }
             exit(0)

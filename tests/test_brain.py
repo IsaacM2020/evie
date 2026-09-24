@@ -1018,3 +1018,27 @@ async def test_ignored_chatter_never_drops_her_reply():
     b._sb = FakeSwitchboard("ignore", "not for Evie", "not_for_evie")
     await b.hear("yeah mom one sec", addressed=False)
     assert p["mouth"].dropped == []
+
+
+async def test_stop_all_silences_her_cancels_screen_work_and_stops_the_job():
+    """The orb's Stop button: whatever she's doing, it stops."""
+    runner = FakeRunner(running="fix the chase bug")
+    b, p = brain(runner=runner)
+    b._mouth = mouth = StopMouth()
+    screen_task = asyncio.create_task(asyncio.sleep(30))
+    b._computer_task = screen_task
+    q = p["bus"].subscribe()
+    out = await b.stop_all()
+    await asyncio.sleep(0)
+    assert mouth.stops == 1 and screen_task.cancelled() and runner.stopped == 1
+    assert out == {"stopped": ["speech", "screen", "job"]}
+    kinds = []
+    while not q.empty():
+        kinds.append(q.get_nowait()["kind"])
+    assert "job_done" in kinds and kinds[-1] == "state"
+
+
+async def test_stop_all_with_nothing_going_on_is_harmless():
+    b, _ = brain()
+    b._mouth = StopMouth()
+    assert await b.stop_all() == {"stopped": ["speech"]}

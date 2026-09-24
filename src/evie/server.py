@@ -252,6 +252,10 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         d.bus.publish("state", state="idle")
         return {"stopped": True}
 
+    @app.post("/stop")
+    async def stop_all() -> dict:
+        return await need("brain").brain.stop_all()
+
     @app.websocket("/ws")
     async def ws(sock: WebSocket) -> None:
         d: Deps = app.state.d

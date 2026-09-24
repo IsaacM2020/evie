@@ -39,6 +39,10 @@ struct CoreClient {
         return try? CoreJSON.decoder.decode(TurnDTO.self, from: data)
     }
 
+    func stopAll() async {
+        _ = try? await post("stop", body: Data(), type: "application/json", timeout: 5)
+    }
+
     func stopJob() async {
         _ = try? await post("job/stop", body: Data(), type: "application/json", timeout: 10)
     }

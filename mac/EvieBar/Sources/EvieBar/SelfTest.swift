@@ -112,11 +112,6 @@ enum SelfTest {
               && KeyMap.parse("return").map { $0.0 == 36 } == true && KeyMap.parse("cmd+hyper") == nil, "eyes: key combos")
         check(WebReader.json("a\"b</script>") == #""a\"b<\/script>""# || WebReader.json("a\"b</script>") == #""a\"b</script>""#,
               "eyes: text for a page script is JSON-escaped")
-        let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let size = NSSize(width: 200, height: 60)
-        check(PillPlacement.clamp(NSPoint(x: 1400, y: -50), size: size, in: screen) == NSPoint(x: 1240, y: 0)
-              && PillPlacement.clamp(NSPoint(x: 100, y: 100), size: size, in: screen) == NSPoint(x: 100, y: 100),
-              "pill: stays fully on screen")
         check(MenuIcon.states.allSatisfy { MenuIcon.image($0).isTemplate }, "menu icon: template image per state")
         check(MenuIcon.state(online: false, state: "idle", working: true, jevOk: true) == "offline"
               && MenuIcon.state(online: true, state: "listening", working: true, jevOk: true) == "listening"
@@ -151,6 +146,41 @@ enum SelfTest {
               && !LiveSwitch.note(status: 503, detail: "x", clipsLeft: 8).contains("more times")
               && !LiveSwitch.note(status: 0, detail: "x", clipsLeft: 8).contains("more times"),
               "live: only a real 409 asks Isaac to train his voice")
+        // Orb: momentum snapping, spring motion, layout, and the crash that made the app "quit".
+        let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let flick = OrbSnap.rest(center: CGPoint(x: 600, y: 450), velocity: CGVector(dx: 1500, dy: 0), in: screen)
+        let still = OrbSnap.rest(center: CGPoint(x: 600, y: 450), velocity: .zero, in: screen)
+        let high = OrbSnap.rest(center: CGPoint(x: 1300, y: 890), velocity: CGVector(dx: 0, dy: 2000), in: screen)
+        check(flick.side == .right && still.side == .left && high.side == .right
+              && high.center.y <= screen.maxY - 16 - OrbGeometry.orb / 2
+              && abs(still.center.x - (16 + OrbGeometry.orb / 2)) < 0.01,
+              "orb: a flick throws it to the far edge, a slow drop snaps to the nearer one, always on screen")
+        var x: CGFloat = 0, v: CGFloat = 0, peak: CGFloat = 0
+        for _ in 0..<120 {
+            (x, v) = Spring().step(x: x, v: v, target: 100, dt: 1.0 / 120)
+            peak = max(peak, x)
+        }
+        check(abs(x - 100) < 0.5 && peak <= 100.01, "orb: critically damped spring settles in 1 s without overshoot")
+        for side in [OrbSide.left, .right] {
+            let c = CGPoint(x: side == .left ? 40 : 1400, y: 450)
+            // What's visible: the 44 pt orb, and the bubble inside its panel's 6 pt margin.
+            let o = OrbGeometry.orbFrame(center: c).insetBy(dx: OrbGeometry.pad, dy: OrbGeometry.pad)
+            let cap = OrbGeometry.capsuleFrame(orbCenter: c, side: side).insetBy(dx: 6, dy: 0)
+            let st = OrbGeometry.stopRect(side)
+            let inPanel = NSRect(origin: .zero, size: OrbGeometry.capsulePanel)
+            check(!o.intersects(cap) && (side == .left ? cap.minX - o.maxX : o.minX - cap.maxX) == OrbGeometry.gap
+                  && abs(cap.midY - c.y) < 0.01 && inPanel.contains(st) && abs(st.midY - inPanel.midY) < 0.01
+                  && (side == .left ? st.midX > inPanel.midX : st.midX < inPanel.midX),
+                  "orb: \(side.rawValue) side, the bubble grows away from the edge, stop at its far end")
+        }
+        check(OrbLook.of(state: "listening", online: true).motion == .level
+              && OrbLook.of(state: "speaking", online: true).motion == .level
+              && OrbLook.of(state: "thinking", online: true).motion == .spin
+              && OrbLook.of(state: "working", online: true).motion == .progress
+              && OrbLook.of(state: "idle", online: true).motion == .still
+              && OrbLook.of(state: "speaking", online: false).motion == .still,
+              "orb: every state has its own motion, idle and offline are still")
+        check(MainActor.assumeIsolated { OrbStress.run(seconds: 3) }, "orb: 3 s of mouse moves, drags and state changes, no crash")
         let box = StatusBox()
         Task.detached {
             box.result = await CoreClient(base: URL(string: "http://127.0.0.1:1")!).status()

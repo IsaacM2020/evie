@@ -26,17 +26,33 @@ enum Snapshot {
                                ShadowRow(text: "whats the time", would: "clarify · unsure it was for me")]
             }),
         ]
-        let pills: [(String, (AppModel) -> Void)] = [
-            ("pill-idle", { m in m.online = true }),
-            ("pill-listening", { m in m.online = true; m.state = "listening" }),
-            ("pill-speaking", { m in m.online = true; m.state = "speaking"; m.said = "You've got chem at 8pm tomorrow." }),
-            ("pill-working", { m in m.online = true; m.state = "working"; m.pillNote = "Ran: uv run pytest -q" }),
-            ("pill-shadow", { m in m.online = true; m.pillNote = "Would have: act · quick_action" }),
+        let orbs: [(String, (AppModel) -> Void)] = [
+            ("orb-idle", { m in m.online = true }),
+            ("orb-hover", { m in m.online = true; m.orbHover = true; m.heard = "what's on tomorrow"
+                m.said = "School at 8, then chem at 8pm." }),
+            ("orb-listening", { m in m.online = true; m.state = "listening"; m.micLevel = 0.7; m.earsMode = "live" }),
+            ("orb-thinking", { m in m.online = true; m.state = "thinking"; m.heard = "play the newest networkchuck video" }),
+            ("orb-speaking", { m in m.online = true; m.state = "speaking"; m.voiceLevel = 0.6
+                m.heard = "play the newest networkchuck video"; m.said = "Playing 'I hacked my own network' from NetworkChuck." }),
+            ("orb-working", { m in m.online = true; m.state = "working"; m.orbHover = true; m.jobProgress = 0.4
+                m.heard = "check why my website deploy failed"
+                m.job = JobView(id: "a1", goal: "Website deploy", started: Date(), lines: ["Step 2 of 5, reading the build log"]) }),
+            ("orb-left", { m in m.online = true; m.orbSide = .left; m.state = "speaking"; m.said = "Volume 30." }),
+            ("orb-offline", { m in m.online = false }),
         ]
-        for (name, setup) in pills {
-            let m = AppModel(preview: true)
-            setup(m)
-            capture(AnyView(PillView(model: m).background(Color(white: 0.55))), dark: false, to: "\(dir)/\(name).png")
+        for (name, setup) in orbs {
+            for dark in [false, true] {
+                let m = AppModel(preview: true)
+                setup(m)
+                let orb = OrbMarkView(model: m).frame(width: OrbGeometry.orbPanel.width, height: OrbGeometry.orbPanel.height)
+                let bubble = OrbBubbleView(model: m).opacity(m.orbExpanded ? 1 : 0)
+                let row = HStack(spacing: -12) {
+                    if m.orbSide == .right { bubble; orb } else { orb; bubble }
+                }
+                .padding(20)
+                .background(dark ? Color(white: 0.16) : Color(red: 0.86, green: 0.88, blue: 0.92))
+                capture(AnyView(row), dark: dark, to: "\(dir)/\(name)-\(dark ? "dark" : "light").png")
+            }
         }
         for state in MenuIcon.states {  // 8x so the mark can be judged by eye
             let img = MenuIcon.image(state)

@@ -27,7 +27,12 @@ final class AppModel: ObservableObject {
     @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Published var calendarDenied = false
     // Phase 1: live voice state
-    @Published var state = "idle"  // idle | listening | thinking | speaking | working
+    @Published var state = "idle" {  // idle | listening | thinking | speaking | working
+        didSet {
+            // After a turn the bubble stays open 4 s so Isaac can read what she heard and said.
+            if state == "idle", ["thinking", "speaking"].contains(oldValue) { lingerBriefly() }
+        }
+    }
     @Published var heard = ""
     @Published var said = ""
     @Published var verdict = ""
@@ -57,6 +62,17 @@ final class AppModel: ObservableObject {
     @Published var pillNote = ""
     @Published var recording: Bool? = nil  // nil: the core has no open mic, so no recorder
     @Published var showPill = UserDefaults.standard.object(forKey: "showPill") as? Bool ?? true
+    // The orb (Orb.swift)
+    @Published var orbSide: OrbSide = .right
+    @Published var orbHover = false
+    @Published var bubbleHover = false
+    @Published var linger = false
+    @Published var micLevel: Float = 0
+    @Published var voiceLevel: Float = 0
+    @Published var showWork = UserDefaults.standard.object(forKey: "showWork") as? Bool ?? true
+    var clickTalkEnabled = true  // the selftest turns it off so a synthetic click never opens the mic
+    private var clickTalking = false
+    private var lingerTask: Task<Void, Never>?
 
     private let core = CoreClient()
     private var calendarFeed: CalendarFeed?
@@ -66,7 +82,7 @@ final class AppModel: ObservableObject {
     private let recorder = Recorder()
     private var monitors: [Any] = []
     private let ears = Ears()
-    private let pill = PillController()
+    private let pill = OrbController()
     private let hands = Hands()
     private var noteClear: Task<Void, Never>?
 
@@ -82,6 +98,9 @@ final class AppModel: ObservableObject {
         Task { await events.run() }
         Task { micDenied = !(await Recorder.requestMic()) }
         installKeyMonitors()
+        ears.onVoiceLevel = { [weak self] lvl in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.voiceLevel = lvl } }
+        }
         if showPill { pill.show(self) }
     }
 
@@ -89,14 +108,71 @@ final class AppModel: ObservableObject {
         MenuIcon.state(online: online, state: state, working: job != nil, jevOk: jevOk)
     }
 
-    /// The one line the floating pill shows; nil = just the orb.
-    var pillLine: String? {
+    // MARK: what the orb shows
+
+    /// Idle with a job running shows as working (the progress ring).
+    var orbState: String { state == "idle" && job != nil ? "working" : state }
+
+    var orbExpanded: Bool {
+        orbHover || bubbleHover || linger || ["listening", "thinking", "speaking"].contains(state) || !pillNote.isEmpty
+    }
+
+    var youLine: String? {
+        if state == "listening" { return nil }
+        return heard.isEmpty || heard.hasPrefix("(") ? nil : heard
+    }
+
+    var evieLine: String? {
         switch state {
-        case "listening": return "Listening…"
-        case "thinking": return heard.isEmpty || heard.hasPrefix("(") ? "Thinking…" : heard
-        case "speaking": return said.isEmpty ? nil : said
-        default: return pillNote.isEmpty ? nil : pillNote
+        case "listening": return clickTalking ? "Listening… click to send" : "Listening…"
+        case "thinking": return "Thinking…"
+        default:
+            if !pillNote.isEmpty { return pillNote }
+            if !said.isEmpty { return said }
+            return job == nil ? (heard.isEmpty ? "Hold ⌃⌥ or click me to talk" : nil) : nil
         }
+    }
+
+    var stepLine: String? {
+        guard let j = job else { return nil }
+        return j.lines.last.map { "\(j.goal): \($0)" } ?? j.goal
+    }
+
+    /// k of n from the job's plan (Phase 3c T12); nil until known.
+    @Published var jobProgress: Double? = nil
+
+    var stopVisible: Bool { job != nil || state == "speaking" || state == "working" }
+
+    private func lingerBriefly() {
+        linger = true
+        lingerTask?.cancel()
+        lingerTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            if !Task.isCancelled { self?.linger = false }
+        }
+    }
+
+    /// Click the orb to talk, click again to send (the same path as holding ⌃⌥).
+    func orbClick() {
+        guard clickTalkEnabled else { return }
+        if clickTalking {
+            clickTalking = false
+            runPTT(.keyUp(at: ProcessInfo.processInfo.systemUptime))
+        } else if state != "listening" {
+            clickTalking = true
+            let t = ProcessInfo.processInfo.systemUptime
+            runPTT(.keyDown(at: t - 1))  // a click has no "hold", so it never counts as a quick tap
+        }
+    }
+
+    func stopAll() async {
+        clickTalking = false
+        await core.stopAll()
+    }
+
+    func setShowWork(_ on: Bool) {
+        showWork = on
+        UserDefaults.standard.set(on, forKey: "showWork")
     }
 
     private func note(_ text: String, for seconds: Double = 5) {
@@ -219,6 +295,13 @@ final class AppModel: ObservableObject {
             Earcon.listening.play()
             state = "listening"
             Task { await core.voiceStart() }
+            Task { [weak self] in  // the orb's bars follow his voice while he talks
+                while let self, self.state == "listening" {
+                    self.micLevel = self.recorder.level()
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                self?.micLevel = 0
+            }
         case .stopAndSend:
             guard let wav = recorder.stop() else { state = "idle"; return }
             Earcon.gotIt.play()

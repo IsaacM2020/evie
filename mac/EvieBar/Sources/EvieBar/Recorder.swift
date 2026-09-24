@@ -20,7 +20,15 @@ final class Recorder {
             AVLinearPCMIsBigEndianKey: false,
         ]
         recorder = try? AVAudioRecorder(url: url, settings: settings)
+        recorder?.isMeteringEnabled = true  // the orb's listening bars follow Isaac's voice
         return recorder?.record() ?? false
+    }
+
+    /// 0...1 loudness of the mic right now (for the orb).
+    func level() -> Float {
+        guard let r = recorder else { return 0 }
+        r.updateMeters()
+        return max(0, min(1, (r.averagePower(forChannel: 0) + 50) / 50))
     }
 
     func stop() -> Data? {
