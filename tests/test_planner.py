@@ -327,3 +327,53 @@ async def test_she_says_what_she_understood_as_soon_as_the_plan_is_ready():
     p, said = planner(SimHands(world={"front_app": "Finder", "apps": [], "windows": [], "tabs": []}), PlanGroq(short))
     await p.run("turn off wifi")
     assert said == ["Turning off Wi-Fi."]  # a short one: no stop window to mention
+
+
+async def test_return_after_typing_in_a_chat_is_a_send_and_is_read_back():
+    """Self-review: typing into a chat and then pressing Return sends it. Keys weren't risk-checked."""
+    world = {"front_app": "WhatsApp", "apps": ["WhatsApp"], "windows": [], "tabs": []}
+    chat = [{"id": "a1", "role": "textarea", "label": "Compose", "typeable": True},
+            {"id": "a2", "role": "row", "label": "Mom"}]
+    plan = {"steps": [{"do": "find", "what": "Compose", "then": "set_text", "text": "on my way"},
+                      {"do": "key", "combo": "return", "say": "Sending 'on my way' to Mom"},
+                      {"do": "done", "say": "Sent."}]}
+    hands = SimHands(apps={"WhatsApp": chat}, world=world)
+    cd = Countdown(seconds=0.3)
+    p, said = planner(hands, PlanGroq(plan), countdown=cd)
+    task = asyncio.create_task(p.run("whatsapp mom on my way"))
+    await asyncio.sleep(0.1)
+    cd.cancel()
+    r = await task
+    assert any(line.endswith("Say stop to cancel.") for line in said)
+    assert not any(op == "key" for op, _ in hands.calls) and r.said == "Okay, I didn't do it."
+
+
+async def test_ordinary_keys_are_not_held_up():
+    world = {"front_app": "Safari", "apps": ["Safari"], "windows": [], "tabs": []}
+    plan = {"steps": [{"do": "key", "combo": "cmd+t"}, {"do": "done", "say": "New tab."}]}
+    hands = SimHands(world=world)
+    p, said = planner(hands, PlanGroq(plan))
+    await p.run("open a new tab please right now")
+    assert said == [] and ("key", {"combo": "cmd+t", "app": "Safari"}) in hands.calls
+
+
+async def test_switching_to_his_tab_is_the_whole_job():
+    gmail = "https://mail.google.com/mail/u/0/"
+    world = {"front_app": "Safari", "apps": ["Safari"], "windows": [],
+             "tabs": [{"window": 11, "order": 1, "index": 1, "current": True, "title": "Google", "url": "https://www.google.com/"},
+                      {"window": 11, "order": 1, "index": 2, "current": False, "title": "Inbox - Gmail", "url": gmail}]}
+    p, _ = planner(SimHands(pages={gmail: []}, world=world), PlanGroq({"steps": [{"do": "done", "say": "Here's Gmail."}]}))
+    r = await p.run("switch to my gmail")
+    assert r.ok and r.said == "Here's Gmail."
+
+
+async def test_pick_then_read_still_opens_it_when_he_only_asked_to_open_it():
+    news = "https://www.bbc.com/news"
+    page = [{"id": "w2", "role": "link", "label": "AI model beats doctors at spotting rare diseases",
+             "href": "https://www.bbc.com/news/articles/c3", "region": "main"}]
+    plan = {"steps": [{"do": "open_url", "url": news},
+                      {"do": "pick", "among": "articles", "want": "most interesting", "then": "read"}]}
+    hands = SimHands(pages={news: page, "https://www.bbc.com/news/articles/c3": []}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan, text="Some summary."))
+    r = await p.run("open the most interesting bbc article")
+    assert hands.url.endswith("/c3") and r.said == "Opened AI model beats doctors at spotting rare diseases."

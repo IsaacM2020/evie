@@ -1128,3 +1128,12 @@ async def test_screen_work_with_two_parts_stays_one_plan():
     await b.hear("open a new tab in safari and play a mrbeast video")
     assert comp.goals == ["open a new tab in safari and play a mrbeast video"]
     assert not any(c[0] == "extract" for c in b._talker.calls)
+
+
+async def test_the_stop_button_also_cancels_a_job_waiting_to_start():
+    b, p = job_brain(window=0.3)
+    b._mouth = StopMouth()
+    await b.hear("Evie, fix the chase bug in my cricket model")
+    out = await b.stop_all()
+    await asyncio.sleep(0.35)
+    assert p["runner"].started == [] and "job_start" in out["stopped"]

@@ -175,6 +175,8 @@ class Brain:
         self._pending = None
         if self._countdown is not None and self._countdown.cancel():
             stopped.append("countdown")
+        if self._job_countdown.cancel():
+            stopped.append("job_start")
         if self._computer_task and not self._computer_task.done():
             self._computer_task.cancel()
             stopped.append("screen")

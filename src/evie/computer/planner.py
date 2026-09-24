@@ -64,6 +64,8 @@ read-back. Never type passwords or pay. Isaac's words came from speech-to-text a
 read them for what he most likely meant. End with done."""
 
 
+_SEND_KEYS = {"return", "enter", "cmd+return", "cmd+enter", "shift+cmd+d", "cmd+shift+d"}
+MESSAGING_APPS = {"WhatsApp", "Messages", "Mail", "Slack", "Discord", "Telegram", "Microsoft Teams", "Signal"}
 _DOING = {"open_url", "find", "pick", "key", "menu", "action", "message", "activate"}
 
 # Isaac asked to KNOW something (so a read step's answer is what she says).
@@ -103,6 +105,7 @@ class Planner:
     async def run(self, goal: str, app: str | None = None) -> Outcome:
         self._goal, self._picked, self._history = goal, "", []
         self._did, self._last_say = False, ""  # something was actually done (across replans)
+        self._typed = False
         self._screen: Screen | None = None
         self._new_tab_done = False
         world = await self._world()
@@ -201,10 +204,17 @@ class Planner:
         elif do == "pick":
             await self._fresh()
             el = await self._pick(st)
-            if st.get("then", "press") == "read":
+            if st.get("then", "press") == "read" and _WANTS_ANSWER.search(self._goal):
                 return await self._read(f"{st.get('want')}: {el.get('label')}")
             await self._act({**st, "then": "press"}, el)
         elif do == "key":
+            combo = str(st.get("combo") or "").lower().replace(" ", "")
+            if combo in _SEND_KEYS and (self._typed or self._app() in MESSAGING_APPS or st.get("risky")):
+                # Return after typing into something sends it: same read-back and 3 s as a Send button.
+                line = str(st.get("say") or "Sending what I typed").strip()
+                self._say(f"{line.rstrip('.')}. Say stop to cancel.")
+                if not await self._countdown.wait(self._window):
+                    raise _Ask("Okay, I didn't do it.")
             self._screen = None
             r = await self._hands.do("key", combo=str(st.get("combo") or ""), app=self._app())
             self._check(r, f"key {st.get('combo')}")
@@ -323,6 +333,8 @@ class Planner:
         args = {"id": el["id"], "snapshot": self._screen.snapshot}
         if op == "set_text":
             args |= {"text": text, "submit": bool(st.get("submit"))}
+            # A Return after typing into a message box sends it (a search box is fine).
+            self._typed = self._typed or self._app() in MESSAGING_APPS or is_risky("set_text", el, text)
         r = await self._hands.do(op, **args)
         self._check(r, f"{op} {el.get('label')!r}")
         self._did = True
@@ -396,6 +408,8 @@ class Planner:
         front = self._front() or t.bring_front
         if t.kind == "tab":
             self._check(await self._hands.do("use_tab", window=t.window, index=t.index, front=front), "use that tab")
+            if t.why.startswith("the tab"):  # he named this tab: switching to it can be the whole job
+                self._did = True
             await self._look()
         elif t.kind == "app" and t.app:
             if not t.running or front:
