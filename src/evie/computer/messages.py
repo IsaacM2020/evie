@@ -4,8 +4,10 @@ The contact comes from his real Contacts (the app looks them up; Jev picks when 
 than one match), so she can't invent a number. Every message is read back out loud with 3 s to
 say "stop" before it goes, and only Isaac's own voice or the talk key can start one.
 """
+import asyncio
 import json
 import re
+from pathlib import Path
 from typing import Callable
 from urllib.parse import quote
 
@@ -15,6 +17,17 @@ from evie.countdown import Countdown
 from evie.jev import JevError
 
 
+PEOPLE = Path.home() / "Library/Application Support/Evie/people.json"  # {"dad": "Dada", "mom": "Mamma", ...}
+
+
+def load_people(path: Path = PEOPLE) -> dict[str, str]:
+    """What he calls people -> how they're saved in Contacts ("my father" -> "Dada")."""
+    try:
+        return {k.lower(): str(v) for k, v in json.loads(path.read_text()).items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
 def _digits(phone: str) -> str:
     return re.sub(r"\D", "", phone)
 
@@ -22,6 +35,12 @@ def _digits(phone: str) -> str:
 class Messages:
     def __init__(self, hands, jev, countdown: Countdown, say: Callable[[str], None], window_s: float = 3.0):
         self._hands, self._jev, self._countdown, self._say, self._window = hands, jev, countdown, say, window_s
+        self._people = load_people()
+        self._poll = 0.5  # between looks for WhatsApp's Send button
+
+    def _saved_as(self, name: str) -> str:
+        key = re.sub(r"^(my|the)\s+", "", name.strip().lower())
+        return self._people.get(key, name)
 
     async def _contact(self, name: str) -> dict | None | str:
         r = await self._hands.do("contacts_find", name=name)
@@ -48,7 +67,7 @@ class Messages:
         return found[int(c)]
 
     async def send(self, text: str, a: dict) -> Outcome:
-        name = str(a.get("contact") or "").strip()
+        name = self._saved_as(str(a.get("contact") or "").strip())
         if not name:
             return Outcome(False, "Who should I message?", ask=True)
         who = await self._contact(name)
@@ -73,9 +92,9 @@ class Messages:
         # WhatsApp: its own link opens the chat with the text typed in; then press Send.
         await self._hands.do("open_url", url=f"whatsapp://send?phone={_digits(phone)}&text={quote(body)}",
                              app="WhatsApp", front=True)
-        import asyncio
+        compose = None
         for _ in range(8):
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(self._poll)
             seen = await self._hands.do("observe", timeout=6.0, app="WhatsApp")
             if not seen.ok:
                 continue
@@ -84,4 +103,17 @@ class Messages:
             if send:
                 r = await self._hands.do("press", id=send["id"], snapshot=screen.snapshot)
                 return Outcome(r.ok, "Sent." if r.ok else f"WhatsApp wouldn't send it: {r.detail}.")
-        return Outcome(False, "WhatsApp opened with the message typed in, but I couldn't find Send. Press it for me?")
+            compose = next((e for e in screen.elements if e.get("typeable") and body in (e.get("value") or "")), compose)
+            if compose:
+                break
+        if compose:
+            # No Send button to read (2026-09-24 18:27:56): Return in the chat sends it. Then look:
+            # an empty box means it went.
+            await self._hands.do("key", combo="return", app="WhatsApp")
+            await asyncio.sleep(self._poll)
+            seen = await self._hands.do("observe", timeout=6.0, app="WhatsApp")
+            if seen.ok:
+                left = [e for e in Screen.from_data(seen.data).elements if e.get("typeable") and body in (e.get("value") or "")]
+                if not left:
+                    return Outcome(True, "Sent.")
+        return Outcome(False, "WhatsApp opened with the message typed in, but I couldn't send it. Press Send for me?")

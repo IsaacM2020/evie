@@ -84,3 +84,39 @@ async def test_stop_means_nothing_is_sent():
     cd.cancel()
     r = await t
     assert r.said == "Okay, not sent." and not any(op == "imessage_send" for op, _ in m._hands.calls)
+
+
+class NoSendButton(FakeHands):
+    """WhatsApp as it was at 18:27:56 on 2026-09-24: the text typed in, no button labelled Send."""
+
+    def __init__(self, contacts):
+        super().__init__(contacts)
+        self.sent = False
+
+    async def do(self, op, timeout=5.0, **args):
+        if op == "observe":
+            self.calls.append((op, args))
+            return HandsResult(True, "", {"snapshot": "s9", "app": "WhatsApp", "kind": "app", "elements": json.dumps(
+                [{"id": "a1", "role": "textarea", "label": "Type a message", "typeable": True,
+                  "value": "" if self.sent else "hi"}])})
+        if op == "key" and args.get("combo") == "return":
+            self.sent = True
+        return await super().do(op, timeout, **args)
+
+
+async def test_no_send_button_means_return_then_check_it_went():
+    m, said = msgs([MOM])
+    m._hands = NoSendButton([MOM])
+    m._poll = 0.0
+    r = await m.send("whatsapp mom hi", {"contact": "mom", "body": "hi", "via": "whatsapp"})
+    assert r.ok and r.said == "Sent."
+    assert ("key", {"combo": "return", "app": "WhatsApp"}) in m._hands.calls
+
+
+async def test_dad_and_mom_mean_their_contact_names():
+    """18:25:38: "I can't find father in your contacts." His dad is saved as Dada, his mom as Mamma."""
+    dada = {"name": "Dada", "phones": ["+65 9000 0001"]}
+    m, said = msgs([dada])
+    m._people = {"dad": "Dada", "father": "Dada", "mom": "Mamma", "mother": "Mamma"}
+    await m.send("message my father hi", {"contact": "my father", "body": "hi", "via": "imessage"})
+    assert ("contacts_find", {"name": "Dada"}) in m._hands.calls
