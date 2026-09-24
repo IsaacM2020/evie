@@ -408,15 +408,22 @@ class Brain:
 
     async def _answers(self, p: Pending, text: str) -> bool:
         """Jev: is this Isaac answering her question, or something else? Unsure means yes."""
+        return await self._answer_p(p, text) >= 0.5
+
+    async def _answer_p(self, p: Pending, text: str) -> float:
+        # 2026-09-24 18:25: "What should I write to him?" -> "Tell him what's up." scored 0.43 with the
+        # old wording ("an answer is a time, a name, a choice"): she asked "Was that for me?".
         q = {"answers": {"type": "noul", "instructions": (
-            f'Evie just asked Isaac: "{p.asked or "a question"}" about his request "{p.text}". Is the latest '
-            "speech Isaac answering that question (a time, a name, a choice, a detail), rather than "
-            "talking to someone else or saying something unrelated?")}}
+            f'Evie (a voice assistant) just asked Isaac "{p.asked or "a question"}" about his request '
+            f'"{p.text}", and a few seconds later Isaac, in his own voice, said the latest speech. Is it his '
+            'answer to her question? Answers are often short or phrased as instructions to pass on ("tell '
+            'him ...", "say ...", "anyone", "just pick one", a bare name, time or title). Say no only when '
+            "it is clearly meant for another person in the room or about something unrelated.")}}
         try:
             res = await self._jev.ask(f'Latest speech: "{text}"', q)
-            return float(res.answers["answers"]["noul"]) >= 0.5
+            return float(res.answers["answers"]["noul"])
         except (JevError, KeyError, TypeError, ValueError):
-            return True
+            return 1.0
 
     async def _shadow(self, text: str, speaker: str) -> dict:
         ctx = self._context(text, speaker, addressed=False)

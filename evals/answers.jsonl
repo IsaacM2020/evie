@@ -1,0 +1,12 @@
+{"id": "a01", "asked": "What should I write to him?", "request": "Can you open WhatsApp and message my father?", "text": "Tell him what's up.", "expect": true, "note": "2026-09-24 18:25:21, got 'Was that for me?'"}
+{"id": "a02", "asked": "Which contact do you want me to pick?", "request": "Message anyone from my contacts.", "text": "Anyone.", "expect": true}
+{"id": "a03", "asked": "Which link or headline do you mean?", "request": "Can you please click on it and read through it?", "text": "The Australia launches urgent review after OpenAI program hacks government help portal. That one, the one right on my screen.", "expect": true}
+{"id": "a04", "asked": "What time?", "request": "Add the dentist on Wednesday.", "text": "4pm", "expect": true}
+{"id": "a05", "asked": "Which song?", "request": "Play that song", "text": "Trance!", "expect": true}
+{"id": "a06", "asked": "What should I write to him?", "request": "Message Dada", "text": "Say I'll be home by 7.", "expect": true}
+{"id": "a07", "asked": "What should I tell her?", "request": "Text Mamma", "text": "Just that I'm on my way.", "expect": true}
+{"id": "a08", "asked": "Which one?", "request": "Open a MrBeast video", "text": "The island one.", "expect": true}
+{"id": "a09", "asked": "What time?", "request": "Add the dentist on Wednesday.", "text": "Bro did you finish the chem homework?", "expect": false}
+{"id": "a10", "asked": "Which song?", "request": "Play that song", "text": "Hey what's for dinner mom?", "expect": false}
+{"id": "a11", "asked": "What should I write to her?", "request": "Message Mamma", "text": "Wait hold on, someone's at the door.", "expect": false}
+{"id": "a12", "asked": "Which one?", "request": "Open a MrBeast video", "text": "Did you see the match last night?", "expect": false}
