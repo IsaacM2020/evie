@@ -25,7 +25,7 @@ TURN: contextvars.ContextVar[int | None] = contextvars.ContextVar("evie_turn", d
 
 ACKS = {"on_it": "On it.", "on_it_long": "On it, this might take a minute.", "for_me": "Was that for me?",
         "not_yet": "Can't do that one yet."}
-VOICE = "alba"  # Pocket TTS predefined voice
+VOICE = "eve"  # Pocket TTS predefined voice (Isaac picked it by ear, 2026-09-24; was alba)
 
 
 class PocketVoice:

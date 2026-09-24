@@ -222,3 +222,9 @@ async def test_a_turns_queued_replies_can_be_dropped_but_not_the_line_already_pl
     await settle()
     assert out.played == ["first half answer", "job update"]
     assert any(r["ev"] == "dropped" and r["text"] == "more for turn seven" for r in rows)
+
+
+def test_evie_speaks_with_a_girls_voice():
+    """Isaac, 2026-09-24: "make it a girl's voice"; he picked eve from the samples page."""
+    from evie.voice import VOICE
+    assert VOICE == "eve"
