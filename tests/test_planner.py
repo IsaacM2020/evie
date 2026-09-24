@@ -4,6 +4,7 @@ import json
 
 from evie.computer.planner import Planner
 from evie.countdown import Countdown
+from evie.hands import HandsResult
 from evie.jev import JevResult
 from evals.sim import SimHands
 
@@ -578,3 +579,29 @@ async def test_a_slow_new_tab_is_waited_for_not_replanned():
     out = await p.run("go to netflix and click on the account named darrell")
     assert out.ok and len([c for c in groq.calls]) == 1  # one plan, no replans
     assert hands.url == NFX + "/browse?p=2"  # "Darrell" is Darryl
+
+
+class LaunchingApp(SimHands):
+    """Notion just launched: the first looks find no window yet (2026-09-24 18:28:15, "Something broke")."""
+
+    def __init__(self, missing=2, **kw):
+        super().__init__(**kw)
+        self.missing = missing
+
+    async def do(self, op, timeout=5.0, **a):
+        if op == "observe" and a.get("app") not in (None, "Safari") and self.missing > 0:
+            self.missing -= 1
+            self.calls.append((op, a))
+            return HandsResult(False, f"{a['app']} has no window open")
+        return await super().do(op, timeout, **a)
+
+
+async def test_a_just_launched_app_is_waited_for():
+    world = {"front_app": "Notion", "apps": ["Notion"], "windows": [], "tabs": []}
+    hands = LaunchingApp(apps={"Notion": [{"id": "n1", "role": "button", "label": "New page"}]}, world=world)
+    plan = {"understood": "Making a new Notion page", "steps": [
+        {"do": "find", "what": "New page", "then": "press"}, {"do": "done", "say": "New page made."}]}
+    p, said = planner(hands, PlanGroq(plan))
+    p._window_poll = 0.01
+    out = await p.run("create a new page in notion")
+    assert out.ok and out.said == "New page made."

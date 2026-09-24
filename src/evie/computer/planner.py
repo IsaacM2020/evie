@@ -154,6 +154,8 @@ def _short(label: str, n: int = 48) -> str:
 class Planner:
     EXPECT_S = 6.0  # a page still loading gets this long before an expect step fails
     _expect_poll = 0.4
+    WINDOW_S = 8.0  # a just-launched app gets this long to open its window
+    _window_poll = 0.5
 
     def __init__(self, hands, groq, jev, countdown: Countdown, say: Callable[[str], None], settle_s: float = 0.5,
                  window_s: float = 3.0, show_work: Callable[[], bool] = lambda: True,
@@ -586,6 +588,11 @@ class Planner:
     async def _look(self) -> None:
         app = "Safari" if self._web() else self._app()
         seen = await self._hands.do("observe", timeout=8.0, app=app)
+        deadline = time.monotonic() + self.WINDOW_S
+        # An app that's still opening has no window for a moment (Notion, 2026-09-24 18:28:15): wait for it.
+        while not seen.ok and "no window" in (seen.detail or "") and time.monotonic() < deadline:
+            await asyncio.sleep(self._window_poll)
+            seen = await self._hands.do("observe", timeout=8.0, app=app)
         if not seen.ok:
             raise _Fail(f"couldn't read {app}: {seen.detail}")
         self._screen = Screen.from_data(seen.data)
