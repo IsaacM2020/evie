@@ -90,6 +90,16 @@ class GroqClient:
             body.pop("include_reasoning", None)
             return await self._hedged(body)
 
+    async def look(self, prompt: str, png_b64: str, max_tokens: int = 60) -> str:
+        """Qwen with a screenshot (tested 2026-09-24: Groq's qwen3.8-27b reads images). Only the
+        planner's last resort for apps whose buttons can't be read as text; JSON out."""
+        body = {"model": self._s.groq_model, "max_tokens": max_tokens, "reasoning_effort": "none",
+                "response_format": {"type": "json_object"},
+                "messages": [{"role": "user", "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{png_b64}"}}]}]}
+        return await self._hedged(body)
+
     async def _hedged(self, body: dict) -> str:
         first = asyncio.create_task(self._once(body))
         done, _ = await asyncio.wait({first}, timeout=self._hedge)

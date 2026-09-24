@@ -48,3 +48,18 @@ class Countdown:
         self._task.cancel()
         self._task = None
         return True
+
+
+class Countdowns:
+    """Separate windows for separate things (a pending delete and a 3b send never cancel each
+    other), but "stop" calls off whichever are waiting."""
+
+    def __init__(self, *cds: Countdown):
+        self._cds = cds
+
+    @property
+    def pending(self) -> bool:
+        return any(c.pending for c in self._cds)
+
+    def cancel(self) -> bool:
+        return any([c.cancel() for c in self._cds])  # a list, so every one is cancelled

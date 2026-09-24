@@ -15,8 +15,8 @@ from urllib.parse import urlparse
 
 BROWSERS = ("Safari",)
 _DEICTIC = re.compile(r"\b(this|that|these|here|current|on (my|the) screen|i'?m (looking at|reading|watching))\b", re.I)
-_WEBBY = re.compile(r"\b(page|article|news|story|video|tab|site|website|link|post|headline|youtube|search|google|"
-                    r"watch|browser|web|online)\b", re.I)
+_WEBBY = re.compile(r"\b(pages?|articles?|news|story|stories|videos?|tabs?|sites?|websites?|links?|posts?|headlines?|"
+                    r"youtube|search|google|watch|browser|web|online|channel)\b", re.I)
 _TAB_WORDS = re.compile(r"\b(switch to|go to|go back to|open)\b.*\b(tab)?\b", re.I)
 _STOP = {"the", "my", "a", "to", "tab", "switch", "go", "back", "open", "on", "in", "of", "and", "page", "please",
          "evie", "hey", "news", "video", "site", "website", "this", "that", "can", "you", "me"}

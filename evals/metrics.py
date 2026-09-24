@@ -13,6 +13,7 @@ TARGETS = {
     "latency_p95_ms": ("<=", 900),
     "skill_accuracy": (">=", 0.90),
     "remember_to_accuracy": (">=", 0.90),
+    "multi_accuracy": (">=", 0.85),
     "pack_accuracy": (">=", 0.85),
 }
 COSTLY_PACKS = {"web", "projects"}  # slow or big: picking them when not needed costs real time
@@ -62,7 +63,7 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
     pos = [r for r in results if should_act(r)]
     fails: dict[str, list[str]] = {k: [] for k in
                                    ("false_action", "false_clarify", "missed_command", "route", "complete", "event",
-                                    "skill", "remember_to", "packs")}
+                                    "skill", "remember_to", "packs", "multi")}
     for r in neg:
         if r["action"] == "act":
             fails["false_action"].append(r["id"])
@@ -71,13 +72,17 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
     for r in pos:
         if r["action"] == "ignore":
             fails["missed_command"].append(r["id"])
-    n_complete = n_event = n_skill = n_rem = n_pack = 0
+    n_complete = n_event = n_skill = n_rem = n_pack = n_multi = 0
     for r in judged:
         d, e = r["decision"], r["expect"]
         if e.get("skill"):
             n_skill += 1
             if d.get("skill") not in (e["skill"] if isinstance(e["skill"], list) else [e["skill"]]):
                 fails["skill"].append(r["id"])
+        if e.get("multi") is not None:
+            n_multi += 1
+            if (float(d.get("multi") or 0.0) >= 0.7) != bool(e["multi"]):
+                fails["multi"].append(r["id"])
         if e.get("remember_to"):
             n_rem += 1
             ok = e["remember_to"] if isinstance(e["remember_to"], list) else [e["remember_to"]]
@@ -89,7 +94,7 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
             got, want = set(d.get("packs") or ()) | rails(r.get("utterance", "")), set(e["packs"])
             if not want <= got or (got - want) & COSTLY_PACKS - set(e.get("packs_ok_extra", [])):
                 fails["packs"].append(r["id"])
-        if d["route"] != e["route"]:
+        if d["route"] not in (e["route"] if isinstance(e["route"], list) else [e["route"]]):
             fails["route"].append(r["id"])
         if e.get("complete") is not None:
             n_complete += 1
@@ -114,6 +119,7 @@ def score(results: list[dict]) -> tuple[dict, dict[str, list[str]]]:
         "skill_accuracy": _ratio(n_skill - len(fails["skill"]), n_skill),
         "remember_to_accuracy": _ratio(n_rem - len(fails["remember_to"]), n_rem),
         "pack_accuracy": _ratio(n_pack - len(fails["packs"]), n_pack),
+        "multi_accuracy": _ratio(n_multi - len(fails["multi"]), n_multi),
         "cost_usd": round(sum(r["decision"]["cost_usd"] for r in judged), 6),
     }
     return metrics, fails

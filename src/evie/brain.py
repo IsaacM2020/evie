@@ -31,6 +31,9 @@ TURNS_LOG = Path.home() / "Library/Logs/Evie/turns.jsonl"
 MAX_TURNS = 3
 PENDING_S = 15.0  # how long Evie waits for the answer to a question she asked
 FOLLOWUP_S = 10.0
+MULTI_AT = 0.7  # Jev's multi_request: this sure it's two separate requests
+SPLIT_Q = ('Isaac asked for several separate things in one sentence. Return {"parts": [each request as its own '
+           'complete sentence, in the order he said them]}. Keep his words; fill in what "it" or "that" means.')
 REPLACE_S = 3.0  # a new request this soon after the last replaces it (see _replace_recent_turn)
 COMPUTER_SKILLS = {"computer", "message_send"}  # Phase 3b: done on screen (or by message)
 SKILL_CONF_MIN = 0.5  # below this Jev isn't sure which fast skill: Claude Code handles it  # after she answers, a follow-up without her name may still be for her
@@ -312,6 +315,10 @@ class Brain:
             else:
                 pending.asked = self._clip("for_me")
             return pending.asked
+        if decision and decision.multi >= MULTI_AT and not (route == "quick_action" and decision.skill == "computer"):
+            said = await self._one_by_one(text, speaker)
+            if said is not None:
+                return said
         if route == "answer":
             return await self._answer(text, draft, decision)
         if route == "deep_job":
@@ -323,6 +330,23 @@ class Brain:
         if route == "remember" and self._remember:
             return await self._remember_it(text, decision, speaker)
         return self._clip("not_yet")
+
+    async def _one_by_one(self, text: str, speaker: str) -> str | None:
+        """'Pause the music and open WhatsApp': split into the separate requests and do each in
+        order, each decided on its own. Screen work with several steps stays one plan instead."""
+        try:
+            parts = (await self._talker.extract(SPLIT_Q, strip_wake(text)) or {}).get("parts") or []
+        except Exception:
+            log.exception("couldn't split a two-part request")
+            return None
+        parts = [str(p).strip() for p in parts if str(p).strip()][:4]
+        if len(parts) < 2:
+            return None
+        said = None
+        for part in parts:
+            out = await self._turn(part, speaker, addressed=True)
+            said = out.get("said") or said
+        return said
 
     async def _answer(self, text: str, draft: asyncio.Task | None, decision) -> str:
         """The draft (started before Jev decided) is used when the answer needs nothing extra.
@@ -366,25 +390,25 @@ class Brain:
         if skill and not allowed(RISK.get(skill, "unknown"), speaker, addressed):
             return self._say("That one needs your voice. Say it again, or use the talk key.")
         if skill in COMPUTER_SKILLS and self._computer is not None and decision.skill_conf >= SKILL_CONF_MIN:
-            return self._start_computer(strip_wake(text))
+            return self._start_computer(strip_wake(text), skill)
         if skill and skill != "other" and self._skills and decision.skill_conf >= SKILL_CONF_MIN:
             done = await self._skills.run(skill, strip_wake(text))
             if done.said is not None:
                 return self._say(done.said)
         return await self._start_job(text)
 
-    def _start_computer(self, goal: str) -> str:
+    def _start_computer(self, goal: str, skill: str | None = None) -> str:
         """On screen work takes a few seconds: say "On it." now, keep listening, report when done."""
         if self._computer_task and not self._computer_task.done():
             self._computer_task.cancel()
         said = self._clip("on_it")
-        self._computer_task = asyncio.create_task(self._run_computer(goal))
+        self._computer_task = asyncio.create_task(self._run_computer(goal, skill))
         return said
 
-    async def _run_computer(self, goal: str) -> None:
+    async def _run_computer(self, goal: str, skill: str | None = None) -> None:
         self._bus.publish("state", state="working")
         try:
-            out = await self._computer.run(goal)
+            out = await self._computer.run(goal, skill=skill)
         except asyncio.CancelledError:
             raise
         except Exception:

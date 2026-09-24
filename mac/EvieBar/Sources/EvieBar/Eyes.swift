@@ -252,6 +252,7 @@ struct WebTab: Equatable {
 final class Eyes {
     private var snapshot = ""
     private var axElements: [String: AXUIElement] = [:]
+    private var axFrames: [String: CGRect] = [:]  // screen rects (top-left origin), for marked_shot
     private var webApp = ""  // the browser the w-ids belong to
     private var pid: pid_t = 0
     private var webTab: WebTab?  // the tab page ops go to (set by open_url / use_tab)
@@ -274,8 +275,13 @@ final class Eyes {
                                               newTab: a["new_tab"]?.bool ?? true, window: a["window"]?.int)
         case "use_tab": return await useTab(window: a["window"]?.int ?? 0, index: a["index"]?.int ?? 1, front: a["front"]?.bool ?? false)
         case "world": return await world()
+        case "marked_shot": return await markedShot()
+        // Only the core's fixed card templates arrive here (evie/computer/cards.py), every value quoted.
+        case "applescript":
+            let r = await AppleRun.run(a["source"]?.string ?? "", timeout: 10)
+            return HandsOutcome(ok: r.ok, detail: r.ok ? "done" : r.out, data: ["out": r.out])
         case "menu": return menu(a["path"]?.string ?? "", app: a["app"]?.string)
-        case "activate": return activate(a["app"]?.string ?? "")
+        case "activate": return await activate(a["app"]?.string ?? "")
         case "screen_info": return await screenInfo(withPage: a["page"]?.bool ?? false)
         case "wait_page": return await waitPage(from: a["from_url"]?.string ?? "", seconds: 8)
         default: return HandsOutcome(ok: false, detail: "I don't know how to \(op) yet")
@@ -298,6 +304,7 @@ final class Eyes {
         let appName = target.localizedName ?? ""
         snapshot = String(UUID().uuidString.prefix(8))
         axElements = [:]
+        axFrames = [:]
         webApp = ""
         pid = target.processIdentifier
         if let browser = Self.browsers[target.bundleIdentifier ?? ""] {
@@ -335,6 +342,7 @@ final class Eyes {
             if AXPick.keep(role: r, label: label, width: size.width, height: size.height) {
                 let id = "a\(rows.count + 1)"
                 axElements[id] = el
+                if let origin = Self.point(el) { axFrames[id] = CGRect(x: origin.x, y: origin.y, width: size.width, height: size.height) }
                 let enabled: Bool = Self.attr(el, kAXEnabledAttribute) ?? true
                 let value: String = AXPick.typeable.contains(r) ? ((Self.attr(el, kAXValueAttribute) as String?) ?? "") : ""
                 rows.append(["id": id, "role": AXPick.short(r), "label": label, "enabled": enabled,
@@ -580,10 +588,80 @@ final class Eyes {
         return HandsOutcome(ok: false, detail: "menu not found")
     }
 
-    private func activate(_ name: String) -> HandsOutcome {
-        guard let target = app(named: name) else { return HandsOutcome(ok: false, detail: "\(name) isn't open") }
-        target.activate()
-        return HandsOutcome(ok: true, detail: "brought \(target.localizedName ?? name) to the front")
+    private func activate(_ name: String) async -> HandsOutcome {
+        if let target = app(named: name) {
+            target.activate()
+            return HandsOutcome(ok: true, detail: "brought \(target.localizedName ?? name) to the front")
+        }
+        // Not running: launch it, then wait (up to 5 s) until it has a window to work in.
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        p.arguments = ["-a", name]
+        do { try p.run() } catch { return HandsOutcome(ok: false, detail: "couldn't open \(name)") }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return HandsOutcome(ok: false, detail: "\(name) isn't on this Mac") }
+        for _ in 0..<25 {
+            try? await Task.sleep(for: .milliseconds(200))
+            if let t = app(named: name) {
+                let root = AXUIElementCreateApplication(t.processIdentifier)
+                if (Self.attr(root, kAXFocusedWindowAttribute) as AXUIElement?) != nil { return HandsOutcome(ok: true, detail: "opened \(name)") }
+            }
+        }
+        return HandsOutcome(ok: true, detail: "opened \(name)")
+    }
+
+    /// The last resort for apps that show little to Accessibility: a picture of the app's window
+    /// with a numbered box over every element from the last observe. Needs Screen Recording.
+    private func markedShot() async -> HandsOutcome {
+        guard pid != 0, !axFrames.isEmpty else { return HandsOutcome(ok: false, detail: "nothing read yet") }
+        let list = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]]) ?? []
+        guard let w = list.first(where: { ($0[kCGWindowOwnerPID as String] as? pid_t) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }),
+              let num = w[kCGWindowNumber as String] as? Int,
+              let bd = w[kCGWindowBounds as String] as? NSDictionary,
+              let bounds = CGRect(dictionaryRepresentation: bd) else { return HandsOutcome(ok: false, detail: "no window to look at") }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("evie-shot.png")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        p.arguments = ["-x", "-o", "-l", "\(num)", file.path]
+        do { try p.run() } catch { return HandsOutcome(ok: false, detail: "couldn't take a screenshot") }
+        p.waitUntilExit()
+        guard let img = NSImage(contentsOf: file), let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return HandsOutcome(ok: false, detail: "I need Screen Recording permission to look")
+        }
+        let scale = CGFloat(cg.width) / max(bounds.width, 1)
+        let out = min(1.0, 1280 / CGFloat(cg.width))  // Qwen doesn't need more than 1280 px
+        let W = Int(CGFloat(cg.width) * out), H = Int(CGFloat(cg.height) * out)
+        guard let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return HandsOutcome(ok: false, detail: "couldn't draw")
+        }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: W, height: H))
+        var marks: [String: String] = [:]
+        let ns = NSGraphicsContext(cgContext: ctx, flipped: false)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ns
+        var n = 0
+        for (id, f) in axFrames.sorted(by: { Int($0.key.dropFirst()) ?? 0 < Int($1.key.dropFirst()) ?? 0 }) where f.intersects(bounds) {
+            n += 1
+            marks["\(n)"] = id
+            let k = scale * out
+            let r = CGRect(x: (f.minX - bounds.minX) * k, y: CGFloat(H) - (f.maxY - bounds.minY) * k, width: f.width * k, height: f.height * k)
+            NSColor.systemRed.setStroke()
+            let path = NSBezierPath(rect: r)
+            path.lineWidth = 2
+            path.stroke()
+            let label = NSAttributedString(string: " \(n) ", attributes: [
+                .font: NSFont.boldSystemFont(ofSize: 13), .foregroundColor: NSColor.white, .backgroundColor: NSColor.systemRed])
+            label.draw(at: CGPoint(x: r.minX, y: max(0, r.maxY - 16)))
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        guard let marked = ctx.makeImage(),
+              let png = NSBitmapImageRep(cgImage: marked).representation(using: .png, properties: [:]) else {
+            return HandsOutcome(ok: false, detail: "couldn't draw")
+        }
+        let json = (try? JSONSerialization.data(withJSONObject: marks)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return HandsOutcome(ok: true, detail: "\(n) boxes", data: ["png": png.base64EncodedString(), "marks": json])
     }
 
     // MARK: the screen, for answers ("summarise this page")
@@ -632,6 +710,15 @@ final class Eyes {
         var v: CFTypeRef?
         guard AXUIElementCopyAttributeValue(el, name as CFString, &v) == .success, let v else { return nil }
         return v as? T
+    }
+
+    nonisolated static func point(_ el: AXUIElement) -> CGPoint? {
+        var v: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(el, kAXPositionAttribute as CFString, &v) == .success, let v,
+              CFGetTypeID(v) == AXValueGetTypeID() else { return nil }
+        var p = CGPoint.zero
+        AXValueGetValue(v as! AXValue, .cgPoint, &p)
+        return p
     }
 
     nonisolated static func size(_ el: AXUIElement) -> (width: Double, height: Double) {

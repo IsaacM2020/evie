@@ -72,6 +72,7 @@ final class AppModel: ObservableObject {
     @Published var showWork = UserDefaults.standard.object(forKey: "showWork") as? Bool ?? true
     var clickTalkEnabled = true  // the selftest turns it off so a synthetic click never opens the mic
     private var clickTalking = false
+    private var lastSettingsSync: Date?
     private var lingerTask: Task<Void, Never>?
 
     private let core = CoreClient()
@@ -181,6 +182,7 @@ final class AppModel: ObservableObject {
     func setShowWork(_ on: Bool) {
         showWork = on
         UserDefaults.standard.set(on, forKey: "showWork")
+        Task { await core.settings(showWork: on) }
     }
 
     private func note(_ text: String, for seconds: Double = 5) {
@@ -401,6 +403,8 @@ final class AppModel: ObservableObject {
             if job?.id == ev.id { job = nil }
             lastJobSummary = ev.summary ?? ""
             if !lastJobSummary.isEmpty { note(lastJobSummary, for: 8) }
+        case "step":  // a screen task's current step, on the orb
+            if let t = ev.text, !t.isEmpty { note(t, for: 6) }
         case "shadow":
             guard let would = ev.would, !would.hasPrefix("ignore") else { break }
             shadowLog = Array(([ShadowRow(text: ev.text ?? "", would: would)] + shadowLog).prefix(10))
@@ -435,9 +439,14 @@ final class AppModel: ObservableObject {
 
     func refresh() async {
         let s = await core.status()
+        let wasOnline = online
         online = s != nil
         jevOk = s?.jevOk
         if let s {
+            if !wasOnline || lastSettingsSync == nil {  // a (re)started core learns the orb's settings
+                await core.settings(showWork: showWork)
+                lastSettingsSync = Date()
+            }
             earsMode = s.earsMode
             if let v = s.voiceprint { voiceprint = v }
             recording = s.earsMode == nil ? nil : await core.recorder()

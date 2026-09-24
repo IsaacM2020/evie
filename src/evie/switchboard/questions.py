@@ -10,9 +10,10 @@ ROUTES = {
     "quick_action": "One quick thing on the computer: play, pause or skip music, ask what song is "
                     "playing, change volume, open an app or website, set or cancel a timer, undo the "
                     "last thing Evie did, move or delete a calendar event, tick off a to-do Isaac says he "
-                 "finished, send a short message",
+                 "finished, send a short message, or do something in an app (draft an email, play a video, "
+                 "turn on Wi-Fi)",
     "answer": "A question Evie answers by talking: the time, the date, maths, a fact, "
-              "what is on Isaac's calendar",
+              "what is on Isaac's calendar, or summarising or explaining the text on his screen ('summarise this')",
     "deep_job": "Real work that takes minutes: fixing or writing code, researching a topic, "
                 "editing files or documents, multi-step tasks, or checking on one of Isaac's own "
                 "projects, websites or files",
@@ -21,7 +22,7 @@ ROUTES = {
                    "then a follow-up that starts with 'also' or 'and' adds to that task",
     "remember": "Isaac wants something NEW remembered, scheduled, reminded, or added as a task or to-do "
                 "(\"add a task\", \"put X on my list\", \"remind me in 20 minutes to...\"). Not for "
-                "ticking off something he already finished",
+                "ticking off something he already finished, and not for making a note or document in an app",
 }
 
 # Which fast skill a quick_action needs. Asked in the SAME Jev call as everything else (answered
@@ -35,19 +36,19 @@ SKILLS = {
     "now_playing": "Ask what song is playing",
     "volume": "Change how loud the Mac is: louder, quieter, a number, mute or unmute (a bare "
               "'mute' means the sound)",
-    "open_app": "Open or switch to an app on the Mac",
-    "open_website": "Open a website, or search a site like YouTube or Google",
+    "open_app": "Open or switch to an app on the Mac, and nothing more (not doing something inside it)",
+    "open_website": "Open a website by name, and nothing more",
     "timer_set": "Start a timer or countdown",
     "timer_cancel": "Cancel or stop a timer",
     "undo": "Undo or reverse the last thing Evie did",
     "event_move": "Move or reschedule something already on Isaac's calendar to another time or day",
     "event_delete": "Delete, remove or cancel something already on Isaac's calendar",
     "task_done": "Isaac says he finished or did one of his to-dos, or asks to tick one off",
-    "computer": "Do something inside an app or a web page on the screen: play a video on YouTube, open a new "
-                "tab, search a site, click or type something, fill in a form, change something in an app",
+    "computer": "Do something inside an app or on a web page, even in several steps: play a video on YouTube, "
+                "open a new tab and search, open or summarise an article, click or type something, fill in a form, "
+                "turn Wi-Fi or dark mode on or off, work in Finder, Notes, Mail or Notion",
     "message_send": "Send a WhatsApp message, a text or an iMessage to someone",
-    "other": "Anything else, for example muting the microphone, changing a system setting, or a long "
-             "multi-step job with files",
+    "other": "Anything else, like a long job with files or code",
 }
 
 REMEMBER_TO = {
@@ -119,7 +120,11 @@ PACK_QUESTIONS = {
     "hard_question": "Would a good answer need careful reasoning: a multi-step maths or physics problem, an "
                      "explanation of how or why something works, or advice weighing trade-offs? Simple facts, "
                      "the time and small talk are not hard.",
-    "long_job": "If this is real work for Evie to do in the background, will it take more than a minute?",
+    # Kept short on purpose: Jev's time grows with the question set (2026-09-24: 14 questions and a
+    # long wording took the median from ~340 to ~740 ms). long_job left the set for this: every deep
+    # job now starts with a read-back instead of "this might take a minute".
+    "multi_request": "Does Isaac ask for two or more separate things at once (like 'pause the music and open "
+                     "WhatsApp')? One request with details is not two.",
 }
 for _k, _v in PACK_QUESTIONS.items():
     QUESTIONS[_k] = {"type": "noul", "instructions": _v}

@@ -333,3 +333,11 @@ def test_debug_do_only_runs_read_only_ops():
         assert r.status_code == 403
         r = c.post("/debug/do", json={"op": "press", "args": {"id": "w1", "snapshot": "x"}})
         assert r.status_code == 403
+
+
+def test_show_her_work_setting_round_trips():
+    d = full_deps()
+    with client(deps=d) as c:
+        assert c.get("/settings").json() == {"show_work": True}
+        assert c.post("/settings", json={"show_work": False}).json() == {"show_work": False}
+    assert d.ui["show_work"] is False

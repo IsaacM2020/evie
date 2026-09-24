@@ -123,3 +123,20 @@ Two questions added to the one Jev call: `skill` (13 fast skills + other) and `r
 - Run 1: step 0.625, but 7 of 9 misses were Groq 429s on gpt-oss-120b (small per-minute limit). Added a 429 fallback to qwen3.8-27b.
 - Run 2: step_accuracy 0.958, recipe_accuracy 1.0, unsafe 0, step p50 703 ms / p95 1977 ms. PASS.
 - Main eval with 6 new computer/message cases: skill 0.952, false_action 0, pack 1.0. s27 now expects message_send (messages moved to 3b).
+
+## 2026-09-24 Phase 3c: switchboard wording (T8)
+
+- Added `multi_request` (two separate requests in one sentence). A 14-question call measured
+  median ~740 ms vs ~340 ms for 13 (same sentence, 10 calls each), and the long wording was slower
+  still, so the set stays at 13: `long_job` left (every deep job now starts with a read-back, T11)
+  and `multi_request` is worded short.
+- Skill wording: screen work now includes multi-step web tasks, Mac switches (Wi-Fi, dark mode) and
+  work inside Finder/Notes/Mail/Notion; `open_app`/`open_website` are "and nothing more". Fixes the
+  2026-09-24 miss "open a new tab in Safari and play a video by MrBeast" -> open_app.
+- Routes: quick_action names app actions (draft an email, play a video, turn on Wi-Fi); answer covers
+  "summarise this"; remember excludes making notes in an app. Tried "what's on his screen" and "the
+  page he's looking at" first: both pulled "how's the igem website looking" (a project check) to answer.
+- 13 new cases (y01-y16) from the day's real commands. Cases can accept a list of routes/skills.
+- Result (all 178, run phase3c-d): false_action 0, route 0.972, skill 1.0, multi 1.0, remember_to 1.0,
+  packs 1.0. latency p50 532 / p95 1032: Jev itself was slower all day (the unchanged 13-question
+  set measured 490 ms median in the same session vs 371 the day before).

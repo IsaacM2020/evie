@@ -24,6 +24,7 @@ class Decision:
     packs: tuple[str, ...] = ()  # knowledge Jev says the answer needs (need_calendar -> "calendar")
     hard: float = 0.0
     long_job: float = 0.0
+    multi: float = 0.0  # two or more separate requests in one sentence
 
 
 def _choice(answers: dict, key: str, allowed: dict) -> tuple[str | None, float]:
@@ -56,6 +57,7 @@ def parse_decision(answers: dict, latency_ms: float = 0.0, cost_usd: float = 0.0
         packs=tuple(k.removeprefix("need_") for k, bar in PACK_BARS.items() if _noul(answers, k) >= bar),
         hard=_noul(answers, "hard_question"),
         long_job=_noul(answers, "long_job"),
+        multi=_noul(answers, "multi_request"),
     )
 
 

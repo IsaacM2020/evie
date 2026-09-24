@@ -4,7 +4,7 @@ from pathlib import Path
 from evie.switchboard.questions import ROUTES
 
 CASES = Path(__file__).resolve().parents[1] / "evals" / "cases.jsonl"
-CATS = {"direct", "bare", "room", "other", "call", "vague", "job", "mention", "openmic", "skill", "remember", "phase35"}
+CATS = {"direct", "bare", "room", "other", "call", "vague", "job", "mention", "openmic", "skill", "remember", "phase35", "phase3c"}
 
 
 def load():
@@ -19,9 +19,10 @@ def test_cases_are_valid():
         assert c["cat"] in CATS, c["id"]
         assert c["speaker"] in {"isaac", "other", "unknown"}, c["id"]
         e = c["expect"]
-        assert e["route"] in ROUTES, c["id"]
+        routes = e["route"] if isinstance(e["route"], list) else [e["route"]]  # a list: any of these is right
+        assert all(r in ROUTES for r in routes), c["id"]
         assert isinstance(e["for_evie"], bool), c["id"]
-        assert (e["route"] == "not_for_evie") == (not e["for_evie"]), c["id"]
+        assert ("not_for_evie" in routes) == (not e["for_evie"]), c["id"]
         assert e["complete"] in (True, False, None) and e["has_event"] in (True, False, None), c["id"]
         assert c["utterance"] == c["utterance"].lower(), c["id"]
 

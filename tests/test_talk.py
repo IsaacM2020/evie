@@ -257,3 +257,14 @@ async def test_rate_limited_big_model_falls_back_to_qwen():
     respx.post(URL).mock(side_effect=handler)
     out = await GroqClient(S).chat("s", "u", json_mode=True, model="openai/gpt-oss-120b", reasoning="low")
     assert out == '{"op": "done"}' and calls == ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]
+
+
+@respx.mock
+async def test_look_sends_the_screenshot_to_qwen_as_an_image():
+    from evie.config import Settings
+    from evie.talk import GroqClient
+    route = respx.post("https://api.groq.com/openai/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": '{"n": 3}'}}]})
+    out = await GroqClient(Settings(openrouter_key="k", groq_key="g")).look("which box?", "iVBORw0KGgo=")
+    body = route.calls[0].request.content.decode()
+    assert out == '{"n": 3}' and "data:image/png;base64,iVBORw0KGgo=" in body and "qwen/qwen3.8-27b" in body

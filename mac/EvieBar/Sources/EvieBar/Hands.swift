@@ -52,7 +52,7 @@ final class Hands {
     private let store = EKEventStore()
     private let eyes = Eyes()
     static let eyeOps: Set<String> = ["observe", "press", "set_text", "key", "type", "open_url", "menu", "activate",
-                                      "screen_info", "wait_page", "world", "use_tab"]
+                                      "screen_info", "wait_page", "world", "use_tab", "applescript", "marked_shot"]
 
     func run(_ ev: CoreEvent) async -> HandsOutcome? {
         guard let id = ev.id, let op = ev.op,

@@ -110,6 +110,7 @@ class Deps:
     hands: object | None = None
     mouth_link: object | None = None  # the app's echo-cancelled speaker (/ws/mouth)
     close: Callable[[], Awaitable[None]] | None = None
+    ui: dict = field(default_factory=lambda: {"show_work": True})  # settings the app sets (the orb's menu)
 
 
 async def keep_warm(pings: list[Callable[[], Awaitable[None]]], interval_s: float = 20.0) -> None:
@@ -253,6 +254,19 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         d.bus.publish("job_done", id=running.id, status="stopped", summary="Stopped.", result="")
         d.bus.publish("state", state="idle")
         return {"stopped": True}
+
+    class SettingsIn(BaseModel):
+        show_work: bool | None = None
+
+    @app.get("/settings")
+    async def settings_get() -> dict:
+        return dict(app.state.d.ui)
+
+    @app.post("/settings")
+    async def settings_set(body: SettingsIn) -> dict:
+        if body.show_work is not None:
+            app.state.d.ui["show_work"] = body.show_work
+        return dict(app.state.d.ui)
 
     @app.post("/stop")
     async def stop_all() -> dict:
@@ -440,7 +454,7 @@ def build_deps(s: Settings) -> Deps:
     from evie.computer.planner import Planner
     from evie.computer.recipes import Recipes
     from evie.context_packs import Packs, ProjectIndex, WebSearch
-    from evie.countdown import Countdown
+    from evie.countdown import Countdown, Countdowns
     from evie.memory import Conversation
     from evie.skills.catalog import Skills
     from evie.skills.events import EventSkills
@@ -499,7 +513,9 @@ def build_deps(s: Settings) -> Deps:
     spotify = SpotifySearch(s.spotify_id, s.spotify_secret)
     timers = Timers(lambda t: mouth.say(done_line(t), kind="reply"))
     skills = Skills(hands, talker, jev, System(), spotify, timers, apps=installed_apps)
-    countdown = Countdown()
+    countdown = Countdown()  # deletes: 5 s to say stop
+    sends = Countdown(seconds=3.0)  # 3b sends and risky screen steps: their own window
+    ui = {"show_work": True}
     conversation = Conversation()
     skills.events = EventSkills(hands, talker, jev, cal, skills, countdown, conversation=conversation)
     todoist = Todoist(s.todoist_key)
@@ -508,10 +524,12 @@ def build_deps(s: Settings) -> Deps:
     packs = Packs(cal, hands, todoist, projects=ProjectIndex(), web=WebSearch(groq),
                   screen=lambda: brain.scene() if brain else {})
     speak = lambda text: mouth.say(text, kind="reply")  # noqa: E731
-    planner = Planner(hands, groq, countdown, say=speak)
-    computer = Recipes(hands, jev, talker, planner, messages=Messages(hands, jev, countdown, say=speak))
+    messages = Messages(hands, jev, sends, say=speak)
+    planner = Planner(hands, groq, jev, sends, say=speak, show_work=lambda: ui["show_work"],
+                      progress=lambda text: text and bus.publish("step", text=text), messages=messages, talker=talker)
+    computer = Recipes(hands, jev, talker, planner, messages=messages)
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember,
-                  countdown=countdown, conversation=conversation, packs=packs, computer=computer)
+                  countdown=Countdowns(countdown, sends), conversation=conversation, packs=packs, computer=computer)
     stt = Transcriber(s, backend=s.stt_backend)
     open_mic, voiceid = build_ears(stt, brain, mouth, bus)
 
@@ -537,7 +555,7 @@ def build_deps(s: Settings) -> Deps:
     return Deps(sb=sb, calendar=cal, bus=bus, brain=brain, mouth=mouth, stt=stt, runner=runner,
                 warm=warm, close=close, pings=[jev.warm, groq.warm, stt.warm, unload_idle], open_mic=open_mic,
                 voiceid=voiceid,
-                hands=hands, mouth_link=mouth_link)
+                hands=hands, mouth_link=mouth_link, ui=ui)
 
 
 def build_ears(stt, brain, mouth, bus):

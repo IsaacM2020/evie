@@ -917,7 +917,7 @@ class FakeComputer:
     def __init__(self, outcome, delay=0.0):
         self.outcome, self.delay, self.goals = outcome, delay, []
 
-    async def run(self, text):
+    async def run(self, text, skill=None):
         self.goals.append(text)
         await asyncio.sleep(self.delay)
         return self.outcome
@@ -1042,3 +1042,53 @@ async def test_stop_all_with_nothing_going_on_is_harmless():
     b, _ = brain()
     b._mouth = StopMouth()
     assert await b.stop_all() == {"stopped": ["speech"]}
+
+
+class MultiSwitchboard(FakeSwitchboard):
+    """The first sentence is two requests; each part on its own is one."""
+
+    def __init__(self, skill="music_pause"):
+        super().__init__("act", "quick_action", "quick_action")
+        self.skill = skill
+
+    async def handle(self, ctx):
+        self.contexts.append(ctx)
+        multi = 0.95 if " and " in ctx.utterance else 0.02
+        d = Decision(0.95, "quick_action", 1.0, {"quick_action": 1.0}, 0.9, 0.0, 300.0, 0.00002,
+                     skill=self.skill, skill_conf=0.9, multi=multi)
+        return Outcome(ctx, d, Verdict(Action.ACT, "quick_action"))
+
+
+class SplitTalker(FakeTalker):
+    async def extract(self, instructions, text):
+        self.calls.append(("extract", text, instructions))
+        return {"parts": [p.strip() for p in text.split(" and ")]}
+
+
+async def test_two_requests_in_one_sentence_are_done_one_after_the_other():
+    """2026-09-24: 'open a new tab in Safari and play a video by MrBeast' only opened Safari."""
+    sb = MultiSwitchboard()
+    b, p = brain(sb)
+    b._talker = SplitTalker()
+    seen = []
+
+    class Skills:
+        async def run(self, skill, text):
+            seen.append(text)
+            from evie.skills.catalog import Done
+            return Done(f"did {text}")
+
+    b._skills = Skills()
+    await b.hear("pause the music and open whatsapp")
+    assert seen == ["pause the music", "open whatsapp"]
+
+
+async def test_screen_work_with_two_parts_stays_one_plan():
+    sb = MultiSwitchboard(skill="computer")
+    b, p = brain(sb)
+    b._talker = SplitTalker()
+    b._computer = comp = FakeComputer(None)
+    b._start_computer = lambda goal, skill=None: comp.goals.append(goal) or "On it."
+    await b.hear("open a new tab in safari and play a mrbeast video")
+    assert comp.goals == ["open a new tab in safari and play a mrbeast video"]
+    assert not any(c[0] == "extract" for c in b._talker.calls)

@@ -41,6 +41,11 @@ struct CoreClient {
         return try? CoreJSON.decoder.decode(TurnDTO.self, from: data)
     }
 
+    func settings(showWork: Bool) async {
+        let body = (try? JSONSerialization.data(withJSONObject: ["show_work": showWork])) ?? Data()
+        _ = try? await post("settings", body: body, type: "application/json", timeout: 3)
+    }
+
     func stopAll() async {
         _ = try? await post("stop", body: Data(), type: "application/json", timeout: 5)
     }

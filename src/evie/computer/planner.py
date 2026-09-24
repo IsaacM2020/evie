@@ -1,10 +1,16 @@
-"""The general loop for anything no recipe covers: observe -> choose ONE step -> act -> look again.
+"""Planner v2 (Phase 3c): plan once, find in code, pick with Jev, replan only when a check fails.
 
-A fast model (Groq gpt-oss-120b, low reasoning) reads the goal, the steps so far and the screen as
-a numbered list, and answers with one JSON step. Code checks it before anything happens: the id
-must be on the screen it just saw, the op must be one of the allowed ones, and risky steps get a
-read-back and 3 s to say "stop". Two failed steps in a row, or 15 steps, and she stops and says so
-(the Brain can hand the goal to Claude Code, which may use a screenshot as the true last resort).
+  1. world   one read of what's on screen (evie/computer/world.py) -> WHERE to work
+  2. plan    ONE Groq call (gpt-oss-120b, low reasoning) sees the goal, what's open, the app's card
+             (evie/computer/cards.py) and the current screen, and writes the whole route as steps
+  3. run     code runs the steps: direct ones (open_url, key, menu, action) straight away; `find`
+             by plain code when one element clearly matches, else Jev chooses among the real ids;
+             `pick` (which video? which article?) is always Jev choosing among the real rows
+  4. check   `expect` steps look at the screen again; a miss means ONE replan with that screen
+             (at most 2), then the Brain hands the goal to Claude Code.
+
+Every press is an id from the screen just read. Risky steps (send, post, buy, delete) are read
+back with 3 s to say stop, and in an app Evie has no card for, she asks first.
 """
 import asyncio
 import json
@@ -12,30 +18,40 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
+from evie.computer.cards import CARDS, card_for, render_action
+from evie.computer.find import candidates, find_in_code, pick_pool
 from evie.computer.observe import Screen
 from evie.computer.safety import is_risky
+from evie.computer.world import Target, World
 from evie.countdown import Countdown
+from evie.jev import JevError
 
 log = logging.getLogger("evie.computer")
 
 MODEL = "openai/gpt-oss-120b"
-MAX_STEPS = 15
-OPS = {"press", "set_text", "key", "open_url", "menu", "wait", "done", "ask"}
+MAX_REPLANS = 2
+MAX_STEPS = 20
+VISION_BELOW = 5  # an app showing fewer labelled elements than this gets looked at
 
-SYSTEM = """You operate apps on Isaac's Mac for him. Each turn you see ONE app's screen as a list of
-elements: id, role, label (and value, region, link). Choose exactly ONE next step and reply with one JSON object:
-{"op": "press" | "set_text" | "key" | "open_url" | "menu" | "wait" | "done" | "ask",
- "id": the element id for press/set_text (it MUST be one of the listed ids),
- "text": what to type for set_text, "submit": true to press Enter after typing,
- "combo": for key, like "cmd+t", "cmd+l", "return", "escape",
- "url": for open_url (https only), "path": for menu, like "File > New Tab",
- "risky": true if this step sends, posts, buys, deletes or submits something on Isaac's behalf,
- "say": for done, one short spoken sentence saying what you did; for ask, the question; for a risky step, a
-        read-back like "Sending 'on my way' to Mom",
- "why": a few words}
-Rules: take the most direct path. Only use listed ids. When the goal is achieved, op=done. If it's unclear what
-Isaac wants (which video? which chat?), op=ask. Never type passwords, log in or pay: op=ask instead.
-Elements marked [off screen] can still be pressed."""
+SYSTEM = """You plan tasks on Isaac's Mac for his assistant Evie. Write the WHOLE route to the goal as steps, in one go,
+using what's open, the app guide and the screen shown. Reply with one JSON object: {"steps": [ ... ]}.
+Steps (each an object with "do"):
+- {"do":"open_url","url":"https://...","same_tab":false}   open a page (a new tab unless same_tab)
+- {"do":"find","what":"words on the element","role":"tab|button|link|input|...","href":"part of its link",
+   "typeable":true, "then":"press|set_text", "text":"what to type", "submit":true, "risky":false, "say":"read-back"}
+- {"do":"pick","among":"videos|articles|channels|results|rows","want":"what Isaac wants","then":"press|read"}
+- {"do":"key","combo":"cmd+t"}   {"do":"menu","path":"File > New"}   {"do":"activate","app":"Notes"}
+- {"do":"action","name":"<action from the app guide>","args":{...}}
+- {"do":"read","what":"what to find out or summarise"}     reads the page/window and answers Isaac
+- {"do":"expect","url_contains":"..."} or {"do":"expect","element":"words on something that must now be there"}
+- {"do":"message","to":"who","body":"exact words","via":"whatsapp|imessage"}   sending always uses this
+- {"do":"ask","say":"a short question"}   only when Isaac's goal is truly unclear
+- {"do":"done","say":"one short spoken sentence; {picked} = the label of what you picked"}
+Rules: prefer direct addresses and actions over clicking. After each page change put an expect that proves it
+worked. "Newest" on a channel's Videos page is the first video. When several could match, use pick and choose the
+best: don't ask. Mark "risky": true on any step that sends, posts, buys, deletes or submits for Isaac, with a "say"
+read-back. Never type passwords or pay. Isaac's words came from speech-to-text and may contain misheard words:
+read them for what he most likely meant. End with done."""
 
 
 @dataclass
@@ -46,81 +62,352 @@ class Outcome:
     stuck: bool = False  # couldn't do it on screen: the Brain may hand it to Claude Code
 
 
+class _Fail(Exception):
+    """A step didn't work: replan with what the screen shows now."""
+
+
+class _Ask(Exception):
+    def __init__(self, say: str):
+        super().__init__(say)
+        self.say = say
+
+
 class Planner:
-    def __init__(self, hands, groq, countdown: Countdown, say: Callable[[str], None],
-                 settle_s: float = 0.5, max_steps: int = MAX_STEPS, window_s: float = 3.0):
-        self._hands, self._groq, self._countdown, self._say = hands, groq, countdown, say
-        self._settle, self._max, self._window = settle_s, max_steps, window_s
+    def __init__(self, hands, groq, jev, countdown: Countdown, say: Callable[[str], None], settle_s: float = 0.5,
+                 window_s: float = 3.0, show_work: Callable[[], bool] = lambda: True,
+                 progress: Callable[[str], None] | None = None, messages=None, talker=None):
+        self._hands, self._groq, self._jev, self._countdown, self._say = hands, groq, jev, countdown, say
+        self._settle, self._window, self._show_work = settle_s, window_s, show_work
+        self._progress = progress or (lambda _t: None)
+        self._messages, self._talker = messages, talker
 
+    # -- the run --------------------------------------------------------------------------------
     async def run(self, goal: str, app: str | None = None) -> Outcome:
-        history: list[str] = []
-        fails = 0
-        for _ in range(self._max):
-            seen = await self._hands.do("observe", timeout=8.0, **({"app": app} if app else {}))
-            if not seen.ok:
-                return Outcome(False, f"Couldn't do that: {seen.detail}.")
-            screen = Screen.from_data(seen.data)
-            step = await self._next(goal, history, screen)
-            op = step.get("op")
-            if op not in OPS:
-                fails += 1
-                history.append(f"(invalid step {step!r:.80})")
-            elif op == "done":
-                return Outcome(True, str(step.get("say") or "Done."))
-            elif op == "ask":
-                return Outcome(False, str(step.get("say") or "What exactly should I do?"), ask=True)
-            elif op == "wait":
-                await asyncio.sleep(1.0)
-                history.append("waited")
-                continue
-            elif op in ("press", "set_text") and step.get("id") not in screen.ids:
-                fails += 1
-                history.append(f"(tried {step.get('id')}, which isn't on screen)")
-            else:
-                el = screen.get(step.get("id", "")) if step.get("id") else None
-                if is_risky(op, el, str(step.get("text") or ""), flagged=bool(step.get("risky"))):
-                    line = str(step.get("say") or f"About to {op} {el.get('label') if el else ''}".strip())
-                    self._say(f"{line.rstrip('.')}. Say stop to cancel.")
-                    if not await self._countdown.wait(self._window):
-                        return Outcome(False, "Okay, I didn't do it.")
-                r = await self._hands.do(op, **self._args(op, step, screen))
-                label = (el or {}).get("label", "")
-                history.append(f"{op} {label or step.get('combo') or step.get('url') or step.get('path') or ''}"
-                               f"{' text=' + json.dumps(step.get('text')) if op == 'set_text' else ''} -> "
-                               f"{'ok' if r.ok else 'failed: ' + r.detail}")
-                if r.ok:
-                    fails = 0
-                    if screen.kind == "web" and op in ("press", "set_text", "open_url"):
-                        await self._hands.do("wait_page", timeout=10.0, app=screen.app)
-                    elif self._settle:
-                        await asyncio.sleep(self._settle)
-                    continue
-                fails += 1
-            if fails >= 2:
-                break
-        log.info("computer goal stuck: %s | %s", goal, " / ".join(history[-5:]))
-        return Outcome(False, "I got stuck doing that on screen.", stuck=True)
+        self._goal, self._picked, self._history = goal, "", []
+        self._screen: Screen | None = None
+        self._new_tab_done = False
+        world = await self._world()
+        target = world.resolve(goal)
+        if app and target.kind in ("app", "new_tab") and app != target.app and target.kind == "app":
+            target = Target("app", app, running=app in world.apps, bring_front=True, why="asked for")
+        if target.kind == "choose":
+            target = await self._choose_tab(goal, target)
+        self._target, self._world_now = target, world
+        await self._go_to(target)
+        steps = await self._plan(first=True)
+        replans = 0
+        while True:
+            try:
+                return await self._run_steps(steps)
+            except _Ask as a:
+                return Outcome(False, a.say, ask=True)
+            except _Fail as f:
+                self._history.append(f"FAILED: {f}")
+                log.info("computer step failed (%s), replan %d", f, replans + 1)
+                if replans >= MAX_REPLANS:
+                    log.info("computer goal stuck: %s | %s", goal, " / ".join(self._history[-6:]))
+                    return Outcome(False, "I got stuck doing that on screen.", stuck=True)
+                replans += 1
+                await self._look()
+                steps = await self._plan(first=False)
 
-    @staticmethod
-    def _args(op: str, step: dict, screen: Screen) -> dict:
-        if op == "press":
-            return {"id": step["id"], "snapshot": screen.snapshot}
-        if op == "set_text":
-            return {"id": step["id"], "snapshot": screen.snapshot, "text": str(step.get("text") or ""),
-                    "submit": bool(step.get("submit"))}
-        if op == "key":
-            return {"combo": str(step.get("combo") or ""), "app": screen.app}
-        if op == "open_url":
-            return {"url": str(step.get("url") or ""), "app": screen.app, "front": False}
-        return {"path": str(step.get("path") or ""), "app": screen.app}
+    async def _run_steps(self, steps: list[dict]) -> Outcome:
+        if not steps:
+            raise _Fail("the plan was empty")
+        for st in steps[:MAX_STEPS]:
+            do = st.get("do")
+            self._progress(_describe(st))
+            if do == "done":
+                return Outcome(True, str(st.get("say") or "Done.").replace("{picked}", self._picked))
+            if do == "ask":
+                raise _Ask(str(st.get("say") or "What exactly should I do?"))
+            said = await self._step(do, st)
+            if said is not None:  # read / action results end the task with what she found
+                return Outcome(True, said)
+        return Outcome(True, "Done.")
 
-    async def _next(self, goal: str, history: list[str], screen: Screen) -> dict:
-        user = (f"Goal: {goal}\nSteps so far: {' / '.join(history[-8:]) or 'none'}\n\n"
-                f"Screen:\n{screen.compact()}")
+    # -- one step ---------------------------------------------------------------------------------
+    async def _step(self, do: str, st: dict) -> str | None:
+        if do == "open_url":
+            url = str(st.get("url") or "")
+            if not url.startswith(("https://", "http://")):
+                raise _Fail(f"not a web address: {url!r}")
+            new_tab = not st.get("same_tab") and not self._new_tab_done and self._target.kind != "tab"
+            r = await self._hands.do("open_url", url=url, app="Safari", new_tab=new_tab, window=self._target.window,
+                                     front=self._front())
+            self._new_tab_done = True
+            self._screen = None
+            self._check(r, f"open {url}")
+            await self._wait_page("")
+            self._history.append(f"opened {url}")
+        elif do == "expect":
+            await self._look()
+            if st.get("url_contains") and st["url_contains"] not in (self._screen.url or ""):
+                raise _Fail(f"expected the address to contain {st['url_contains']!r}, it's {self._screen.url!r}")
+            if st.get("element"):
+                el, _ = find_in_code(self._screen, str(st["element"]))
+                if el is None and not any(str(st["element"]).lower() in (e.get("label") or "").lower()
+                                          for e in self._screen.elements):
+                    raise _Fail(f"expected to see {st['element']!r}")
+            self._history.append("checked: ok")
+        elif do == "find":
+            await self._fresh()
+            el = await self._find(st)
+            await self._act(st, el)
+        elif do == "pick":
+            await self._fresh()
+            el = await self._pick(st)
+            if st.get("then", "press") == "read":
+                return await self._read(f"{st.get('want')}: {el.get('label')}")
+            await self._act({**st, "then": "press"}, el)
+        elif do == "key":
+            self._screen = None
+            r = await self._hands.do("key", combo=str(st.get("combo") or ""), app=self._app())
+            self._check(r, f"key {st.get('combo')}")
+            await self._settle_now()
+        elif do == "menu":
+            self._screen = None
+            r = await self._hands.do("menu", path=str(st.get("path") or ""), app=self._app())
+            self._check(r, f"menu {st.get('path')}")
+            await self._settle_now()
+        elif do == "activate":
+            app = str(st.get("app") or self._app())
+            self._screen = None
+            self._check(await self._hands.do("activate", app=app), f"open {app}")
+            self._target = Target("app", app, bring_front=True, why="activated")
+            await self._settle_now()
+        elif do == "action":
+            return await self._action(st)
+        elif do == "read":
+            return await self._read(str(st.get("what") or "what's here"))
+        elif do == "message":
+            if self._messages is None:
+                raise _Ask("I can't send messages from here yet.")
+            out = await self._messages.send(self._goal, {"contact": st.get("to"), "body": st.get("body"),
+                                                         "via": st.get("via")})
+            return out.said
+        elif do == "wait":
+            await asyncio.sleep(min(3.0, float(st.get("s") or 1)))
+        else:
+            raise _Fail(f"unknown step {do!r}")
+        return None
+
+    # -- finding and choosing ----------------------------------------------------------------------
+    async def _find(self, st: dict) -> dict:
+        what = str(st.get("what") or "")
+        typeable = True if st.get("typeable") or st.get("then") == "set_text" else None
+        el, cands = find_in_code(self._screen, what, role=st.get("role"), href=st.get("href"), typeable=typeable)
+        if el is not None:
+            self._history.append(f"found {el.get('label')!r} by its name")
+            return el
+        labelled = [e for e in self._screen.elements if e.get("label")]
+        if not self._web() and len(labelled) < VISION_BELOW:
+            return await self._look_for(what)  # almost nothing readable: look at it instead
+        if not cands:
+            cands = candidates(self._screen, what)
+        if not cands:
+            raise _Fail(f"nothing on screen looks like {what!r}")
         try:
-            out = json.loads(await self._groq.chat(SYSTEM, user, max_tokens=500, json_mode=True, model=MODEL,
+            return await self._jev_choose(f"Which of these on-screen items is: {what}?", cands, f"find {what!r}")
+        except _Fail:
+            if self._web():
+                raise
+            return await self._look_for(what)
+
+    async def _look_for(self, what: str) -> dict:
+        """The last resort before Claude Code: a screenshot with a numbered box over every element
+        the app reported, and Qwen says which number. The number maps back to a real id."""
+        r = await self._hands.do("marked_shot", timeout=8.0, app=self._app())
+        if not r.ok or not hasattr(self._groq, "look"):
+            raise _Fail(f"couldn't see {what!r} ({r.detail})")
+        marks = json.loads(r.data.get("marks") or "{}")
+        try:
+            out = json.loads(await self._groq.look(
+                f'Isaac asked: "{self._goal}". In this screenshot of {self._app()}, which numbered box is {what}? '
+                'Reply {"n": the number} or {"n": null} if none is.', str(r.data.get("png", ""))))
+        except Exception as e:  # noqa: BLE001
+            raise _Fail(f"couldn't look for {what!r}: {e}")
+        eid = marks.get(str(out.get("n")))
+        if not eid or eid not in self._screen.ids:
+            raise _Fail(f"{what!r} isn't in the screenshot")
+        self._history.append(f"saw {what!r} in the screenshot")
+        return self._screen.get(eid)
+
+    async def _pick(self, st: dict) -> dict:
+        pool = pick_pool(self._screen, str(st.get("among") or ""))
+        if not pool:
+            raise _Fail(f"no {st.get('among')} on this page")
+        el = await self._jev_choose(
+            f"Isaac asked: \"{self._goal}\". Which one is {st.get('want')}? They're listed in page order "
+            "(first = top of the page). Pick the best match.", pool[:12], f"pick {st.get('want')!r}")
+        self._picked = el.get("label", "")
+        return el
+
+    async def _jev_choose(self, instructions: str, cands: list[dict], what: str) -> dict:
+        criteria = {c["id"]: (f"#{i + 1} " + (c.get("label") or "") + (f" ({c['meta']})" if c.get("meta") else ""))[:160]
+                    for i, c in enumerate(cands)}
+        try:
+            res = await self._jev.ask(f"Goal: {self._goal}", {"el": {"type": "choice", "instructions": instructions,
+                                                                     "criteria": criteria}})
+            a = res.answers["el"]
+        except (JevError, KeyError, TypeError) as e:
+            raise _Fail(f"couldn't choose for {what}: {e}")
+        cid = a.get("choice")
+        if cid not in criteria or cid not in self._screen.ids:  # never anything that isn't on screen
+            raise _Fail(f"{what}: the choice {cid!r} isn't on screen")
+        if float(a.get("confidence", 0)) < 0.3:
+            raise _Fail(f"{what}: not sure which one")
+        el = self._screen.get(cid)
+        self._history.append(f"chose {el.get('label')!r} for {what}")
+        return el
+
+    # -- acting ------------------------------------------------------------------------------------
+    async def _act(self, st: dict, el: dict) -> None:
+        then = st.get("then", "press")
+        text = str(st.get("text") or "")
+        op = "set_text" if then == "set_text" else "press"
+        known = self._app() in CARDS
+        if is_risky(op, el, text, flagged=bool(st.get("risky"))):
+            if not known:
+                raise _Ask(f"That would {st.get('say') or 'do something I can’t undo'} in {self._app()}. Should I?")
+            line = str(st.get("say") or f"About to press {el.get('label', '')}").strip()
+            self._say(f"{line.rstrip('.')}. Say stop to cancel.")
+            if not await self._countdown.wait(self._window):
+                raise _Ask("Okay, I didn't do it.")
+        before = self._screen.url if self._screen else ""
+        args = {"id": el["id"], "snapshot": self._screen.snapshot}
+        if op == "set_text":
+            args |= {"text": text, "submit": bool(st.get("submit"))}
+        r = await self._hands.do(op, **args)
+        self._check(r, f"{op} {el.get('label')!r}")
+        self._history.append(f"{op} {el.get('label')!r}")
+        self._screen = None  # the screen changed: look again before the next step
+        if self._web():
+            await self._wait_page(before)
+        else:
+            await self._settle_now()
+
+    async def _action(self, st: dict) -> str | None:
+        try:
+            a = render_action(str(st.get("name")), dict(st.get("args") or {}))
+        except (KeyError, ValueError) as e:
+            raise _Fail(f"action {st.get('name')!r}: {e}")
+        if a.risky:
+            self._say(f"{(st.get('say') or a.say or 'About to do that').rstrip('.')}. Say stop to cancel.")
+            if not await self._countdown.wait(self._window):
+                raise _Ask("Okay, I didn't do it.")
+        self._screen = None
+        r = await self._hands.do("applescript", timeout=12.0, source=a.script)
+        self._check(r, f"action {a.name}")
+        self._history.append(f"did {a.name}")
+        if a.returns:
+            return await self._answer(str(r.data.get("out", "")), f"the result of {a.name}")
+        return None
+
+    async def _read(self, what: str) -> str:
+        if self._web():
+            r = await self._hands.do("screen_info", page=True)
+            text = str(r.data.get("page_text", "")) if r.ok else ""
+        else:
+            await self._look()
+            text = "\n".join(f"{e.get('role')}: {e.get('label')} {e.get('value') or ''}" for e in self._screen.elements)
+        return await self._answer(text, what)
+
+    async def _answer(self, text: str, what: str) -> str:
+        user = (f"Isaac asked: \"{self._goal}\". Find out: {what}. Answer in at most 2 short spoken sentences, "
+                f"no markdown.\n\nWhat's on screen:\n{text[:6000]}")
+        try:
+            return (await self._groq.chat("You answer Isaac out loud from what's on his screen.", user, max_tokens=200)).strip()
+        except Exception as e:  # noqa: BLE001 - a failed read is a failed step, never a crash
+            raise _Fail(f"couldn't read it: {e}")
+
+    # -- plumbing ----------------------------------------------------------------------------------
+    async def _world(self) -> World:
+        r = await self._hands.do("world", timeout=6.0)
+        try:
+            return World.from_data(json.loads(r.data.get("world") or "{}") if r.ok else {})
+        except ValueError:
+            return World.from_data({})
+
+    async def _choose_tab(self, goal: str, target: Target) -> Target:
+        crit = {f"t{i}": f"{t.title} ({t.host})" for i, t in enumerate(target.choices)}
+        try:
+            res = await self._jev.ask(f'Isaac said: "{goal}"', {"tab": {
+                "type": "choice", "instructions": "Which of Isaac's open tabs does he mean?", "criteria": crit}})
+            t = target.choices[int(res.answers["tab"]["choice"][1:])]
+            return Target("tab", "Safari", t.window, t.index, bring_front=True, why=f"the tab '{t.title}'")
+        except (JevError, KeyError, TypeError, ValueError, IndexError):
+            t = target.choices[0]
+            return Target("tab", "Safari", t.window, t.index, bring_front=True, why="best guess tab")
+
+    async def _go_to(self, t: Target) -> None:
+        front = self._front() or t.bring_front
+        if t.kind == "tab":
+            self._check(await self._hands.do("use_tab", window=t.window, index=t.index, front=front), "use that tab")
+            await self._look()
+        elif t.kind == "app" and t.app:
+            if not t.running or front:
+                r = await self._hands.do("activate", app=t.app)
+                if r.ok:
+                    await self._settle_now()
+            await self._look()
+
+    async def _fresh(self) -> None:
+        """Read the screen only if something changed it since the last read."""
+        if self._screen is None:
+            await self._look()
+
+    async def _look(self) -> None:
+        app = "Safari" if self._web() else self._app()
+        seen = await self._hands.do("observe", timeout=8.0, app=app)
+        if not seen.ok:
+            raise _Fail(f"couldn't read {app}: {seen.detail}")
+        self._screen = Screen.from_data(seen.data)
+
+    async def _plan(self, first: bool) -> list[dict]:
+        t = self._target
+        where = {"tab": "his Safari tab", "new_tab": "a new Safari tab", "app": t.app}.get(t.kind, t.app)
+        screen = self._screen.compact(limit=120) if self._screen else "(nothing yet: start by opening what's needed)"
+        user = (f"Goal (Isaac's words, from speech-to-text, may contain misheard words): {self._goal}\n"
+                f"Work in: {where} ({t.why})\n\nWhat's open:\n{self._world_now.summary()}\n\n"
+                f"{card_for('Safari' if t.kind in ('tab', 'new_tab') else t.app, self._goal)}\n\n")
+        if not first:
+            user += "Steps so far: " + " / ".join(self._history[-10:]) + "\nThe plan went wrong. Plan the rest again.\n\n"
+        user += f"Screen now:\n{screen}"
+        try:
+            out = json.loads(await self._groq.chat(SYSTEM, user, max_tokens=900, json_mode=True, model=MODEL,
                                                    reasoning="low"))
-            return out if isinstance(out, dict) else {}
-        except Exception as e:  # a bad or failed reply counts as a failed step, never a crash
-            log.warning("planner step failed: %s", str(e)[:120])
-            return {}
+        except Exception as e:  # noqa: BLE001 - a bad plan is a failed plan, never a crash
+            log.warning("plan call failed: %s", str(e)[:120])
+            return []
+        steps = out.get("steps") if isinstance(out, dict) else None
+        return [s for s in steps if isinstance(s, dict)] if isinstance(steps, list) else []
+
+    async def _wait_page(self, before: str) -> None:
+        await self._hands.do("wait_page", timeout=10.0, from_url=before or "")
+
+    async def _settle_now(self) -> None:
+        if self._settle:
+            await asyncio.sleep(self._settle)
+
+    def _check(self, r, what: str) -> None:
+        if not r.ok:
+            raise _Fail(f"{what}: {r.detail}")
+
+    def _web(self) -> bool:
+        return self._target.kind in ("tab", "new_tab") or self._target.app == "Safari"
+
+    def _app(self) -> str:
+        return "Safari" if self._web() else (self._target.app or "")
+
+    def _front(self) -> bool:
+        return bool(self._show_work())
+
+
+def _describe(st: dict) -> str:
+    """The orb's line for a step."""
+    do = st.get("do")
+    return {"open_url": f"Opening {str(st.get('url', ''))[:60]}", "find": f"Finding {st.get('what', '')}",
+            "pick": f"Choosing {st.get('want', '')}", "read": "Reading it", "expect": "Checking",
+            "action": f"{str(st.get('name', '')).replace('_', ' ')}", "key": f"Pressing {st.get('combo', '')}",
+            "message": "Messaging"}.get(do, "")
