@@ -1,46 +1,56 @@
 import AppKit
 import SwiftUI
 
-// Evie's floating orb: a 44 pt glass circle that shows what she's doing, and a bubble that grows
-// out of it with what she heard, what she said and what she's working on (plus a Stop button).
+// Evie on screen: a small glass capsule on the screen edge with one line in it (her mark). When
+// there's something to show, it grows into a glass card at the same edge: what she heard and said,
+// "Which one?" rows, a follow-up, a job with Stop, a Cancel window, or a box to type to her.
 //
-// Why it's built like this (2026-09-24): the old pill crashed the app twice. Both crashes were
-// inside SwiftUI's own mouse handling (hover dispatch, window auto-sizing). So here AppKit owns
-// every mouse event: the panels handle clicks, drags and right-clicks themselves, the SwiftUI
-// views never receive a single mouse event (InertHostingView), and no window ever changes size.
-// The orb and the bubble are two separate fixed-size panels, so flipping sides never re-lays out
-// a window, and nothing invisible sits over Isaac's apps while the bubble is closed.
+// The look (Isaac, 2026-09-24): C's liquid glass (clear, the wallpaper shows through, light on the
+// edge) with A's calm (white type, small mono labels, ONE warm ember that only shows when she's
+// doing something). No circle.
+//
+// Why it's built like this: the old pill crashed the app twice, both times inside SwiftUI's own
+// mouse handling. So AppKit owns every mouse event: the panels handle clicks, drags and right-clicks
+// themselves, SwiftUI never receives one (InertHostingView), and SwiftUI never sizes a window. What's
+// tappable is decided by CardLayout, the same pure layout the view draws from, so a tap always
+// lands on what's drawn there. The type box is a real AppKit text field.
 
 enum OrbSide: String { case left, right }
+
+// MARK: - Tokens
+
+enum Ember {
+    static let ink = Color.white.opacity(0.95)
+    static let ink2 = Color.white.opacity(0.58)
+    static let accent = Color(red: 1.0, green: 0.56, blue: 0.26)
+    static let hair = Color.white.opacity(0.12)
+    static let live = Color(red: 0.2, green: 0.85, blue: 0.4)
+    static let tagFont = Font.system(size: 9.5, weight: .medium, design: .monospaced)
+}
 
 // MARK: - Geometry (pure: the selftest checks it)
 
 enum OrbGeometry {
-    static let orb: CGFloat = 44
+    static let capW: CGFloat = 58, capH: CGFloat = 30  // the capsule
     static let pad: CGFloat = 12  // room for the glass edge and shadow
-    static let gap: CGFloat = 8  // between the orb and the bubble
-    static let capsuleWidth: CGFloat = 340
-    static let orbPanel = NSSize(width: orb + 2 * pad, height: orb + 2 * pad)
-    static let capsulePanel = NSSize(width: capsuleWidth + 12, height: 104)
-    static let stop: CGFloat = 24
+    static let markPanel = NSSize(width: capW + 2 * pad, height: capH + 2 * pad)
+    static let edge: CGFloat = 12  // from the screen edge
 
-    /// The orb panel's frame for an orb centred at `center` (screen coordinates).
-    static func orbFrame(center: CGPoint) -> NSRect {
-        NSRect(x: center.x - orbPanel.width / 2, y: center.y - orbPanel.height / 2,
-               width: orbPanel.width, height: orbPanel.height)
+    static func markFrame(center c: CGPoint) -> NSRect {
+        NSRect(x: c.x - markPanel.width / 2, y: c.y - markPanel.height / 2, width: markPanel.width, height: markPanel.height)
     }
 
-    /// The bubble grows away from the screen edge the orb is snapped to.
-    static func capsuleFrame(orbCenter c: CGPoint, side: OrbSide) -> NSRect {
-        let x = side == .left ? c.x + orb / 2 + gap - 6 : c.x - orb / 2 - gap - capsulePanel.width + 6
-        return NSRect(x: x, y: c.y - capsulePanel.height / 2, width: capsulePanel.width, height: capsulePanel.height)
+    /// The card grows out of the capsule: same outer edge, same middle (kept on screen).
+    static func cardFrame(markCenter c: CGPoint, side: OrbSide, glass: CGSize, in screen: NSRect) -> NSRect {
+        let w = glass.width + 2 * pad, h = glass.height + 2 * pad
+        let x = side == .right ? c.x + capW / 2 + pad - w : c.x - capW / 2 - pad
+        let y = min(max(c.y - h / 2, screen.minY), screen.maxY - h)
+        return NSRect(x: x, y: y, width: w, height: h)
     }
 
-    /// Stop button, in the bubble panel's coordinates: at the far end, level with the orb.
-    static func stopRect(_ side: OrbSide) -> NSRect {
-        let inset: CGFloat = 6 + 10
-        let x = side == .left ? capsulePanel.width - inset - stop : inset
-        return NSRect(x: x, y: (capsulePanel.height - stop) / 2, width: stop, height: stop)
+    /// A rect laid out top-down inside the card's glass, in the card panel's AppKit coordinates.
+    static func panelRect(_ r: CGRect, glassHeight h: CGFloat) -> NSRect {
+        NSRect(x: pad + r.minX, y: pad + h - r.maxY, width: r.width, height: r.height)
     }
 }
 
@@ -50,15 +60,15 @@ enum OrbSnap {
     /// Where momentum carries a thrown object (Apple's deceleration projection).
     static func project(_ v: CGFloat, rate: CGFloat = 0.998) -> CGFloat { v / 1000 * rate / (1 - rate) }
 
-    /// Where the orb comes to rest after a drag: the side edge nearer to where the throw was
+    /// Where the capsule comes to rest after a drag: the side edge nearer to where the throw was
     /// heading, height kept (clamped on screen).
     static func rest(center: CGPoint, velocity: CGVector, in frame: NSRect,
-                     margin: CGFloat = 16) -> (side: OrbSide, center: CGPoint) {
-        let r = OrbGeometry.orb / 2
+                     margin: CGFloat = OrbGeometry.edge) -> (side: OrbSide, center: CGPoint) {
+        let rx = OrbGeometry.capW / 2, ry = OrbGeometry.capH / 2
         let px = center.x + project(velocity.dx), py = center.y + project(velocity.dy)
         let side: OrbSide = px < frame.midX ? .left : .right
-        let x = side == .left ? frame.minX + margin + r : frame.maxX - margin - r
-        let y = min(max(py, frame.minY + margin + r), frame.maxY - margin - r)
+        let x = side == .left ? frame.minX + margin + rx : frame.maxX - margin - rx
+        let y = min(max(py, frame.minY + margin + ry), frame.maxY - margin - ry)
         return (side, CGPoint(x: x, y: y))
     }
 }
@@ -80,246 +90,404 @@ struct Spring {
     }
 }
 
-// MARK: - Look (pure)
+// MARK: - What the card shows (pure)
 
-/// Each state is a palette of liquid light inside the glass, plus how the mark moves.
-struct OrbLook: Equatable {
-    enum Motion: Equatable { case still, level, spin, progress }
-    let motion: Motion
-    let palette: [Color]  // 3 colours: the liquid inside the orb
-    let dashed: Bool
+struct OptionRow: Equatable, Decodable {
+    let id: String
+    var label: String = ""
+    var meta: String? = nil
+}
 
-    var tint: Color { palette[1] }
+struct FollowCard: Equatable, Decodable {
+    let id: String
+    var about: String = ""
+    var line: String = ""
+    var ask: Bool = false
+    var yes: Bool = false
+}
 
-    private static func rgb(_ r: Double, _ g: Double, _ b: Double) -> Color { Color(red: r, green: g, blue: b) }
+enum OrbCard: Equatable {
+    case none
+    case chip(String)  // at rest: "SAX · 12M", "TEXT ONLY"
+    case talk(tag: String, text: String)
+    case typing(tag: String, reply: String?)  // text mode: her reply and a box to type to her
+    case options(asked: String, rows: [OptionRow])
+    case followup(FollowCard)
+    case countdown(line: String)
+    case job(goal: String, step: String?, count: String?)
 
-    static func of(state: String, online: Bool) -> OrbLook {
-        guard online else {
-            return OrbLook(motion: .still, palette: [rgb(0.45, 0.47, 0.52), rgb(0.58, 0.6, 0.64), rgb(0.36, 0.38, 0.42)], dashed: true)
+    var isChip: Bool { if case .chip = self { return true }; return false }
+
+    /// Everything the card depends on, so the choice is a pure function the selftest can check.
+    struct Inputs {
+        var online = true
+        var state = "idle"
+        var heard = ""
+        var said = ""
+        var textMode = false
+        var quietWhy = ""
+        var typing = false
+        var clickTalking = false
+        var options: [OptionRow] = []
+        var asked = ""
+        var countdown = false
+        var followup: FollowCard? = nil
+        var followupFresh = false
+        var job: (goal: String, step: String?, count: String?)? = nil
+        var hover = false
+        var linger = false
+        var note = ""
+        var nextEvent: String? = nil
+    }
+
+    static func pick(_ s: Inputs) -> OrbCard {
+        let textTag = s.quietWhy.isEmpty ? "Text only" : "\(s.quietWhy) · text only"
+        if !s.online { return s.hover ? .talk(tag: "Offline", text: "Evie's core isn't running.") : .none }
+        if s.typing { return .typing(tag: s.textMode ? textTag : "Type to Evie", reply: s.said.isEmpty ? nil : s.said) }
+        if !s.options.isEmpty { return .options(asked: s.asked, rows: Array(s.options.prefix(3))) }
+        if s.countdown, !s.said.isEmpty { return .countdown(line: s.said) }
+        if s.state == "listening" { return .talk(tag: "Listening", text: s.clickTalking ? "Click me again to send." : "Go ahead…") }
+        if s.state == "thinking" { return .talk(tag: "Thinking", text: s.heard.isEmpty ? "…" : s.heard) }
+        if (s.state == "speaking" || s.linger) && !s.said.isEmpty {
+            return s.textMode ? .typing(tag: textTag, reply: s.said) : .talk(tag: s.heard.isEmpty ? "Evie" : s.heard, text: s.said)
         }
-        switch state {
-        case "listening":  // warm: she's all ears
-            return OrbLook(motion: .level, palette: [rgb(1.0, 0.33, 0.42), rgb(1.0, 0.52, 0.36), rgb(0.98, 0.24, 0.62)], dashed: false)
-        case "thinking":
-            return OrbLook(motion: .spin, palette: [rgb(1.0, 0.7, 0.24), rgb(1.0, 0.45, 0.45), rgb(0.95, 0.32, 0.7)], dashed: false)
-        case "speaking":  // cool: her voice
-            return OrbLook(motion: .level, palette: [rgb(0.2, 0.78, 1.0), rgb(0.26, 0.45, 1.0), rgb(0.58, 0.36, 1.0)], dashed: false)
-        case "working":
-            return OrbLook(motion: .progress, palette: [rgb(0.62, 0.36, 1.0), rgb(0.95, 0.35, 0.85), rgb(0.3, 0.45, 1.0)], dashed: false)
-        default:  // Evie at rest: indigo into teal
-            return OrbLook(motion: .still, palette: [rgb(0.36, 0.33, 0.95), rgb(0.55, 0.38, 0.98), rgb(0.18, 0.72, 0.85)], dashed: false)
+        if !s.note.isEmpty { return .talk(tag: "Evie", text: s.note) }
+        if let f = s.followup, s.followupFresh || s.hover { return .followup(f) }
+        if let j = s.job, s.hover || s.linger { return .job(goal: j.goal, step: j.step, count: j.count) }
+        if s.hover { return .talk(tag: s.textMode ? textTag : "Evie", text: s.textMode ? "Click to type to me." : "Click to talk, or hold ⌃⌥.") }
+        if let e = s.nextEvent { return .chip(e) }
+        if s.textMode { return .chip("Text only") }
+        return .none
+    }
+}
+
+enum Hit: Equatable { case row(Int), yes, later, no, stop, cancel, field, mark }
+
+/// One layout for drawing AND tapping. Rects are top-down inside the card's glass.
+enum CardLayout {
+    static let width: CGFloat = 372
+    static let column: CGFloat = 52  // her line, at the screen-edge end of the card
+    static let chipColumn: CGFloat = 40
+    static let top: CGFloat = 13, inset: CGFloat = 16, bottom: CGFloat = 13
+    static let tagH: CGFloat = 12, titleH: CGFloat = 18, bodyH: CGFloat = 38, replyH: CGFloat = 56
+    static let rowH: CGFloat = 31, rowGap: CGFloat = 5, fieldH: CGFloat = 28, pillH: CGFloat = 26
+    static let pillW: CGFloat = 78, pillGap: CGFloat = 6
+
+    enum Role: Equatable {
+        case tag(String), count(String), title(String), body(String), reply(String), hint(String), chip(String)
+        case row(Int, OptionRow), pill(Hit, String, primary: Bool), field(String), bar
+    }
+
+    struct Part: Equatable {
+        let role: Role
+        let rect: CGRect
+    }
+
+    static func chipWidth(_ text: String) -> CGFloat { min(240, 26 + CGFloat(text.count) * 7.2) + chipColumn }
+
+    static func glass(_ c: OrbCard) -> CGSize {
+        switch c {
+        case .none: return .zero
+        case .chip(let t): return CGSize(width: chipWidth(t), height: OrbGeometry.capH)
+        default: return CGSize(width: width, height: (parts(c, side: .right).map(\.rect.maxY).max() ?? 0) + bottom)
         }
+    }
+
+    /// Where her line sits in the card: the end nearest the screen edge.
+    static func columnRect(_ c: OrbCard, side: OrbSide) -> CGRect {
+        let g = glass(c)
+        let w = c.isChip ? chipColumn : column
+        return CGRect(x: side == .right ? g.width - w : 0, y: 0, width: w, height: c.isChip ? g.height : min(g.height, 44))
+    }
+
+    static func parts(_ c: OrbCard, side: OrbSide) -> [Part] {
+        let shift: CGFloat = c.isChip ? (side == .left ? chipColumn : 0) : (side == .left ? column : 0)
+        let right = width - column - 10 + shift  // content's right edge
+        let x = inset + shift, w = right - x
+        var out: [Part] = []
+        var y = top
+        func add(_ r: Role, _ h: CGFloat, gap: CGFloat, x rx: CGFloat? = nil, w rw: CGFloat? = nil) {
+            out.append(Part(role: r, rect: CGRect(x: rx ?? x, y: y, width: rw ?? w, height: h)))
+            y += h + gap
+        }
+        switch c {
+        case .none:
+            return []
+        case .chip(let t):
+            out.append(Part(role: .chip(t), rect: CGRect(x: 12 + shift, y: 0, width: chipWidth(t) - chipColumn - 12, height: OrbGeometry.capH)))
+        case .talk(let tag, let text):
+            add(.tag(tag), tagH, gap: 6)
+            add(.body(text), bodyH, gap: 0)
+        case .typing(let tag, let reply):
+            add(.tag(tag), tagH, gap: 8)
+            if let r = reply { add(.reply(r), replyH, gap: 8) }
+            add(.field("Ask Evie…"), fieldH, gap: 0)
+        case .options(let asked, let rows):
+            add(.tag("Which one?"), tagH, gap: 8)
+            add(.title(asked), titleH, gap: 8)
+            for (i, r) in rows.enumerated() {
+                add(.row(i, r), rowH, gap: i == rows.count - 1 ? 8 : rowGap, x: x - 5, w: w + 5)
+            }
+            add(.hint("Say it or tap one"), 15, gap: 0)
+        case .followup(let f):
+            add(.tag(f.about == "overheard" ? "Heard earlier" : f.about == "stuck" ? "Stuck?" : "Evie"), tagH, gap: 7)
+            add(.body(f.line), bodyH, gap: 8)
+            if f.ask {
+                out.append(Part(role: .field("Type the answer…"), rect: CGRect(x: x, y: y, width: w - pillW - pillGap, height: fieldH)))
+                out.append(Part(role: .pill(.no, "Not now", primary: false), rect: CGRect(x: right - pillW, y: y + 1, width: pillW, height: pillH)))
+                y += fieldH
+            } else {
+                let labels: [(Hit, String, Bool)] = f.yes ? [(.yes, "Yes", true), (.later, "Later", false), (.no, "No", false)]
+                                                          : [(.no, "OK", true)]
+                for (i, (h, l, p)) in labels.enumerated() {
+                    out.append(Part(role: .pill(h, l, primary: p),
+                                    rect: CGRect(x: x + CGFloat(i) * (pillW + pillGap), y: y, width: pillW, height: pillH)))
+                }
+                y += pillH
+            }
+        case .countdown(let line):
+            add(.tag("Going ahead in a moment"), tagH, gap: 7)
+            add(.body(line), bodyH, gap: 8)
+            out.append(Part(role: .bar, rect: CGRect(x: x, y: y + pillH / 2 - 1.5, width: w - pillW - 12, height: 3)))
+            out.append(Part(role: .pill(.cancel, "Cancel", primary: true), rect: CGRect(x: right - pillW, y: y, width: pillW, height: pillH)))
+            y += pillH
+        case .job(let goal, let step, let count):
+            add(.tag("Claude Code"), tagH, gap: 7)
+            if let n = count { out.append(Part(role: .count(n), rect: CGRect(x: right - 60, y: top, width: 60, height: tagH))) }
+            add(.title(goal), titleH, gap: 7)
+            out.append(Part(role: .body(step ?? "Working on it…"), rect: CGRect(x: x, y: y, width: w - pillW - 10, height: pillH)))
+            out.append(Part(role: .pill(.stop, "Stop", primary: false), rect: CGRect(x: right - pillW, y: y, width: pillW, height: pillH)))
+            y += pillH
+        }
+        return out
+    }
+
+    /// What's tappable, in card-glass coordinates (her line counts as the mark: click to talk).
+    static func hits(_ c: OrbCard, side: OrbSide) -> [(Hit, CGRect)] {
+        var out: [(Hit, CGRect)] = parts(c, side: side).compactMap { p in
+            switch p.role {
+            case .row(let i, _): return (.row(i), p.rect)
+            case .pill(let h, _, _): return (h, p.rect)
+            case .field: return (.field, p.rect)
+            default: return nil
+            }
+        }
+        if c != .none { out.append((.mark, columnRect(c, side: side))) }
+        return out
     }
 }
 
 // MARK: - Views
 
-/// The orb: a Liquid Glass sphere with moving liquid light inside it, and Evie's mark on top (the
-/// same ring-around-what-she's-doing idea as the menu bar icon).
-struct OrbMarkView: View {
-    @ObservedObject var model: AppModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        let look = OrbLook.of(state: model.orbState, online: model.online)
-        let still = reduceMotion || look.motion == .still
-        let level = CGFloat(model.orbState == "speaking" ? max(model.voiceLevel, 0.3) : model.micLevel)
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: still)) { tl in
-            let t = still ? 0 : tl.date.timeIntervalSinceReferenceDate
-            ZStack {
-                LiquidCore(palette: look.palette, t: t, level: look.motion == .level ? level : 0.15)
-                    .clipShape(Circle())
-                    .opacity(look.dashed ? 0.55 : 1)
-                // Light catching the glass: a bright rim at the top fading out below, and a soft highlight.
-                Circle()
-                    .strokeBorder(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.05)],
-                                                 startPoint: .top, endPoint: .bottom), lineWidth: 1)
-                Ellipse().fill(LinearGradient(colors: [.white.opacity(0.22), .clear], startPoint: .top, endPoint: .bottom))
-                    .frame(width: OrbGeometry.orb * 0.62, height: OrbGeometry.orb * 0.32)
-                    .offset(y: -OrbGeometry.orb * 0.26)
-                    .blendMode(.plusLighter)
-                Canvas { ctx, size in
-                    OrbMarkView.drawMark(ctx: ctx, size: size, look: look, t: t, level: level, progress: model.jobProgress)
-                }
-            }
-            .frame(width: OrbGeometry.orb, height: OrbGeometry.orb)
-        }
-        .glassEffect(.regular.tint(look.tint.opacity(0.25)), in: Circle())
-        .shadow(color: look.tint.opacity(model.orbState == "idle" ? 0.25 : 0.5), radius: model.orbState == "idle" ? 5 : 9)
-        .overlay(alignment: .topTrailing) {
-            if model.earsMode == "live" {  // Live mic on: a small green light, like the Mac's own
-                Circle().fill(Color(red: 0.2, green: 0.85, blue: 0.4)).frame(width: 8, height: 8)
-                    .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1.2))
-                    .shadow(color: .green.opacity(0.6), radius: 3)
-                    .offset(x: 1, y: -1)
-            }
-        }
-        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 1.0), value: model.orbState)
-        .accessibilityElement()
-        .accessibilityLabel("Evie, \(model.orbState)")
-    }
-
-    static func drawMark(ctx: GraphicsContext, size: CGSize, look: OrbLook, t: Double, level: CGFloat,
-                         progress: Double?) {
-        let c = CGPoint(x: size.width / 2, y: size.height / 2)
-        let r = size.width / 2 - 9
-        let white = GraphicsContext.Shading.color(.white)
-        func bars(_ base: [CGFloat]) {
-            let w: CGFloat = 2.4, gap: CGFloat = 2.3
-            let total = CGFloat(base.count) * w + CGFloat(base.count - 1) * gap
-            for (i, b) in base.enumerated() {
-                let wob = 0.5 + 0.5 * sin(t * 9 + Double(i) * 1.7)  // a little life at a steady level
-                let h = max(3, min(2 * r - 4, b * (0.3 + 1.3 * level) + CGFloat(wob) * 3 * level))
-                let x = c.x - total / 2 + CGFloat(i) * (w + gap)
-                ctx.fill(Path(roundedRect: CGRect(x: x, y: c.y - h / 2, width: w, height: h), cornerRadius: w / 2), with: white)
-            }
-        }
-        switch look.motion {
-        case .still:
-            let ring = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
-            ctx.stroke(ring, with: .color(.white.opacity(0.85)), style: StrokeStyle(lineWidth: 1.6, dash: look.dashed ? [3, 2.6] : []))
-            if !look.dashed {  // the pupil: Evie, awake and waiting
-                var glow = ctx
-                glow.addFilter(.blur(radius: 3))
-                glow.fill(Path(ellipseIn: CGRect(x: c.x - 5, y: c.y - 5, width: 10, height: 10)), with: .color(.white.opacity(0.7)))
-                ctx.fill(Path(ellipseIn: CGRect(x: c.x - 3, y: c.y - 3, width: 6, height: 6)), with: white)
-            }
-        case .level:
-            bars([7, 13, 19, 13, 7])
-        case .spin:  // three lights orbiting, like a thought going round
-            for i in 0..<3 {
-                let a = t * 2 * .pi / 1.2 + Double(i) * 2 * .pi / 3
-                let p = CGPoint(x: c.x + cos(a) * r * 0.62, y: c.y + sin(a) * r * 0.62)
-                let s: CGFloat = i == 0 ? 3.4 : 2.6
-                ctx.fill(Path(ellipseIn: CGRect(x: p.x - s, y: p.y - s, width: 2 * s, height: 2 * s)), with: white)
-            }
-        case .progress:
-            let rr = size.width / 2 - 3.5  // on the glass rim itself
-            let track = Path(ellipseIn: CGRect(x: c.x - rr, y: c.y - rr, width: 2 * rr, height: 2 * rr))
-            ctx.stroke(track, with: .color(.white.opacity(0.22)), lineWidth: 2.2)
-            var arc = Path()
-            if let p = progress {
-                arc.addArc(center: c, radius: rr, startAngle: .degrees(-90), endAngle: .degrees(-90 + 360 * max(0.04, p)),
-                           clockwise: false)
-            } else {  // no step count yet: a short arc going round
-                let a = Angle.radians(t * 2 * .pi / 1.6)
-                arc.addArc(center: c, radius: rr, startAngle: a, endAngle: a + .degrees(80), clockwise: false)
-            }
-            ctx.stroke(arc, with: white, style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 3.2, y: c.y - 3.2, width: 6.4, height: 6.4)), with: white)
-        }
-    }
-}
-
-/// Liquid light: a 3x3 mesh gradient whose middle points drift, so the colour flows like liquid
-/// inside the glass. It swells with the voice (level).
-struct LiquidCore: View {
-    let palette: [Color]
-    let t: Double
+/// Her mark: one line. White and still at rest; ember while she's doing something.
+struct EvieLine: View {
+    let state: String
+    let online: Bool
     let level: CGFloat
+    let progress: Double?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let a = Float(t * 0.9), k = Float(0.12 + 0.18 * level)
-        let mid = SIMD2<Float>(0.5 + k * cos(a), 0.5 + k * sin(a * 1.3))
-        let top = SIMD2<Float>(0.5 + 0.2 * sin(a * 0.7), 0)
-        let side = SIMD2<Float>(1, 0.5 + 0.2 * cos(a * 0.8))
-        let (p0, p1, p2) = (palette[0], palette[1], palette[2])
-        MeshGradient(width: 3, height: 3, points: [
-            [0, 0], top, [1, 0],
-            [0, 0.5], mid, side,
-            [0, 1], [0.5, 1], [1, 1],
-        ], colors: [
-            p0, p1, p2,
-            p2, p0, p1,
-            p1, p2, p0,
-        ])
-        .blur(radius: 3)
-        .scaleEffect(1.15)
+        let moving = online && ["listening", "speaking", "thinking", "working"].contains(state) && !reduceMotion
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { tl in
+            let t = moving ? tl.date.timeIntervalSinceReferenceDate : 0
+            Canvas { ctx, size in EvieLine.draw(ctx: ctx, size: size, state: online ? state : "offline", t: t,
+                                                 level: level, progress: progress) }
+        }
+        .frame(width: 34, height: 22)
+        .shadow(color: online && state != "idle" ? Ember.accent.opacity(0.8) : .white.opacity(online ? 0.45 : 0), radius: 3)
+        .accessibilityLabel("Evie, \(online ? state : "offline")")
+    }
+
+    static func draw(ctx: GraphicsContext, size: CGSize, state: String, t: Double, level: CGFloat, progress: Double?) {
+        let mid = size.height / 2, len: CGFloat = 24, x0 = (size.width - len) / 2
+        func line(_ from: CGFloat, _ to: CGFloat, _ color: Color, dash: [CGFloat] = []) {
+            var p = Path()
+            p.move(to: CGPoint(x: x0 + from, y: mid))
+            p.addLine(to: CGPoint(x: x0 + to, y: mid))
+            ctx.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: dash))
+        }
+        switch state {
+        case "listening", "speaking":
+            let amp = 2 + 7 * min(1, max(0.15, level))
+            var p = Path()
+            for i in 0...40 {
+                let f = CGFloat(i) / 40
+                let env = sin(.pi * f)  // still at both ends, alive in the middle
+                let y = mid - env * amp * CGFloat(sin(Double(f) * 13 + t * 9) * 0.7 + sin(Double(f) * 23 - t * 6) * 0.3)
+                let pt = CGPoint(x: x0 + f * len, y: y)
+                if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
+            }
+            ctx.stroke(p, with: .color(Ember.accent), style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+        case "thinking":  // a short ember dash travelling along the line
+            line(0, len, .white.opacity(0.22))
+            let a = CGFloat((sin(t * 3.2) + 1) / 2) * (len - 8)
+            line(a, a + 8, Ember.accent)
+        case "working":
+            line(0, len, .white.opacity(0.22))
+            if let p = progress {
+                line(0, max(2, len * CGFloat(p)), Ember.accent)
+            } else {
+                let a = CGFloat((t * 0.8).truncatingRemainder(dividingBy: 1)) * (len + 8) - 8
+                line(max(0, a), min(len, a + 8), Ember.accent)
+            }
+        case "offline":
+            line(0, len, .white.opacity(0.35), dash: [2.5, 2.5])
+        default:
+            line(2, len - 2, .white.opacity(0.9))
+        }
     }
 }
 
-/// The bubble: what she heard (so a mishear is visible straight away), what she said, and the
-/// task she's on with its progress and a Stop button.
-struct OrbBubbleView: View {
-    @ObservedObject var model: AppModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+/// Liquid glass: the real glass material, a clear dark body so white type always reads, and light
+/// catching the edge.
+struct GlassBody: View {
+    let size: CGSize
+    let radius: CGFloat
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        let side = model.orbSide
-        let look = OrbLook.of(state: model.orbState, online: model.online)
-        HStack(spacing: 11) {
-            if side == .right, model.stopVisible { stopButton }
-            VStack(alignment: .leading, spacing: 4) {
-                if let you = model.youLine {
-                    HStack(spacing: 6) {
-                        Circle().fill(Color.secondary.opacity(0.6)).frame(width: 5, height: 5)
-                        Text(you).font(.system(size: 12)).foregroundStyle(.secondary)
-                            .lineLimit(1).truncationMode(.head)
-                    }
-                }
-                if let evie = model.evieLine {
-                    Text(evie)
-                        .font(.system(size: 13.5, weight: .medium, design: .rounded))
-                        .tracking(-0.1)
-                        .lineLimit(2).truncationMode(.tail)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .contentTransition(.opacity)
-                }
-                if let step = model.stepLine {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(step).font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
-                        LiquidBar(progress: model.jobProgress, palette: OrbLook.of(state: "working", online: true).palette)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if side == .left, model.stopVisible { stopButton }
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        ZStack {
+            shape.fill(reduceTransparency ? Color(white: 0.12) : Color.black.opacity(0.3))
+            shape.fill(LinearGradient(colors: [.white.opacity(0.10), .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.55)))
+            shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.07), .white.opacity(0.18)],
+                                              startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
         }
-        .padding(.horizontal, 15)
-        .padding(.vertical, 11)
-        .frame(width: OrbGeometry.capsuleWidth)
-        .background {
-            if reduceTransparency {
-                RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color(nsColor: .windowBackgroundColor))
-            }
-        }
-        // The bubble takes a whisper of her current colour, so it reads as part of the orb.
-        .glassEffect(.regular.tint(look.tint.opacity(0.08)), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .frame(width: OrbGeometry.capsulePanel.width, height: OrbGeometry.capsulePanel.height)
-        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 1.0), value: model.evieLine)
-        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 1.0), value: model.stepLine)
-    }
-
-    private var stopButton: some View {
-        Image(systemName: "stop.fill")
-            .font(.system(size: 9.5, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(width: OrbGeometry.stop, height: OrbGeometry.stop)
-            // Solid red under the glass: a tint alone goes grey in a window that never becomes key.
-            .background(Circle().fill(LinearGradient(colors: [Color(red: 1.0, green: 0.4, blue: 0.4), Color(red: 0.92, green: 0.2, blue: 0.28)],
-                                                     startPoint: .top, endPoint: .bottom)))
-            .glassEffect(.regular, in: Circle())
-            .accessibilityLabel("Stop")
+        .frame(width: size.width, height: size.height)
+        .glassEffect(.clear, in: shape)
+        .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
     }
 }
 
-/// A thin progress line of the same liquid light; it drifts when the step count isn't known yet.
-struct LiquidBar: View {
-    let progress: Double?
-    let palette: [Color]
+/// The capsule at rest.
+struct OrbMarkView: View {
+    @ObservedObject var model: AppModel
 
     var body: some View {
-        GeometryReader { g in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.secondary.opacity(0.18))
-                Capsule()
-                    .fill(LinearGradient(colors: palette, startPoint: .leading, endPoint: .trailing))
-                    .frame(width: g.size.width * CGFloat(progress ?? 0.25))
-                    .shadow(color: palette[1].opacity(0.6), radius: 3)
+        let size = CGSize(width: OrbGeometry.capW, height: OrbGeometry.capH)
+        ZStack {
+            GlassBody(size: size, radius: OrbGeometry.capH / 2)
+            EvieLine(state: model.orbState, online: model.online, level: model.lineLevel, progress: model.jobProgress)
+        }
+        .overlay(alignment: .topTrailing) {
+            if !model.followups.isEmpty {  // something waiting for him
+                Circle().fill(Ember.accent).frame(width: 7, height: 7).offset(x: -6, y: 4)
+            } else if model.earsMode == "live" {  // Live mic on: a small green light, like the Mac's own
+                Circle().fill(Ember.live).frame(width: 6, height: 6).offset(x: -7, y: 5)
             }
         }
-        .frame(height: 3.5)
+        .frame(width: OrbGeometry.markPanel.width, height: OrbGeometry.markPanel.height)
+    }
+}
+
+/// The card: laid out by CardLayout, so what's drawn is exactly what's tappable.
+struct OrbCardView: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let card = model.card, side = model.orbSide
+        let g = CardLayout.glass(card)
+        let col = CardLayout.columnRect(card, side: side)
+        ZStack(alignment: .topLeading) {
+            if card != .none {
+                GlassBody(size: g, radius: card.isChip ? OrbGeometry.capH / 2 : 22)
+                if !card.isChip && g.height <= 90 {
+                    Rectangle().fill(Ember.hair).frame(width: 1, height: g.height - 24)
+                        .offset(x: side == .right ? col.minX : col.maxX, y: 12)
+                } else if card.isChip {
+                    Rectangle().fill(Ember.hair).frame(width: 1, height: 14)
+                        .offset(x: side == .right ? col.minX : col.maxX, y: (g.height - 14) / 2)
+                }
+                EvieLine(state: model.orbState, online: model.online, level: model.lineLevel, progress: model.jobProgress)
+                    .frame(width: col.width, height: col.height)
+                    .offset(x: col.minX, y: col.minY)
+                ForEach(Array(CardLayout.parts(card, side: side).enumerated()), id: \.offset) { _, p in
+                    part(p.role).frame(width: p.rect.width, height: p.rect.height, alignment: .leading)
+                        .offset(x: p.rect.minX, y: p.rect.minY)
+                }
+            }
+        }
+        .frame(width: g.width, height: g.height, alignment: .topLeading)
+        .frame(width: g.width + 2 * OrbGeometry.pad, height: g.height + 2 * OrbGeometry.pad)
+        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 1.0), value: model.said)
+    }
+
+    @ViewBuilder private func part(_ r: CardLayout.Role) -> some View {
+        switch r {
+        case .tag(let t):
+            Text(t.uppercased()).font(Ember.tagFont).tracking(0.9).foregroundStyle(Ember.ink2).lineLimit(1)
+        case .count(let t):
+            Text(t).font(Ember.tagFont).foregroundStyle(Ember.accent).frame(maxWidth: .infinity, alignment: .trailing)
+        case .title(let t):
+            Text(t).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Ember.ink).lineLimit(1)
+        case .body(let t):
+            Text(t).font(.system(size: 14)).foregroundStyle(Ember.ink).lineLimit(2).truncationMode(.tail)
+                .frame(maxHeight: .infinity, alignment: .topLeading)
+        case .reply(let t):
+            Text(t).font(.system(size: 14)).foregroundStyle(Ember.ink).lineSpacing(2).lineLimit(3)
+                .frame(maxHeight: .infinity, alignment: .topLeading)
+        case .hint(let t):
+            Text(t).font(.system(size: 11)).foregroundStyle(Ember.ink2)
+        case .chip(let t):
+            Text(t.uppercased()).font(.system(size: 10.5, weight: .medium, design: .monospaced)).tracking(0.6)
+                .foregroundStyle(Ember.ink).lineLimit(1)
+        case .row(let i, let o):
+            HStack(spacing: 10) {
+                Text("\(i + 1)").font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(i == 0 ? Color.black : Ember.ink2).frame(width: 19, height: 19)
+                    .background(Circle().fill(i == 0 ? Ember.accent : Color.white.opacity(0.08)))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(o.label).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Ember.ink).lineLimit(1)
+                    if let m = o.meta, !m.isEmpty {
+                        Text(m).font(.system(size: 11)).foregroundStyle(Ember.ink2).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 5)
+            .frame(maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(i == 0 ? Color.white.opacity(0.07) : .clear))
+        case .pill(_, let label, let primary):
+            Text(label).font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(primary ? Color.black : Ember.ink)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Capsule().fill(primary ? Ember.accent : Color.white.opacity(0.09)))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(primary ? 0 : 0.14), lineWidth: 1))
+        case .field(let placeholder):
+            HStack {
+                Text(model.typing ? "" : placeholder).font(.system(size: 12.5)).foregroundStyle(Ember.ink2)
+                Spacer()
+                Image(systemName: "arrow.up").font(.system(size: 10, weight: .bold)).foregroundStyle(.black)
+                    .frame(width: 20, height: 20).background(Circle().fill(Color.white.opacity(0.9)))
+            }
+            .padding(.leading, 11).padding(.trailing, 4)
+            .frame(maxHeight: .infinity)
+            .background(Capsule().fill(Color.white.opacity(0.07)))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+        case .bar:
+            CountdownBar(until: model.countdownUntil, total: model.countdownTotal)
+        }
+    }
+}
+
+/// The say-stop window as a draining ember line (Cancel is next to it).
+struct CountdownBar: View {
+    let until: Date?
+    let total: Double
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: until == nil)) { tl in
+            let left = max(0, (until ?? tl.date).timeIntervalSince(tl.date))
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.12))
+                    Capsule().fill(Ember.accent).frame(width: g.size.width * CGFloat(total > 0 ? left / total : 0))
+                        .shadow(color: Ember.accent.opacity(0.8), radius: 3)
+                }
+            }
+        }
     }
 }
 
@@ -348,7 +516,7 @@ final class HoverContainer: NSView {
         super.updateTrackingAreas()
         if let a = area { removeTrackingArea(a) }
         let a = NSTrackingArea(rect: bounds.insetBy(dx: OrbGeometry.pad - 2, dy: OrbGeometry.pad - 2),
-                               options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+                               options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(a)
         area = a
     }
@@ -365,11 +533,18 @@ protocol OrbMouse: AnyObject {
 
 final class OrbPanel: NSPanel {
     weak var mouse: OrbMouse?
+    var allowKey = false  // only while he's typing to her
+    var typingField: NSTextField?
 
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { allowKey }
     override var canBecomeMain: Bool { false }
 
     override func sendEvent(_ e: NSEvent) {
+        if let f = typingField, !f.isHidden, e.type == .leftMouseDown || e.type == .leftMouseUp || e.type == .leftMouseDragged,
+           f.frame.contains(e.locationInWindow) {
+            super.sendEvent(e)  // clicks inside the type box are the text field's own
+            return
+        }
         switch e.type {
         case .leftMouseDown: mouse?.down(e, in: self)
         case .leftMouseDragged: mouse?.dragged(e)
@@ -390,23 +565,56 @@ final class OrbPanel: NSPanel {
         p.hasShadow = false
         p.hidesOnDeactivate = false
         p.acceptsMouseMovedEvents = false
+        p.becomesKeyOnlyIfNeeded = true
         return p
+    }
+}
+
+/// The type box: plain AppKit, styled to sit inside the drawn field.
+final class TypeField: NSTextField {
+    var onSubmit: ((String) -> Void)?
+    var onCancel: (() -> Void)?
+
+    override func cancelOperation(_ sender: Any?) { onCancel?() }
+
+    static func make() -> TypeField {
+        let f = TypeField()
+        f.isBordered = false
+        f.drawsBackground = false
+        f.focusRingType = .none
+        f.font = .systemFont(ofSize: 12.5)
+        f.textColor = .white
+        f.placeholderAttributedString = NSAttributedString(string: "Ask Evie…", attributes: [
+            .foregroundColor: NSColor.white.withAlphaComponent(0.5), .font: NSFont.systemFont(ofSize: 12.5)])
+        f.cell?.usesSingleLineMode = true
+        f.cell?.isScrollable = true
+        f.target = f
+        f.action = #selector(submit)
+        f.isHidden = true
+        return f
+    }
+
+    @objc private func submit() {
+        let t = stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        stringValue = ""
+        if !t.isEmpty { onSubmit?(t) }
     }
 }
 
 @MainActor
 final class OrbController: NSObject, OrbMouse {
-    private var orbPanel: OrbPanel?
-    private var bubblePanel: OrbPanel?
+    private var markPanel: OrbPanel?
+    private var cardPanel: OrbPanel?
+    private var field: TypeField?
     private weak var model: AppModel?
     private var center = CGPoint.zero
-    private var bubbleShown = false
+    private var shown: OrbCard = .none
     private var observers: [Any] = []
     // drag state
     private var downAt: CGPoint?
     private var centerAtDown = CGPoint.zero
     private var dragging = false
-    private var pressedStop = false
+    private var downHit: Hit?
     private var samples: [(t: TimeInterval, p: CGPoint)] = []
     // snap animation
     private var anim: Timer?
@@ -417,46 +625,53 @@ final class OrbController: NSObject, OrbMouse {
 
     func show(_ model: AppModel) {
         self.model = model
-        if orbPanel == nil { build(model) }
-        orbPanel?.orderFrontRegardless()
+        if markPanel == nil { build(model) }
+        markPanel?.orderFrontRegardless()
         refresh()
     }
 
     func hide() {
-        orbPanel?.orderOut(nil)
-        bubblePanel?.orderOut(nil)
-        bubbleShown = false
+        markPanel?.orderOut(nil)
+        cardPanel?.orderOut(nil)
+        shown = .none
     }
 
     private func build(_ model: AppModel) {
-        let orb = OrbPanel.make(size: OrbGeometry.orbPanel)
-        orb.mouse = self
-        let oc = HoverContainer(frame: NSRect(origin: .zero, size: OrbGeometry.orbPanel))
-        let oh = InertHostingView(rootView: OrbMarkView(model: model)
-            .frame(width: OrbGeometry.orbPanel.width, height: OrbGeometry.orbPanel.height))
-        oh.sizingOptions = []
-        oh.frame = oc.bounds
-        oc.addSubview(oh)
-        oc.onHover = { [weak model] h in model?.orbHover = h }
-        orb.contentView = oc
+        let mark = OrbPanel.make(size: OrbGeometry.markPanel)
+        mark.mouse = self
+        let mc = HoverContainer(frame: NSRect(origin: .zero, size: OrbGeometry.markPanel))
+        let mh = InertHostingView(rootView: OrbMarkView(model: model))
+        mh.sizingOptions = []
+        mh.frame = mc.bounds
+        mc.addSubview(mh)
+        mc.onHover = { [weak model] h in model?.orbHover = h }
+        mark.contentView = mc
 
-        let bubble = OrbPanel.make(size: OrbGeometry.capsulePanel)
-        bubble.mouse = self
-        let bh = InertHostingView(rootView: OrbBubbleView(model: model))
-        bh.sizingOptions = []
-        bh.frame = NSRect(origin: .zero, size: OrbGeometry.capsulePanel)
-        let bc = HoverContainer(frame: bh.frame)
-        bc.addSubview(bh)
-        bc.onHover = { [weak model] h in model?.bubbleHover = h }
-        bubble.contentView = bc
-        bubble.alphaValue = 0
+        let big = NSSize(width: CardLayout.width + 2 * OrbGeometry.pad, height: 260)
+        let card = OrbPanel.make(size: big)
+        card.mouse = self
+        let cc = HoverContainer(frame: NSRect(origin: .zero, size: big))
+        cc.autoresizesSubviews = true
+        let ch = InertHostingView(rootView: OrbCardView(model: model))
+        ch.sizingOptions = []
+        ch.frame = cc.bounds
+        ch.autoresizingMask = [.width, .height]
+        cc.addSubview(ch)
+        let f = TypeField.make()
+        f.onSubmit = { [weak model] t in model?.submitTyped(t) }
+        f.onCancel = { [weak model] in model?.closeTyping() }
+        cc.addSubview(f)
+        cc.onHover = { [weak model] h in model?.bubbleHover = h }
+        card.contentView = cc
+        card.typingField = f
+        card.alphaValue = 0
 
-        orbPanel = orb
-        bubblePanel = bubble
+        markPanel = mark
+        cardPanel = card
+        field = f
         center = savedCenter()
         model.orbSide = OrbSnap.rest(center: center, velocity: .zero, in: screenFrame(for: center)).side
         place(center)
-        // Show or hide the bubble whenever what it should show changes.
         observers.append(model.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.refresh() } }
         })
@@ -467,31 +682,65 @@ final class OrbController: NSObject, OrbMouse {
         observers.append(n)
     }
 
+    /// Show the card the model wants (or the capsule at rest). The panel is sized here, by AppKit,
+    /// never by SwiftUI.
     private func refresh() {
-        guard let model, let bubble = bubblePanel, orbPanel?.isVisible == true else { return }
-        let want = model.orbExpanded
-        guard want != bubbleShown else { return }
-        bubbleShown = want
-        bubble.setFrame(OrbGeometry.capsuleFrame(orbCenter: center, side: model.orbSide), display: false)
-        if want { bubble.orderFrontRegardless() }
+        guard let model, let card = cardPanel, let mark = markPanel, mark.isVisible || card.isVisible else { return }
+        let want = model.card
+        placeField(want)
+        guard want != shown else { return }
+        let was = shown
+        shown = want
         let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if want != .none {
+            card.setFrame(cardFrame(want), display: true)
+            card.orderFrontRegardless()
+        }
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = reduce ? 0.15 : 0.22
-            ctx.timingFunction = CAMediaTimingFunction(name: want ? .easeOut : .easeIn)
-            bubble.animator().alphaValue = want ? 1 : 0
+            ctx.duration = reduce ? 0.12 : (was == .none || want == .none ? 0.2 : 0.12)
+            ctx.timingFunction = CAMediaTimingFunction(name: want == .none ? .easeIn : .easeOut)
+            card.animator().alphaValue = want == .none ? 0 : 1
+            mark.animator().alphaValue = want == .none ? 1 : 0  // the capsule grows into the card
         }, completionHandler: { [weak self] in
             MainActor.assumeIsolated {
-                if self?.bubbleShown == false { self?.bubblePanel?.orderOut(nil) }
+                guard let self else { return }
+                if self.shown == .none { self.cardPanel?.orderOut(nil) }
+                self.markPanel?.ignoresMouseEvents = self.shown != .none
             }
         })
     }
 
+    private func cardFrame(_ c: OrbCard) -> NSRect {
+        OrbGeometry.cardFrame(markCenter: center, side: model?.orbSide ?? .right, glass: CardLayout.glass(c),
+                              in: screenFrame(for: center))
+    }
+
+    /// The real text field sits exactly on the drawn field while he's typing.
+    private func placeField(_ c: OrbCard) {
+        guard let model, let f = field, let panel = cardPanel else { return }
+        let rect = CardLayout.hits(c, side: model.orbSide).first { $0.0 == .field }?.1
+        guard model.typing, let r = rect else {
+            if !f.isHidden {
+                f.isHidden = true
+                panel.allowKey = false
+                panel.resignKey()
+            }
+            return
+        }
+        let pr = OrbGeometry.panelRect(r, glassHeight: CardLayout.glass(c).height)
+        f.frame = NSRect(x: pr.minX + 11, y: pr.minY + (pr.height - 18) / 2, width: pr.width - 11 - 28, height: 18)
+        if f.isHidden {
+            f.isHidden = false
+            panel.allowKey = true
+            panel.makeKeyAndOrderFront(nil)
+            panel.makeFirstResponder(f)
+        }
+    }
+
     private func place(_ c: CGPoint) {
         center = c
-        orbPanel?.setFrame(OrbGeometry.orbFrame(center: c), display: false)
-        if let model, bubbleShown {
-            bubblePanel?.setFrame(OrbGeometry.capsuleFrame(orbCenter: c, side: model.orbSide), display: false)
-        }
+        markPanel?.setFrame(OrbGeometry.markFrame(center: c), display: false)
+        if shown != .none { cardPanel?.setFrame(cardFrame(shown), display: false) }
     }
 
     // MARK: mouse
@@ -499,13 +748,15 @@ final class OrbController: NSObject, OrbMouse {
     func down(_ e: NSEvent, in panel: OrbPanel) {
         anim?.invalidate()
         let p = e.locationInWindow
-        if panel === orbPanel {
-            let orb = NSRect(x: OrbGeometry.pad, y: OrbGeometry.pad, width: OrbGeometry.orb, height: OrbGeometry.orb)
-            guard orb.insetBy(dx: -4, dy: -4).contains(p) else { downAt = nil; return }
-            pressedStop = false
-        } else {
-            pressedStop = (model?.stopVisible ?? false)
-                && OrbGeometry.stopRect(model?.orbSide ?? .left).insetBy(dx: -6, dy: -6).contains(p)
+        downHit = nil
+        if panel === markPanel {
+            let cap = NSRect(x: OrbGeometry.pad, y: OrbGeometry.pad, width: OrbGeometry.capW, height: OrbGeometry.capH)
+            guard cap.insetBy(dx: -4, dy: -4).contains(p) else { downAt = nil; return }
+            downHit = .mark
+        } else if let model {
+            let h = CardLayout.glass(shown).height
+            downHit = CardLayout.hits(shown, side: model.orbSide)
+                .first { OrbGeometry.panelRect($0.1, glassHeight: h).insetBy(dx: -3, dy: -3).contains(p) }?.0
         }
         downAt = NSEvent.mouseLocation
         centerAtDown = center
@@ -524,7 +775,7 @@ final class OrbController: NSObject, OrbMouse {
     }
 
     func up(_ e: NSEvent, in panel: OrbPanel) {
-        defer { downAt = nil; dragging = false }
+        defer { downAt = nil; dragging = false; downHit = nil }
         guard downAt != nil, let model else { return }
         if dragging {
             var v = CGVector.zero
@@ -534,50 +785,56 @@ final class OrbController: NSObject, OrbMouse {
             settle(velocity: v)
             return
         }
-        if pressedStop { Task { await model.stopAll() }; return }
-        if panel === orbPanel { model.orbClick() }
+        guard let hit = downHit else { return }
+        model.tap(hit, on: shown)
     }
 
     func menu(_ e: NSEvent, in panel: OrbPanel) {
         guard let model, let view = panel.contentView else { return }
         let m = NSMenu()
-        func item(_ title: String, on: Bool = false, _ action: @escaping () -> Void) {
+        func item(_ title: String, on: Bool = false, in menu: NSMenu? = nil, _ action: @escaping () -> Void) {
             let i = NSMenuItem(title: title, action: #selector(MenuAction.fire), keyEquivalent: "")
             let a = MenuAction(action)
             i.target = a
             i.representedObject = a  // the item keeps its action alive
             i.state = on ? .on : .off
-            m.addItem(i)
+            (menu ?? m).addItem(i)
         }
+        for (mode, title) in [("auto", "Answers: by my calendar"), ("voice", "Answers: out loud"), ("text", "Answers: text only (⌃⌥T)")] {
+            item(title, on: model.quietSetting == mode) { model.setOutput(mode) }
+        }
+        m.addItem(.separator())
         if model.earsMode != nil {
             for (mode, title) in [("live", "Live mic"), ("shadow", "Shadow (decide, don't act)"), ("off", "Mic off")] {
                 item(title, on: model.earsMode == mode) { Task { await model.setEarsMode(mode) } }
             }
             m.addItem(.separator())
         }
+        let pro = NSMenu()
+        for (name, title) in AppModel.proactiveSources {
+            item(title, on: model.proactiveOn(name), in: pro) { model.setProactive(name, !model.proactiveOn(name)) }
+        }
+        let proItem = NSMenuItem(title: "Bring things up", action: nil, keyEquivalent: "")
+        proItem.submenu = pro
+        m.addItem(proItem)
         item("Show her work on screen", on: model.showWork) { model.setShowWork(!model.showWork) }
         if let rec = model.recording {
             item("Record for tuning", on: rec) { Task { await model.setRecording(!rec) } }
         }
         m.addItem(.separator())
-        item("Hide the orb") { model.setShowPill(false) }
+        item("Hide Evie") { model.setShowPill(false) }
         item("Quit Evie") { NSApp.terminate(nil) }
         m.popUp(positioning: nil, at: e.locationInWindow, in: view)
     }
 
     // MARK: snapping
 
-    /// Throw the orb to the edge its momentum points at, carrying the drag's velocity into the spring.
+    /// Throw the capsule to the edge its momentum points at, carrying the drag's velocity into the spring.
     private func settle(velocity: CGVector) {
         guard let model else { return }
         let frame = screenFrame(for: center)
         let rest = OrbSnap.rest(center: center, velocity: velocity, in: frame)
-        if rest.side != model.orbSide {
-            model.orbSide = rest.side
-            if bubbleShown {
-                bubblePanel?.setFrame(OrbGeometry.capsuleFrame(orbCenter: center, side: rest.side), display: false)
-            }
-        }
+        if rest.side != model.orbSide { model.orbSide = rest.side }
         target = rest.center
         vel = velocity
         UserDefaults.standard.set([rest.center.x, rest.center.y], forKey: Self.key)
@@ -614,12 +871,12 @@ final class OrbController: NSObject, OrbMouse {
             return OrbSnap.rest(center: p, velocity: .zero, in: screenFrame(for: p)).center
         }
         let f = screenFrame(for: CGPoint(x: 1, y: 1))
-        return CGPoint(x: f.maxX - 16 - OrbGeometry.orb / 2, y: f.maxY - 120)
+        return CGPoint(x: f.maxX - OrbGeometry.edge - OrbGeometry.capW / 2, y: f.maxY - 120)
     }
 
     // MARK: selftest hooks
 
-    var panelsForTest: [OrbPanel] { [orbPanel, bubblePanel].compactMap { $0 } }
+    var panelsForTest: [OrbPanel] { [markPanel, cardPanel].compactMap { $0 } }
 }
 
 final class MenuAction: NSObject {
@@ -630,14 +887,16 @@ final class MenuAction: NSObject {
 
 // MARK: - Stress (selftest)
 
-/// Builds the real orb panels and hammers them: mouse moves, drags and clicks straight into the
-/// panels while the state flips at 60 Hz. The old pill died in exactly this situation.
+/// Builds the real panels and hammers them: mouse moves, drags and clicks straight into the panels
+/// while the state and the card flip at 60 Hz. The old pill died in exactly this situation.
 @MainActor
 enum OrbStress {
     static func run(seconds: Double) -> Bool {
         _ = NSApplication.shared
         let model = AppModel(preview: true)
         model.online = true
+        model.clickTalkEnabled = false  // never start the mic in a test
+        model.tapsEnabled = false  // nor call the core
         let c = OrbController()
         c.show(model)
         let states = ["idle", "listening", "thinking", "speaking", "working"]
@@ -648,15 +907,17 @@ enum OrbStress {
             model.state = states[i % states.count]
             model.heard = i % 3 == 0 ? "" : "open the newest networkchuck video \(i)"
             model.said = i % 2 == 0 ? "Playing it now." : ""
+            model.options = i % 11 < 3 ? [OptionRow(id: "a", label: "One", meta: "2 days ago"), OptionRow(id: "b", label: "Two")] : []
+            model.followups = i % 13 < 4 ? [FollowCard(id: "f", about: "tasks", line: "Bio email due today. Want help?", yes: true)] : []
+            model.quietMode = i % 17 < 5 ? "text" : "voice"
             model.micLevel = Float(i % 10) / 10
             model.orbHover = i % 7 < 3
             for p in c.panelsForTest {
-                let loc = NSPoint(x: CGFloat(i % 60), y: CGFloat((i * 7) % 60))
+                let loc = NSPoint(x: CGFloat((i * 13) % 380), y: CGFloat((i * 7) % 200))
                 for type in [NSEvent.EventType.mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp] {
                     if let e = NSEvent.mouseEvent(with: type, location: loc, modifierFlags: [], timestamp: Date().timeIntervalSince1970,
                                                   windowNumber: p.windowNumber, context: nil, eventNumber: i, clickCount: 1,
                                                   pressure: 1) {
-                        if type == .leftMouseUp { model.clickTalkEnabled = false }  // don't start the mic in a test
                         p.sendEvent(e)
                     }
                 }

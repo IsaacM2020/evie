@@ -1,9 +1,9 @@
 import AppKit
 
 // Evie's own menu bar mark, drawn in code (a template image, so macOS tints it for light/dark
-// menu bars). One idea in every state: a ring (Evie) around what she's doing right now.
-//   idle: ring + dot   listening: solid disc, bars cut out   speaking: ring + bars
-//   thinking: ring + three dots   working: ring with a gap + dot   offline: dashed ring
+// menu bars). The same capsule and line as her mark on screen:
+//   idle: the line   listening: solid capsule, wave cut out   speaking: capsule + wave
+//   thinking: a dash moving along   working: the line half filled   offline: dashed capsule
 enum MenuIcon {
     static let states = ["idle", "listening", "speaking", "thinking", "working", "offline", "attention"]
 
@@ -28,53 +28,57 @@ enum MenuIcon {
     private static func draw(_ state: String, in rect: NSRect) {
         NSColor.black.set()
         let c = NSPoint(x: rect.midX, y: rect.midY)
-        let ringRect = rect.insetBy(dx: 2.2, dy: 2.2)
-        let ring = NSBezierPath(ovalIn: ringRect)
-        ring.lineWidth = 1.6
+        let capRect = NSRect(x: c.x - 8, y: c.y - 4.6, width: 16, height: 9.2)
+        let cap = NSBezierPath(roundedRect: capRect, xRadius: 4.6, yRadius: 4.6)
+        cap.lineWidth = 1.4
 
-        func dot(_ r: CGFloat, at p: NSPoint) {
-            NSBezierPath(ovalIn: NSRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)).fill()
+        func line(_ from: CGFloat, _ to: CGFloat, width: CGFloat = 1.5) {
+            let p = NSBezierPath()
+            p.move(to: NSPoint(x: c.x + from, y: c.y))
+            p.line(to: NSPoint(x: c.x + to, y: c.y))
+            p.lineWidth = width
+            p.lineCapStyle = .round
+            p.stroke()
         }
-        func bars(_ heights: [CGFloat]) {
-            let w: CGFloat = 1.6, gap: CGFloat = 1.4
-            let total = CGFloat(heights.count) * w + CGFloat(heights.count - 1) * gap
-            for (i, h) in heights.enumerated() {
-                let x = c.x - total / 2 + CGFloat(i) * (w + gap)
-                NSBezierPath(roundedRect: NSRect(x: x, y: c.y - h / 2, width: w, height: h), xRadius: w / 2,
-                             yRadius: w / 2).fill()
+        func wave(_ amp: CGFloat) {
+            let p = NSBezierPath()
+            for i in 0...16 {
+                let f = CGFloat(i) / 16
+                let pt = NSPoint(x: c.x - 4.5 + 9 * f, y: c.y + sin(f * .pi) * amp * sin(f * 3 * .pi))
+                if i == 0 { p.move(to: pt) } else { p.line(to: pt) }
             }
+            p.lineWidth = 1.2
+            p.lineCapStyle = .round
+            p.stroke()
         }
 
         switch state {
-        case "listening":
-            NSBezierPath(ovalIn: rect.insetBy(dx: 1.4, dy: 1.4)).fill()
+        case "listening":  // filled capsule, the wave cut out of it
+            NSBezierPath(roundedRect: capRect.insetBy(dx: -0.4, dy: -0.4), xRadius: 5, yRadius: 5).fill()
             NSGraphicsContext.current?.compositingOperation = .destinationOut
-            bars([4, 7.5, 4])
+            wave(2.4)
             NSGraphicsContext.current?.compositingOperation = .sourceOver
         case "speaking":
-            ring.stroke()
-            bars([3, 6.5, 3])
+            cap.stroke()
+            wave(2.0)
         case "thinking":
-            ring.stroke()
-            for dx in [-3.2, 0, 3.2] as [CGFloat] { dot(1.05, at: NSPoint(x: c.x + dx, y: c.y)) }
+            cap.stroke()
+            line(-4, -1.5, width: 1.1)
+            line(0.5, 4.5, width: 1.9)
         case "working":
-            let arc = NSBezierPath()
-            arc.appendArc(withCenter: c, radius: ringRect.width / 2, startAngle: 110, endAngle: 40, clockwise: false)
-            arc.lineWidth = 1.6
-            arc.lineCapStyle = .round
-            arc.stroke()
-            dot(2.4, at: c)
+            cap.stroke()
+            line(-4.5, 0.5, width: 2.0)
+            line(2.2, 4.5, width: 0.8)
         case "offline":
-            ring.setLineDash([2.2, 2.0], count: 2, phase: 0)
-            ring.stroke()
+            cap.setLineDash([2.0, 1.8], count: 2, phase: 0)
+            cap.stroke()
         case "attention":
-            ring.stroke()
-            NSBezierPath(roundedRect: NSRect(x: c.x - 0.8, y: c.y - 0.6, width: 1.6, height: 4.4), xRadius: 0.8,
-                         yRadius: 0.8).fill()
-            dot(0.9, at: NSPoint(x: c.x, y: c.y - 2.4))
-        default:  // idle
-            ring.stroke()
-            dot(2.6, at: c)
+            cap.stroke()
+            line(-4, 2)
+            NSBezierPath(ovalIn: NSRect(x: c.x + 3.2, y: c.y - 1, width: 2, height: 2)).fill()
+        default:  // idle: her line, at rest
+            cap.stroke()
+            line(-4, 4)
         }
     }
 }

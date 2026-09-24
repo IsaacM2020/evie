@@ -102,6 +102,43 @@ struct CoreClient {
         return obj["on"] as? Bool
     }
 
+    // Phase 4: the card's taps, text mode, follow-ups, and what the app notices
+    @discardableResult
+    func postJSON(_ path: String, _ obj: [String: Any], timeout: TimeInterval = 5) async -> Data? {
+        let body = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data()
+        return try? await post(path, body: body, type: "application/json", timeout: timeout)
+    }
+
+    func choose(_ id: String) async { await postJSON("choose", ["id": id]) }
+
+    func followup(_ id: String, _ action: String, text: String? = nil) async {
+        var o: [String: Any] = ["id": id, "action": action]
+        if let t = text { o["text"] = t }
+        await postJSON("followup", o)
+    }
+
+    func followups() async -> [FollowCard] {
+        guard let (data, resp) = try? await URLSession.shared.data(from: base.appendingPathComponent("followups")),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+        return (try? CoreJSON.decoder.decode([FollowCard].self, from: data)) ?? []
+    }
+
+    /// "voice" | "text" | "auto" (nil: just read it). Returns the core's quiet state.
+    func output(_ mode: String? = nil) async -> QuietDTO? {
+        let data: Data?
+        if let m = mode {
+            data = await postJSON("settings", ["output": m])
+        } else {
+            data = try? await URLSession.shared.data(from: base.appendingPathComponent("settings")).0
+        }
+        guard let d = data else { return nil }
+        return (try? CoreJSON.decoder.decode(SettingsDTO.self, from: d))?.output
+    }
+
+    func proactive(_ switches: [String: Bool]) async { await postJSON("settings", ["proactive": switches]) }
+    func activity(_ kind: String) async { await postJSON("activity", ["kind": kind]) }
+    func screenText(app: String, text: String) async { await postJSON("screen_text", ["app": app, "text": text]) }
+
     func postCalendar(_ body: Data) async -> Bool {
         (try? await post("calendar", body: body, type: "application/json", timeout: 5)) != nil
     }

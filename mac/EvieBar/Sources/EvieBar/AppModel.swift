@@ -71,6 +71,24 @@ final class AppModel: ObservableObject {
     @Published var voiceLevel: Float = 0
     @Published var showWork = UserDefaults.standard.object(forKey: "showWork") as? Bool ?? true
     var clickTalkEnabled = true  // the selftest turns it off so a synthetic click never opens the mic
+    var tapsEnabled = true  // and this keeps its taps on the card from reaching the core
+    // Phase 4: what the card shows (Orb.swift)
+    @Published var options: [OptionRow] = []  // "Which one?" rows, tap or say
+    @Published var asked = ""
+    @Published var followups: [FollowCard] = []  // things she brought up, waiting for an answer
+    @Published var followupFresh = false
+    @Published var quietMode = "voice"  // evie.quiet: "text" in class or a call
+    @Published var quietWhy = ""
+    @Published var quietSetting = "auto"
+    @Published var countdownUntil: Date? = nil  // a say-stop window, shown with Cancel
+    var countdownTotal: Double = 0
+    @Published var typing = false
+    @Published var nextEvent: String? = nil
+    @Published var proactive: [String: Bool] = (UserDefaults.standard.dictionary(forKey: "proactive") as? [String: Bool]) ?? [:]
+    private var calEvents: [CalEventDTO] = []
+    private var freshTask: Task<Void, Never>?
+    private var countdownTask: Task<Void, Never>?
+    private let activity = ActivityWatch()
     private var clickTalking = false
     private var lastSettingsSync: Date?
     private var lingerTask: Task<Void, Never>?
@@ -92,7 +110,14 @@ final class AppModel: ObservableObject {
         guard !preview else { return }
         Task { await pollForever() }
         let feed = CalendarFeed(core: core) { [weak self] granted in self?.calendarDenied = !granted }
+        feed.onEvents = { [weak self] evs in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.calEvents = evs; self?.tickNextUp() } }
+        }
         calendarFeed = feed
+        Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tickNextUp() }
+        }
+        activity.start(core)
         Task { await feed.run() }
         let events = EventFeed { [weak self] ev in self?.apply(ev) }
         eventFeed = events
@@ -126,6 +151,113 @@ final class AppModel: ObservableObject {
         orbHover || bubbleHover || linger || ["listening", "thinking", "speaking"].contains(state) || !pillNote.isEmpty
     }
 
+    /// What the card shows right now (OrbCard.pick is pure; the selftest checks its priorities).
+    var card: OrbCard {
+        var s = OrbCard.Inputs()
+        s.online = online
+        s.state = orbState == "working" && state == "idle" ? "idle" : state
+        s.heard = heard.hasPrefix("(") ? "" : heard
+        s.said = said
+        s.textMode = quietMode == "text"
+        s.quietWhy = quietWhy == "you switched it" ? "" : quietWhy
+        s.typing = typing
+        s.clickTalking = clickTalking
+        s.options = options
+        s.asked = asked
+        s.countdown = countdownUntil.map { $0 > Date() } ?? false
+        s.followup = followups.first
+        s.followupFresh = followupFresh
+        if let j = job {
+            let count = jobProgress.flatMap { _ in j.lines.last.flatMap { l in
+                l.range(of: #"^Step (\d+) of (\d+)"#, options: .regularExpression).map { String(l[$0]).replacingOccurrences(of: "Step ", with: "").replacingOccurrences(of: " of ", with: "/") } } }
+            let step = j.lines.last.map { $0.replacingOccurrences(of: #"^Step \d+ of \d+:\s*"#, with: "", options: .regularExpression) }
+            s.job = (goal: j.goal, step: step.map { $0.prefix(1).uppercased() + $0.dropFirst() }, count: count)
+        }
+        s.hover = orbHover || bubbleHover
+        s.linger = linger
+        s.note = pillNote
+        s.nextEvent = nextEvent
+        return OrbCard.pick(s)
+    }
+
+    var lineLevel: CGFloat { CGFloat(state == "speaking" ? max(voiceLevel, 0.3) : micLevel) }
+
+    static let proactiveSources: [(String, String)] = [
+        ("overheard", "Follow up on plans I mention"), ("heads_up", "Heads-up before a class"),
+        ("tasks", "What's due today"), ("deadlines", "Deadlines in the next 2 days"), ("brief", "Morning brief"),
+        ("jobs", "Hold finished jobs while I'm busy"), ("stuck", "Notice when I'm stuck on an error"),
+        ("resume", "Where was I? after a break"),
+    ]
+
+    func proactiveOn(_ name: String) -> Bool { proactive[name] ?? true }
+
+    func setProactive(_ name: String, _ on: Bool) {
+        proactive[name] = on
+        UserDefaults.standard.set(proactive, forKey: "proactive")
+        Task { await core.proactive(proactive) }
+    }
+
+    /// Answers: "auto" (by his calendar), "voice", "text".
+    func setOutput(_ mode: String) {
+        Task {
+            if let q = await core.output(mode) { applyQuiet(q) }
+        }
+    }
+
+    /// ⌃⌥T: text only now, or back to talking.
+    func toggleTextMode() {
+        setOutput(quietMode == "text" ? "voice" : "text")
+        note(quietMode == "text" ? "Talking again" : "Text only", for: 2)
+    }
+
+    private func applyQuiet(_ q: QuietDTO) {
+        quietMode = q.mode
+        quietWhy = q.why
+        quietSetting = q.setting
+    }
+
+    func tickNextUp() { nextEvent = NextUp.chip(calEvents, now: Date()) }
+
+    /// A tap on the card (CardLayout decided what's under the pointer).
+    func tap(_ hit: Hit, on card: OrbCard) {
+        switch hit {
+        case .mark: orbClick()
+        case .field: typing = true
+        case .row(let i):
+            guard i < options.count else { return }
+            let id = options[i].id
+            options = []
+            if tapsEnabled { Task { await core.choose(id) } }
+        case .stop, .cancel:
+            countdownUntil = nil
+            if tapsEnabled { Task { await stopAll() } }
+        case .yes, .later, .no:
+            guard case .followup(let f) = card else { return }
+            answerFollowup(f.id, hit == .yes ? "yes" : hit == .later ? "later" : "no")
+        }
+    }
+
+    func answerFollowup(_ id: String, _ action: String, text: String? = nil) {
+        followups.removeAll { $0.id == id }
+        followupFresh = false
+        if tapsEnabled { Task { await core.followup(id, action, text: text) } }
+    }
+
+    /// Enter in the type box: an answer to her question, or anything he'd have said out loud.
+    func submitTyped(_ text: String) {
+        typing = false
+        if case .followup(let f) = card, f.ask {
+            answerFollowup(f.id, "yes", text: text)
+            return
+        }
+        heard = text
+        said = ""
+        if tapsEnabled { Task { _ = await core.hear(text, speaker: "isaac") } }
+    }
+
+    func openTyping() { typing = true }
+    func closeTyping() { typing = false }
+
     var youLine: String? {
         if state == "listening" { return nil }
         return heard.isEmpty || heard.hasPrefix("(") ? nil : heard
@@ -152,17 +284,18 @@ final class AppModel: ObservableObject {
 
     var stopVisible: Bool { job != nil || state == "speaking" || state == "working" }
 
-    private func lingerBriefly() {
+    private func lingerBriefly(for seconds: Double = 4) {
         linger = true
         lingerTask?.cancel()
         lingerTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(4))
+            try? await Task.sleep(for: .seconds(seconds))
             if !Task.isCancelled { self?.linger = false }
         }
     }
 
     /// Click the orb to talk, click again to send (the same path as holding ⌃⌥).
     func orbClick() {
+        if quietMode == "text" { typing = true; return }  // in class: type, don't talk
         guard clickTalkEnabled else { return }
         if clickTalking {
             clickTalking = false
@@ -268,6 +401,8 @@ final class AppModel: ObservableObject {
         guard e.type == .flagsChanged else {
             // A real key while the talk chord is held: that was a ⌃⌥ shortcut, not speech.
             if chord.talking { runPTT(.otherKey) }
+            let f = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if e.keyCode == 17, f.contains([.control, .option]), !f.contains(.command) { toggleTextMode() }  // ⌃⌥T
             return
         }
         for out in chord.update(raw: UInt(e.modifierFlags.rawValue)) {
@@ -387,6 +522,35 @@ final class AppModel: ObservableObject {
             verdict = [ev.action, ev.reason].compactMap { $0 }.joined(separator: " · ")
         case "say":
             said = ev.text ?? ""
+            if ev.textOnly == true { lingerBriefly(for: 20) }  // text mode: long enough to read in class
+        case "options":  // "Which one?" rows (empty: the list is done)
+            options = ev.options ?? []
+            asked = ev.asked ?? ""
+        case "followup":
+            guard let id = ev.id else { break }
+            followups.removeAll { $0.id == id }
+            followups.insert(FollowCard(id: id, about: ev.about ?? "", line: ev.line ?? "", ask: ev.ask ?? false,
+                                        yes: ev.yes ?? false), at: 0)
+            followupFresh = !(ev.spoken ?? false)  // a chip shows for a bit; a spoken one just leaves the badge
+            freshTask?.cancel()
+            freshTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(10))
+                if !Task.isCancelled { self?.followupFresh = false }
+            }
+        case "followup_done":
+            followups.removeAll { $0.id == ev.id }
+        case "quiet":
+            applyQuiet(QuietDTO(mode: ev.mode ?? "voice", why: ev.why ?? "", setting: ev.setting ?? "auto",
+                                micPaused: ev.micPaused))
+        case "countdown":
+            let s = ev.seconds ?? 3
+            countdownTotal = s
+            countdownUntil = Date().addingTimeInterval(s)
+            countdownTask?.cancel()
+            countdownTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(s + 0.3))
+                if !Task.isCancelled { self?.countdownUntil = nil }
+            }
         case "state":
             if state == "listening" { break }  // Fn is held: the key, not the core, ends listening
             state = ev.state ?? state
@@ -452,8 +616,11 @@ final class AppModel: ObservableObject {
         if let s {
             if !wasOnline || lastSettingsSync == nil {  // a (re)started core learns the orb's settings
                 await core.settings(showWork: showWork)
+                if !proactive.isEmpty { await core.proactive(proactive) }
+                followups = await core.followups()
                 lastSettingsSync = Date()
             }
+            if let q = await core.output() { applyQuiet(q) }
             earsMode = s.earsMode
             if let v = s.voiceprint { voiceprint = v }
             recording = s.earsMode == nil ? nil : await core.recorder()

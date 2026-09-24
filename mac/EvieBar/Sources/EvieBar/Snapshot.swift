@@ -26,33 +26,42 @@ enum Snapshot {
                                ShadowRow(text: "whats the time", would: "clarify · unsure it was for me")]
             }),
         ]
+        let rows = [OptionRow(id: "a", label: "$1 vs $1,000,000 Hotel Room", meta: "2 days ago"),
+                    OptionRow(id: "b", label: "I Survived 7 Days In An Abandoned City", meta: "9 days ago"),
+                    OptionRow(id: "c", label: "Last To Leave The Island Wins", meta: "2 weeks ago")]
         let orbs: [(String, (AppModel) -> Void)] = [
             ("orb-idle", { m in m.online = true }),
-            ("orb-hover", { m in m.online = true; m.orbHover = true; m.heard = "what's on tomorrow"
-                m.said = "School at 8, then chem at 8pm." }),
+            ("orb-next", { m in m.online = true; m.nextEvent = "Sax · 12m" }),
             ("orb-listening", { m in m.online = true; m.state = "listening"; m.micLevel = 0.7; m.earsMode = "live" }),
-            ("orb-thinking", { m in m.online = true; m.state = "thinking"; m.heard = "play the newest networkchuck video" }),
-            ("orb-speaking", { m in m.online = true; m.state = "speaking"; m.voiceLevel = 0.6
-                m.heard = "play the newest networkchuck video"; m.said = "Playing 'I hacked my own network' from NetworkChuck." }),
-            ("orb-working", { m in m.online = true; m.state = "working"; m.orbHover = true; m.jobProgress = 0.4
-                m.heard = "check why my website deploy failed"
-                m.job = JobView(id: "a1", goal: "Website deploy", started: Date(), lines: ["Step 2 of 5, reading the build log"]) }),
-            ("orb-left", { m in m.online = true; m.orbSide = .left; m.state = "speaking"; m.said = "Volume 30." }),
+            ("orb-reply", { m in m.online = true; m.linger = true; m.heard = "play the newest networkchuck video"
+                m.said = "Playing 'I hacked my own network' from NetworkChuck." }),
+            ("orb-which", { m in m.online = true; m.state = "thinking"; m.options = rows; m.asked = "Here are MrBeast's latest." }),
+            ("orb-job", { m in m.online = true; m.orbHover = true; m.jobProgress = 0.6
+                m.job = JobView(id: "a1", goal: "Fixing the website deploy", started: Date(),
+                                lines: ["Step 3 of 5: running the tests"]) }),
+            ("orb-class", { m in m.online = true; m.quietMode = "text"; m.quietWhy = "Chem Class"; m.linger = true
+                m.said = "6.022 × 10²³ per mole. It's the number of particles in one mole of anything." }),
+            ("orb-followup", { m in m.online = true; m.followupFresh = true
+                m.followups = [FollowCard(id: "f", about: "overheard", line: "Heard you've got the dentist on Wednesday. What time?",
+                                          ask: true)] }),
+            ("orb-offer", { m in m.online = true; m.followupFresh = true
+                m.followups = [FollowCard(id: "g", about: "tasks", line: "Email bio teacher is due today. Want help getting it done?",
+                                          yes: true)] }),
+            ("orb-countdown", { m in m.online = true; m.linger = true; m.countdownTotal = 6
+                m.countdownUntil = Date().addingTimeInterval(4); m.said = "Sending \"on my way\" to Mom." }),
+            ("orb-left", { m in m.online = true; m.orbSide = .left; m.linger = true; m.said = "Volume 30." }),
             ("orb-offline", { m in m.online = false }),
         ]
         for (name, setup) in orbs {
-            for dark in [false, true] {
-                let m = AppModel(preview: true)
-                setup(m)
-                let orb = OrbMarkView(model: m).frame(width: OrbGeometry.orbPanel.width, height: OrbGeometry.orbPanel.height)
-                let bubble = OrbBubbleView(model: m).opacity(m.orbExpanded ? 1 : 0)
-                let row = HStack(spacing: -12) {
-                    if m.orbSide == .right { bubble; orb } else { orb; bubble }
-                }
-                .padding(20)
-                .background(dark ? Color(white: 0.16) : Color(red: 0.86, green: 0.88, blue: 0.92))
-                capture(AnyView(row), dark: dark, to: "\(dir)/\(name)-\(dark ? "dark" : "light").png")
+            let m = AppModel(preview: true)
+            setup(m)
+            let view = ZStack {
+                if m.card == .none { OrbMarkView(model: m) } else { OrbCardView(model: m) }
             }
+            .padding(24)
+            .background(LinearGradient(colors: [Color(red: 0.32, green: 0.33, blue: 0.35), Color(red: 0.62, green: 0.45, blue: 0.3)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing))
+            capture(AnyView(view), dark: true, to: "\(dir)/\(name).png")
         }
         for state in MenuIcon.states {  // 8x so the mark can be judged by eye
             let img = MenuIcon.image(state)

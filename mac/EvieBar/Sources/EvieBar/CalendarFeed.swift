@@ -123,6 +123,7 @@ final class CalendarFeed {
     private let core: CoreClient
     private let onAccess: (Bool) -> Void
     private var observer: NSObjectProtocol?
+    var onEvents: (([CalEventDTO]) -> Void)?  // the orb's "next up" chip
 
     init(core: CoreClient, onAccess: @escaping (Bool) -> Void) {
         self.core = core
@@ -156,6 +157,7 @@ final class CalendarFeed {
         let pred = store.predicateForEvents(withStart: start, end: end, calendars: cals)
         let raw = cals.isEmpty ? [] : store.events(matching: pred)
         let events = raw.map(CalEventDTO.init)
+        onEvents?(events)
         var counts: [String: Int] = [:]
         for e in raw { counts[e.calendar?.calendarIdentifier ?? "", default: 0] += 1 }
         let listed = infos.map { c in

@@ -96,6 +96,40 @@ struct CoreEvent: Decodable, Equatable {
     var done: Int? = nil
     var total: Int? = nil
     var step: String? = nil
+    // Phase 4: "Which one?" rows, follow-ups, text mode, say-stop windows
+    var options: [OptionRow]? = nil
+    var asked: String? = nil
+    var textOnly: Bool? = nil
+    var about: String? = nil
+    var ask: Bool? = nil
+    var yes: Bool? = nil
+    var spoken: Bool? = nil
+    var why: String? = nil
+    var setting: String? = nil
+    var micPaused: String? = nil
+}
+
+struct QuietDTO: Decodable, Equatable {
+    var mode: String = "voice"
+    var why: String = ""
+    var setting: String = "auto"
+    var micPaused: String? = nil
+}
+
+struct SettingsDTO: Decodable {
+    var output: QuietDTO? = nil
+}
+
+/// "SAX · 12m": the next thing on his calendar, when it's within half an hour.
+enum NextUp {
+    static func chip(_ events: [CalEventDTO], now: Date) -> String? {
+        let soon = events.filter { !$0.allDay && $0.start > now && $0.start.timeIntervalSince(now) <= 1800 }
+            .min { $0.start < $1.start }
+        guard let e = soon else { return nil }
+        let mins = Int(ceil(e.start.timeIntervalSince(now) / 60))
+        let name = e.title.replacingOccurrences(of: #"(?i)\s+class$"#, with: "", options: .regularExpression)
+        return "\(String(name.prefix(14))) · \(mins)m"
+    }
 }
 
 enum CoreJSON {

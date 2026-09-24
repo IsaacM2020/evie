@@ -20,7 +20,7 @@ struct PanelView: View {
                     JobCard(job: job) { Task { await model.stopJob() } }
                         .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
                 } else if !model.lastJobSummary.isEmpty {
-                    Bubble(who: "Last job", text: model.lastJobSummary, tint: .purple)
+                    Bubble(who: "Last job", text: model.lastJobSummary, tint: Color(red: 1.0, green: 0.56, blue: 0.26))
                 }
                 input
                 testTools
@@ -155,47 +155,22 @@ struct PanelView: View {
     }
 }
 
-// The state orb: a tinted glass circle whose symbol moves only while she's listening or talking.
+// Her mark in the panel: the same glass capsule and line as on screen (no circle, one ember).
 struct Orb: View {
     let state: String
     let animate: Bool
     var size: CGFloat = 44
 
     var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: size * 0.41, weight: .semibold))
-            .foregroundStyle(.white)
-            .symbolEffect(.variableColor.iterative.dimInactiveLayers, isActive: animate && active)
-            .contentTransition(.symbolEffect(.replace))
-            .frame(width: size, height: size)
-            // Solid colour under the glass: a glass tint alone goes grey in windows that never
-            // become key (the menu bar panel, the pill), and the colour IS the state.
-            .background(color.opacity(0.85).gradient, in: Circle())
-            .glassEffect(.regular.interactive(), in: Circle())
-    }
-
-    private var active: Bool { state == "listening" || state == "speaking" || state == "thinking" }
-
-    private var symbol: String {
-        switch state {
-        case "listening": return "mic.fill"
-        case "thinking": return "ellipsis"
-        case "speaking": return "waveform"
-        case "working": return "gearshape.2.fill"
-        case "offline": return "bolt.horizontal.circle"
-        default: return "waveform"
+        ZStack {
+            Capsule().fill(Color.black.opacity(0.78))
+            Capsule().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.08)],
+                                                  startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            EvieLine(state: animate ? state : (state == "offline" ? "offline" : "idle"), online: state != "offline",
+                     level: 0.5, progress: nil)
         }
-    }
-
-    private var color: Color {
-        switch state {
-        case "listening": return .red
-        case "thinking": return .orange
-        case "speaking": return .blue
-        case "working": return .purple
-        case "offline": return .gray
-        default: return .indigo
-        }
+        .frame(width: size * 1.35, height: size * 0.7)
+        .glassEffect(.clear, in: Capsule())
     }
 }
 
@@ -250,7 +225,7 @@ struct JobCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Image(systemName: "gearshape.2.fill").foregroundStyle(.purple)
+                Capsule().fill(Color(red: 1.0, green: 0.56, blue: 0.26)).frame(width: 14, height: 3)
                 Text(job.goal).font(.callout.weight(.semibold)).lineLimit(2)
                 Spacer()
                 Text(job.started, style: .timer).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
@@ -267,7 +242,7 @@ struct JobCard: View {
             }
         }
         .padding(12)
-        .background(Color.purple.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 

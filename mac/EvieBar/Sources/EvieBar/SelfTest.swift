@@ -164,40 +164,89 @@ enum SelfTest {
               && PageSettle.done(ready: "complete", url: "https://y.com/a", before: "", quietMs: 300),
               "safari: a page is ready when it's loaded, on the new address and quiet for 300 ms")
         check(WebTab(window: 42, index: 3).ref == "tab 3 of window id 42", "safari: page ops go to Evie's own tab")
-        // Orb: momentum snapping, spring motion, layout, and the crash that made the app "quit".
+        // The capsule and its card (Phase 4 look): snapping, spring, layout, taps, what shows when.
         let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let flick = OrbSnap.rest(center: CGPoint(x: 600, y: 450), velocity: CGVector(dx: 1500, dy: 0), in: screen)
         let still = OrbSnap.rest(center: CGPoint(x: 600, y: 450), velocity: .zero, in: screen)
         let high = OrbSnap.rest(center: CGPoint(x: 1300, y: 890), velocity: CGVector(dx: 0, dy: 2000), in: screen)
         check(flick.side == .right && still.side == .left && high.side == .right
-              && high.center.y <= screen.maxY - 16 - OrbGeometry.orb / 2
-              && abs(still.center.x - (16 + OrbGeometry.orb / 2)) < 0.01,
-              "orb: a flick throws it to the far edge, a slow drop snaps to the nearer one, always on screen")
+              && high.center.y <= screen.maxY - OrbGeometry.edge - OrbGeometry.capH / 2
+              && abs(still.center.x - (OrbGeometry.edge + OrbGeometry.capW / 2)) < 0.01,
+              "capsule: a flick throws it to the far edge, a slow drop snaps to the nearer one, always on screen")
         var x: CGFloat = 0, v: CGFloat = 0, peak: CGFloat = 0
         for _ in 0..<120 {
             (x, v) = Spring().step(x: x, v: v, target: 100, dt: 1.0 / 120)
             peak = max(peak, x)
         }
-        check(abs(x - 100) < 0.5 && peak <= 100.01, "orb: critically damped spring settles in 1 s without overshoot")
-        for side in [OrbSide.left, .right] {
-            let c = CGPoint(x: side == .left ? 40 : 1400, y: 450)
-            // What's visible: the 44 pt orb, and the bubble inside its panel's 6 pt margin.
-            let o = OrbGeometry.orbFrame(center: c).insetBy(dx: OrbGeometry.pad, dy: OrbGeometry.pad)
-            let cap = OrbGeometry.capsuleFrame(orbCenter: c, side: side).insetBy(dx: 6, dy: 0)
-            let st = OrbGeometry.stopRect(side)
-            let inPanel = NSRect(origin: .zero, size: OrbGeometry.capsulePanel)
-            check(!o.intersects(cap) && (side == .left ? cap.minX - o.maxX : o.minX - cap.maxX) == OrbGeometry.gap
-                  && abs(cap.midY - c.y) < 0.01 && inPanel.contains(st) && abs(st.midY - inPanel.midY) < 0.01
-                  && (side == .left ? st.midX > inPanel.midX : st.midX < inPanel.midX),
-                  "orb: \(side.rawValue) side, the bubble grows away from the edge, stop at its far end")
+        check(abs(x - 100) < 0.5 && peak <= 100.01, "capsule: critically damped spring settles in 1 s without overshoot")
+        let rows = [OptionRow(id: "a", label: "One"), OptionRow(id: "b", label: "Two"), OptionRow(id: "c", label: "Three")]
+        let cards: [OrbCard] = [.chip("Sax · 12m"), .talk(tag: "Listening", text: "Go ahead"), .typing(tag: "Text only", reply: "Hi"),
+                                .typing(tag: "Text only", reply: nil), .options(asked: "MrBeast's latest", rows: rows),
+                                .followup(FollowCard(id: "f", about: "tasks", line: "Due today. Help?", yes: true)),
+                                .followup(FollowCard(id: "g", about: "overheard", line: "What time?", ask: true)),
+                                .countdown(line: "Sending hi to Mom."), .job(goal: "Fix deploy", step: "Testing", count: "3/5")]
+        var inside = true, sides = true
+        for c in cards {
+            let g = CGRect(origin: .zero, size: CardLayout.glass(c))
+            for side in [OrbSide.left, .right] {
+                inside = inside && CardLayout.parts(c, side: side).allSatisfy { g.insetBy(dx: -0.5, dy: -0.5).contains($0.rect) }
+                    && CardLayout.hits(c, side: side).allSatisfy { g.insetBy(dx: -0.5, dy: -0.5).contains($0.1) }
+                let col = CardLayout.columnRect(c, side: side)
+                sides = sides && (side == .right ? abs(col.maxX - g.maxX) < 0.01 : col.minX == 0)
+                    && !CardLayout.parts(c, side: side).contains { $0.rect.intersects(col.insetBy(dx: 1, dy: 1)) && !c.isChip }
+            }
         }
-        check(OrbLook.of(state: "listening", online: true).motion == .level
-              && OrbLook.of(state: "speaking", online: true).motion == .level
-              && OrbLook.of(state: "thinking", online: true).motion == .spin
-              && OrbLook.of(state: "working", online: true).motion == .progress
-              && OrbLook.of(state: "idle", online: true).motion == .still
-              && OrbLook.of(state: "speaking", online: false).motion == .still,
-              "orb: every state has its own motion, idle and offline are still")
+        check(inside && sides, "card: every part and tap target is inside the glass, her line at the screen-edge end, never under text")
+        func hitSet(_ c: OrbCard) -> [Hit] { CardLayout.hits(c, side: .right).map(\.0) }
+        check(hitSet(cards[4]) == [.row(0), .row(1), .row(2), .mark] && hitSet(cards[5]) == [.yes, .later, .no, .mark]
+              && hitSet(cards[6]) == [.field, .no, .mark] && hitSet(cards[7]) == [.cancel, .mark]
+              && hitSet(cards[8]) == [.stop, .mark] && hitSet(cards[2]) == [.field, .mark],
+              "card: rows, Yes/Later/No, the type box, Cancel and Stop are each tappable")
+        for side in [OrbSide.left, .right] {
+            let c = CGPoint(x: side == .left ? 41 : 1399, y: 450)
+            let m = OrbGeometry.markFrame(center: c)
+            let f = OrbGeometry.cardFrame(markCenter: c, side: side, glass: CardLayout.glass(cards[4]), in: screen)
+            let low = OrbGeometry.cardFrame(markCenter: CGPoint(x: c.x, y: 20), side: side, glass: CardLayout.glass(cards[4]), in: screen)
+            check((side == .right ? abs(f.maxX - m.maxX) : abs(f.minX - m.minX)) < 0.01 && abs(f.midY - m.midY) < 0.01
+                  && low.minY >= screen.minY,
+                  "card: \(side.rawValue) side, it grows out of the capsule's edge and stays on screen")
+        }
+        var ci = OrbCard.Inputs()
+        ci.said = "Playing it."; ci.linger = true
+        let reply = OrbCard.pick(ci)
+        ci.options = rows; ci.asked = "Which?"
+        let opts = OrbCard.pick(ci)
+        ci.typing = true
+        let typing = OrbCard.pick(ci)
+        var t = OrbCard.Inputs()
+        t.said = "6.022e23 per mole."; t.linger = true; t.textMode = true; t.quietWhy = "Chem Class"
+        let classReply = OrbCard.pick(t)
+        var r = OrbCard.Inputs()
+        r.nextEvent = "Sax · 12m"
+        let rest = OrbCard.pick(r)
+        r.followup = FollowCard(id: "f", line: "Due today"); r.followupFresh = true
+        let fresh = OrbCard.pick(r)
+        r.online = false
+        check(reply == .talk(tag: "Evie", text: "Playing it.") && opts == .options(asked: "Which?", rows: rows)
+              && typing == .typing(tag: "Type to Evie", reply: "Playing it.")
+              && classReply == .typing(tag: "Chem Class · text only", reply: "6.022e23 per mole.")
+              && rest == .chip("Sax · 12m") && fresh == .followup(FollowCard(id: "f", line: "Due today"))
+              && OrbCard.pick(r) == .none && OrbCard.pick(OrbCard.Inputs()) == .none,
+              "card: typing beats a list, a list beats a reply, class replies come with a type box, calm at rest")
+        let now = Date(timeIntervalSince1970: 1_790_240_000)
+        let evs = [CalEventDTO(title: "Sax Class", start: now.addingTimeInterval(12 * 60 - 5), end: now.addingTimeInterval(3600),
+                               allDay: false, calendar: "Isaac"),
+                   CalEventDTO(title: "Vedant Bday", start: now.addingTimeInterval(60), end: now.addingTimeInterval(86400),
+                               allDay: true, calendar: "Isaac"),
+                   CalEventDTO(title: "Chem Class", start: now.addingTimeInterval(3 * 3600), end: now.addingTimeInterval(4 * 3600),
+                               allDay: false, calendar: "Isaac")]
+        check(NextUp.chip(evs, now: now) == "Sax · 12m" && NextUp.chip(Array(evs.suffix(2)), now: now) == nil,
+              "next up: a class within 30 min shows, all-day and far-off things don't")
+        check(ActivityWatch.transition(idle: false, secondsSinceInput: 1300) == "idle"
+              && ActivityWatch.transition(idle: false, secondsSinceInput: 100) == nil
+              && ActivityWatch.transition(idle: true, secondsSinceInput: 3) == "back"
+              && ActivityWatch.transition(idle: true, secondsSinceInput: 900) == nil,
+              "activity: 20 min without input is idle, input again is back")
         check(MainActor.assumeIsolated { OrbStress.run(seconds: 3) }, "orb: 3 s of mouse moves, drags and state changes, no crash")
         let prog = try? CoreJSON.decoder.decode(CoreEvent.self, from: Data(
             #"{"kind":"job_progress","id":"j1","done":1,"total":4,"step":"Finding the missing env var"}"#.utf8))
