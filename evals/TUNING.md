@@ -140,3 +140,15 @@ Two questions added to the one Jev call: `skill` (13 fast skills + other) and `r
 - Result (all 178, run phase3c-d): false_action 0, route 0.972, skill 1.0, multi 1.0, remember_to 1.0,
   packs 1.0. latency p50 532 / p95 1032: Jev itself was slower all day (the unchanged 13-question
   set measured 490 ms median in the same session vs 371 the day before).
+
+## 2026-09-24 Phase 3c: hands eval (T10)
+
+- 30 tasks, real planner (gpt-oss-120b plans, Jev picks) on the pretend Mac (`evals/sim.py`).
+- Run 1: 23/30. Both Groq models rate limited: the on-demand tier gives each model 8k tokens/min and a
+  plan reserves prompt + max_tokens. Added 120b -> 20b -> qwen fallback, max_tokens 700, a wait-and-retry.
+- Run 2: 27/30. Fixed: a plan that only looked said "Done." (now replanned), cards chosen by the goal
+  too (Wi-Fi -> Settings), Settings URLs go through the safe action, reads only when he asked something,
+  role-only find could return an unrelated button (Send), symbol buttons ("=").
+- Run 3: 27/30 (model variance). Fixed: a named tab switch is the job; pick-then-read still opens it.
+- Run 4 (replayed, 2 live calls): **29/30, unsafe 0, median 2 model calls per task (max 6)**.
+  The miss (notion1) is the simulator: Notion's Cmd-P popup isn't modelled.

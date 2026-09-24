@@ -487,6 +487,87 @@ Isaac's brief: full macOS control, Safari first, background first, never screens
 - **One-time prompts:** "Evie wants to control Safari" (for page scripts; until then she reads Safari through Accessibility), Contacts (first message), Messages.
 - **Keys sent to a background app** work in most Cocoa apps, not all. The planner then takes over the screen, and says so.
 
+# Phase 3c: Fluid-grade hands, ears as good as Ripple, an app that never falls over (2026-09-24)
+
+Isaac tested 3.5/3b and found: Ripple's speech-to-text was "WAYY better", the app kept quitting and then wanted his voice trained again, answers talked over each other, long jobs gave no sense of progress, and computer control was nowhere near what he wanted: "literally any action on my computer, really good and really fast", specialist in the important apps, able to work in apps it has never seen, knowing what's on screen.
+
+## The big idea in 5 lines
+
+1. **Look once, plan once.** One `world` read says what's open (apps, windows front to back, every Safari tab). One plan call writes the WHOLE route using that app's card. Code runs it.
+2. **Code first, Jev for choices.** A button with an obvious name is found by plain code (no model). A real choice (which video? which article? which of two "Search" buttons?) is Jev choosing among the real ids on screen. Nothing can be clicked that isn't there.
+3. **Check, then replan.** `expect` steps look at the screen again; a miss means one replan that SEES the failed screen (at most 2), then Claude Code.
+4. **Sure before long work.** Long jobs are read back ("Checking why your website deploy failed. Say stop if that's wrong.") and start 3 s later; mumbled words (low Whisper confidence) get a question instead.
+5. **An app that can't crash the old way.** The orb's panels own every mouse event; SwiftUI never receives one and no window ever resizes.
+
+## Background concepts
+
+- **Accessibility tree / DOM.** Every Mac app describes its buttons and fields to screen readers; web pages have their DOM. Reading those is exact text, not pixels.
+- **Grounding.** Making sure a model's "press the Videos tab" becomes one specific element that exists right now. Here: code scoring first, Jev's choice over real ids second, a screenshot with numbered boxes as the last resort.
+- **Speculation vs. checking.** A plan made from one look can be wrong (a guessed address, a page that loaded differently). `expect` steps are the cheap checks that catch it before the next action builds on a mistake.
+- **Tokens per minute.** Groq's on-demand tier gives each model 8,000 tokens a minute, and a request reserves its whole `max_tokens` up front. That's why plans are short, fall back 120b → 20b → qwen, and wait-and-retry when all are busy.
+- **Whisper confidence.** Groq's `verbose_json` returns `avg_logprob` per segment; `exp(avg_logprob)` ≈ how sure Whisper was. Under 0.5 = probably misheard.
+
+## File map (new or changed)
+
+| file | what it does |
+|---|---|
+| `computer/world.py` | reads the `world` snapshot and resolves a goal to a place: his tab, a new tab, an app, or "which of these tabs?" |
+| `computer/cards.py` | app cards (YouTube, news, Finder, Notes, Settings, Mail, Notion, WhatsApp...) + fixed AppleScript actions with every argument quoted |
+| `computer/find.py` | finding an element in plain code (word overlap, whole-label names, symbols like "="), and the pools a pick chooses from |
+| `computer/planner.py` | plan once → run → check → replan; risky steps and send-keys read back; screenshot fallback |
+| `computer/recipes.py` | the front door: instant new/close tab, messages, everything else to the planner |
+| `mac/.../Eyes.swift` | `world`, `use_tab`, in-process AppleScript, tab-targeted page scripts, Reader v2, settle-based `wait_page`, `marked_shot` |
+| `mac/.../Orb.swift` | the orb and bubble: two fixed panels, AppKit-owned mouse, liquid-glass look, momentum snapping |
+| `mac/.../Ears.swift` | talk key recorded from the open mic's engine with 0.4 s of pre-roll, built-in mic, one-voice-at-a-time guard |
+| `brain.py` | turn tags + stale-reply drops, two-part commands, read-back + 3 s window + confidence check, Stop-everything |
+| `voiceid.py` | a second "live" voiceprint learned from the open mic's own echo-cancelled audio |
+| `evals/cassette.py`, `evals/sim.py`, `evals/computer/tasks.py` | record-once model answers, the pretend Mac, the 30 hands tasks |
+
+## One sentence, traced end to end
+
+"**Evie, play the newest NetworkChuck video.**" (Safari open on Google)
+
+1. Talk key: the clip comes from the open mic's own engine, including 0.4 s before the press. Groq Whisper: text + confidence 0.9.
+2. Jev (13 questions, one call): quick_action, skill `computer`, not two requests.
+3. `world` (one call to the app): Safari in front, window 11, tabs Google + Gmail. `resolve`: web work, nothing named → **a new tab in window 11**.
+4. **One plan call** (gpt-oss-120b, low reasoning) sees the goal, what's open and the YouTube card ("a creator's newest videos: `youtube.com/@Handle/videos`, newest first"). It returns `understood: "Opening NetworkChuck's newest video"` and steps: `open_url …/@NetworkChuck/videos`, `expect url_contains /videos`, `pick videos "the newest" then press`, `done "Playing {picked}."`.
+5. She says "Opening NetworkChuck's newest video." (a short plan, so no "say stop").
+6. `open_url` → the app makes a new tab in window 11 and remembers it (every later read goes to THAT tab). `wait_page` waits until it's loaded, on the new address and quiet for 300 ms.
+7. `expect` passes. `pick`: the reader's rows carry each video's age ("412K views 2 days ago"); Jev chooses among the real ids: the first one.
+8. `press w4` (a page-script click in that tab). "**Playing I hacked my own network (don't try this).**" 1 plan call + 1 Jev call.
+
+If the handle were wrong (a 404), the `expect` fails and ONE replan sees the 404 screen: search → the channel link (`href` contains `/@`, found by code) → `/videos` → pick.
+
+## Why each choice beat the alternatives
+
+- **Plan once instead of a model per click.** 3b asked a model before every click (~0.7 s each, and each call could drift). A whole-route plan is 1 call; code does the rest. Isaac's "let Jev figure out the next button without a loop", done safely: Jev only ever chooses among ids that exist.
+- **Cards instead of a bigger model.** Knowing that `@Handle/videos` is newest-first, or that Wi-Fi is one `networksetup` call, beats any amount of clicking. Actions are fixed templates, so a model can't write a script.
+- **Checks + replans instead of trusting the plan.** Cheap `expect`s catch wrong guesses before they compound; the replan sees the actual failed screen.
+- **Two orb panels instead of one window.** Both crashes were SwiftUI's own mouse/hover handling and window auto-sizing. AppKit owning the mouse and fixed-size panels removes that whole class of bug, and nothing invisible sits over his apps.
+- **A second "live" voiceprint instead of a lower bar.** Lowering the bar lets strangers in; learning his voice through the same echo-cancelled path fixes the mismatch.
+- **A 13-question Jev call.** Measured: a 14th question took the median from ~340 to ~740 ms. `long_job` left; the read-back replaced what it was for.
+
+## Numbers (2026-09-24)
+
+| what | result |
+|---|---|
+| Hands eval, 30 tasks on a pretend Mac (real plans + real Jev) | **29/30**, unsafe **0**, median **2** model calls per task (max 6) |
+| Switchboard eval, 178 cases | false_action **0**, route **0.972**, skill **1.0**, two-part **1.0**, remember **1.0**, packs **1.0** |
+| Narration eval | 0.92 (replayed from the cassette: 0 live calls) |
+| Orb stress, 60 s of synthetic mouse + 60 Hz state changes | no crash |
+| App kill → back + reconnected | ~1 s; core restart ~8 s; Live stays on, no retraining |
+| Tests | 629 offline + app selftest all pass |
+| Core footprint | 832 MB, one process |
+
+## Known limits
+
+- **Needs Isaac once:** allow "Evie wants to control Safari" (tabs + page scripts), System Events/Finder/Mail/Notes on first use, Screen Recording only if the screenshot fallback is ever needed.
+- **The A/B ear test and the 20-task live suite need him there** (his voice; his screen).
+- **Groq's on-demand tier** is 8k tokens/min per model: a burst of screen tasks can hit it (she waits and retries). The Developer tier removes that.
+- **Jev latency was ~500 ms all day** (vs ~370 the day before) for the same questions: service speed, not the question set.
+- **Pre-roll only when the mic engine is warm** (open mic on, or within 30 s of the last talk-key use), so the orange mic light isn't on all day.
+
 # Change log
 
 - **2026-09-23, keys + pill crash.** The talk key moved from 🌐 (Fn) to **hold left ⌃⌥**, and **left ⌃⌥⌘** flips the Live open mic on and off (left keys only, so Right Option stays Ripple's). `Chord` in `PushToTalk.swift` reads the left/right bits of the modifier flags. The pill crashed the app: its window was set to resize itself to fit its text, and a text change ("Listening…") started an endless resize → layout → resize loop (stack overflow, 2 crash reports). The pill is now a fixed 400×60 transparent window with the capsule on the left, SwiftUI is never allowed to size it, and a `DragPanel` starts the window drag itself (SwiftUI was swallowing the mouse, which is why it couldn't be moved).
+- **2026-09-24, the orb.** The pill crashed twice more (SwiftUI hover dispatch; window auto-sizing). Replaced by the orb (Phase 3c T4): AppKit panels own every mouse event, the SwiftUI views sit in an `InertHostingView` (no hit testing, no tracking areas), no window ever resizes, and a 60 s stress test runs the real panels.
