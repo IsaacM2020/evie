@@ -327,6 +327,10 @@ async def test_she_says_what_she_understood_as_soon_as_the_plan_is_ready():
     p, said = planner(SimHands(world={"front_app": "Finder", "apps": [], "windows": [], "tabs": []}), PlanGroq(short))
     await p.run("turn off wifi")
     assert said == ["Turning off Wi-Fi."]  # a short one: no stop window to mention
+    dashed = {"understood": "-opening a Parrot video", "steps": short["steps"]}  # 2026-09-24 18:24:02
+    p, said = planner(SimHands(world={"front_app": "Finder", "apps": [], "windows": [], "tabs": []}), PlanGroq(dashed))
+    await p.run("turn off wifi")
+    assert said == ["Opening a Parrot video."]
 
 
 async def test_return_after_typing_in_a_chat_is_a_send_and_is_read_back():

@@ -144,7 +144,8 @@ class Narrator:
     async def on_done(self, job: Job) -> None:
         result = job.result if job.status == "done" else f"FAILED: {job.result}"
         text = await self._talker.summarize(job.goal, result)
-        if not (self.defer and self.defer(job.goal, text)):
+        # told: it already narrated along the way, so a busy moment doesn't queue "Want the summary?"
+        if not (self.defer and self.defer(job.goal, text, told=job.id in self._said)):
             self._mouth.say(text, kind="reply")
         self._bus.publish("job_done", id=job.id, status=job.status, summary=text, result=job.result[:2000])
         self._last.pop(job.id, None)

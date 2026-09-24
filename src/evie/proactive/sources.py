@@ -38,6 +38,18 @@ ACTIVE_S = 120.0
 AWAY_S = 20 * 60
 
 
+_POLITE = re.compile(r"^(?:(?:help me get this done|hey evie|evie|can you|could you|would you|please|go ahead and)"
+                     r"[\s,:]+)+", re.IGNORECASE)
+
+
+def short_goal(goal: str) -> str:
+    """A job's name for a spoken line: "Can you go to Netflix, click on ..." -> "go to Netflix"."""
+    g = _POLITE.sub("", goal.strip()).rstrip(".?! ")
+    g = re.split(r",| and then | then ", g, maxsplit=1)[0].strip()
+    words = g.split()
+    return " ".join(words[:8]) + ("..." if len(words) > 8 else "") if words else "that job"
+
+
 class Sources:
     def __init__(self, engine, calendar: CalendarStore, todoist, talker, hands=None,
                  now: Callable[[], datetime] = lambda: datetime.now(TZ), clock: Callable[[], float] = time.time,
@@ -136,13 +148,15 @@ class Sources:
             self.engine.add(FollowUp("overheard", f"Heard you've got {full}. Want it in your calendar?", key,
                                      on_yes={"do": "turn", "text": f"remember I have {full}"}))
 
-    def job_done(self, goal: str, summary: str) -> bool:
+    def job_done(self, goal: str, summary: str, told: bool = False) -> bool:
         """A job finished. If he's in the middle of something, it waits (True); otherwise the
         narrator just says it (False)."""
         if not self.enabled("jobs") or self.engine.free():
             return False
-        goal = goal.strip().rstrip(".")[:60]
-        self.engine.add(FollowUp("job", f"That job's done: {goal}. Want the summary?", f"job:{goal}:{int(self._clock())}",
+        if told:  # the job kept him posted as it went (18:32 "Enjoy the show"): the card has the rest
+            return True
+        goal = short_goal(goal)
+        self.engine.add(FollowUp("job", f"Done: {goal}. Want the summary?", f"job:{goal}:{int(self._clock())}",
                                  importance="high", on_yes={"do": "say", "text": summary}))
         return True
 

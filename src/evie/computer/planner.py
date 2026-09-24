@@ -41,7 +41,7 @@ VISION_BELOW = 5  # an app showing fewer labelled elements than this gets looked
 
 SYSTEM = """You plan tasks on Isaac's Mac for his assistant Evie. Write the WHOLE route to the goal as steps, in one go,
 using what's open, the app guide and the screen shown. Reply with one JSON object:
-{"understood": "what you're about to do, as Evie would say it out loud, 3-9 words starting with an -ing verb",
+{"understood": "what you're about to do, as Evie would say it out loud, 3-9 words starting with a verb like "Opening" or "Finding"",
  "steps": [ ... ]}.
 Steps (each an object with "do"):
 - {"do":"open_url","url":"https://...","same_tab":false}   open a page (a new tab unless same_tab)
@@ -600,7 +600,8 @@ class Planner:
                 log.warning("plan call failed: %s", str(e)[:120])
                 return []
         if first and isinstance(out, dict) and out.get("understood"):
-            self._understood = str(out["understood"]).strip().rstrip(".")
+            u = re.sub(r"^[^A-Za-z]+", "", str(out["understood"]).strip()).rstrip(".")  # "-opening" (18:24:02)
+            self._understood = u[:1].upper() + u[1:]
         steps = out.get("steps") if isinstance(out, dict) else None
         steps = [s for s in steps if isinstance(s, dict)] if isinstance(steps, list) else []
         log.info("plan (%s): %s", "first" if first else "replan", json.dumps(steps)[:900])

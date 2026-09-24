@@ -167,7 +167,7 @@ async def test_a_job_finishing_while_he_is_busy_waits():
     s, e = sources(Now(at(16)), engine=Engine(free=False))
     assert s.job_done("fix the deploy", "Fixed it: a missing env var.") is True
     it = e.items[0]
-    assert it.line == "That job's done: fix the deploy. Want the summary?" and it.on_yes["text"].startswith("Fixed it")
+    assert it.line == "Done: fix the deploy. Want the summary?" and it.on_yes["text"].startswith("Fixed it")
     s2, e2 = sources(Now(at(16)), engine=Engine(free=True))
     assert s2.job_done("fix the deploy", "Fixed.") is False and e2.items == []
 
@@ -260,3 +260,18 @@ async def test_presence_follows_the_app():
     assert not s.present
     await s.activity("active")
     assert s.present and s._away is None  # waking the Mac in the morning isn't "where was I?"
+
+
+def test_the_done_line_names_the_job_briefly():
+    """2026-09-24 18:33: "That job's done: help me get this done: Understand Jev and how it works." """
+    s, e = sources(Now(at(16)), engine=Engine(free=False))
+    s.job_done("help me get this done: Understand Jev and how it works", "Jev is ...")
+    s.job_done("Can you go to Netflix, click on the account name Darrell and then play The Mentalist please?", "Playing.")
+    assert [i.line for i in e.items] == ["Done: Understand Jev and how it works. Want the summary?",
+                                        "Done: go to Netflix. Want the summary?"]
+
+
+def test_a_job_that_kept_him_posted_isnt_offered_again():
+    """18:35: "Want the summary?" three minutes after it had said "Enjoy the show"."""
+    s, e = sources(Now(at(16)), engine=Engine(free=False))
+    assert s.job_done("play The Mentalist", "Playing.", told=True) is True and e.items == []
