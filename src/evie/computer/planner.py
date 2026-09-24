@@ -167,6 +167,7 @@ class Planner:
         self._typed = False
         self._screen: Screen | None = None
         self._new_tab_done = False
+        self._alt: dict | None = None  # after she picks by herself: her runners-up, for "no, the other one"
         world = await self._world()
         target = world.resolve(goal)
         if app and target.kind in ("app", "new_tab") and app != target.app and target.kind == "app":
@@ -218,7 +219,7 @@ class Planner:
                 say = str(st.get("say") or "")
                 if "spoken sentence" in say or "the label of" in say:  # the model copied the prompt's example
                     say = ""
-                return Outcome(True, (say or self._closing()).replace("{picked}", self._picked))
+                return Outcome(True, (say or self._closing()).replace("{picked}", self._picked), pick=self._alt)
             if do == "ask":
                 raise _Ask(str(st.get("say") or "What exactly should I do?"))
             said = await self._step(do, st)
@@ -227,7 +228,7 @@ class Planner:
                 return Outcome(True, said)
         if not did and not self._did:
             raise _Fail("the plan stopped before doing anything")
-        return Outcome(True, self._closing())
+        return Outcome(True, self._closing(), pick=self._alt)
 
     def _closing(self) -> str:
         if self._last_say:
@@ -362,6 +363,8 @@ class Planner:
             f"Isaac asked: \"{self._goal}\". Which one is {st.get('want')}? They're listed in page order "
             "(first = top of the page). Pick the best match.", pool[:12], f"pick {st.get('want')!r}")
         self._picked = el.get("label", "")
+        others = [{k: r[k] for k in ("id", "label", "meta", "href") if r.get(k)} for r in pool[:4] if r["id"] != el["id"]]
+        self._alt = self._pick_state({**st, "then": "press"}, others[:3]) if others else None
         return el
 
     def _ask_which(self, st: dict) -> None:
@@ -372,9 +375,11 @@ class Planner:
         shown = [{k: r[k] for k in ("id", "label", "meta", "href") if r.get(k)} for r in rows]
         done = next((s.get("say") for s in self._steps if s.get("do") == "done" and s.get("say")
                      and "spoken sentence" not in str(s.get("say"))), "")
-        raise _AskPick(_which_line(rows), shown, {
-            "goal": self._goal, "among": st.get("among"), "then": st.get("then", "press"), "rows": shown,
-            "done": done, "target": self._target, "world": self._world_now})
+        raise _AskPick(_which_line(rows), shown, self._pick_state(st, shown, done))
+
+    def _pick_state(self, st: dict, rows: list[dict], done: str = "") -> dict:
+        return {"goal": self._goal, "among": st.get("among"), "then": st.get("then", "press"), "rows": rows,
+                "done": done, "target": self._target, "world": self._world_now, "url": self._screen.url}
 
     async def choose(self, pick: dict, answer: str | None, eid: str | None = None) -> Outcome:
         """Finish a "Which one?": his answer ("the latest one", "the island one") or a tap on a row.
@@ -385,11 +390,15 @@ class Planner:
         self._target, self._world_now, self._new_tab_done, self._steps = pick["target"], pick["world"], True, []
         try:
             await self._look()
-            live = []
-            for row in pick["rows"]:
-                el = next((e for e in self._screen.elements if row.get("href") and e.get("href") == row["href"]), None) \
-                    or next((e for e in self._screen.elements if e.get("label") == row.get("label")), None)
-                live.append((row, el))
+            live = self._find_rows(pick["rows"])
+            if not any(el for _, el in live) and pick.get("url") and self._screen.url != pick["url"]:
+                # "no, the other one" from the video he's now watching: back to the list first
+                r = await self._hands.do("open_url", url=pick["url"], app="Safari", new_tab=False,
+                                         window=self._target.window, front=self._front())
+                self._check(r, "go back to the list")
+                await self._wait_page("")
+                await self._look()
+                live = self._find_rows(pick["rows"])
             found = [(row, el) for row, el in live if el is not None]
             if eid is not None:
                 el = next((el for row, el in found if row["id"] == eid), None)
@@ -421,6 +430,15 @@ class Planner:
             video = re.search(r"video|vid|song|episode", str(pick.get("among") or "") + " " + pick["goal"], re.I)
             done = "Playing {picked}." if video else "Opened {picked}."
         return Outcome(True, done.replace("{picked}", self._picked))
+
+    def _find_rows(self, rows: list[dict]) -> list[tuple[dict, dict | None]]:
+        """The rows he was shown, on the screen just read: by link first (ids change on re-render)."""
+        out = []
+        for row in rows:
+            el = next((e for e in self._screen.elements if row.get("href") and e.get("href") == row["href"]), None) \
+                or next((e for e in self._screen.elements if e.get("label") == row.get("label")), None)
+            out.append((row, el))
+        return out
 
     async def _jev_choose(self, instructions: str, cands: list[dict], what: str) -> dict:
         criteria = {c["id"]: (f"#{i + 1} " + (c.get("label") or "") + (f" ({c['meta']})" if c.get("meta") else ""))[:160]

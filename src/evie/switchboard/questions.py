@@ -77,7 +77,12 @@ QUESTIONS = {
     "complete": {
         "type": "noul",
         "instructions": "Assuming the latest speech is a request to Evie, could she do it right now "
-                        "without asking a follow-up question? Use the speech just before: 'play that song' "
+                        "without asking a follow-up question? Evie is autonomous: when there's an obvious "
+                        "most likely meaning (the popular song, the app or site he'd mean, the usual person) "
+                        "it's complete, because she says what she picked and he can say 'no, the other one'. "
+                        "It's not complete only when a guess would probably be wrong or can't be made (a "
+                        "message with no words, an event with no time, 'fix it' with nothing to go on). "
+                        "Use the speech just before: 'play that song' "
                         "is complete if a song was just mentioned, and not complete if nothing says which "
                         "song. A song title alone is complete ('play trance': she plays the most popular "
                         "match). A creator or site without a specific item is complete ('play a mrbeast "

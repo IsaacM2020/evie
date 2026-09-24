@@ -9,7 +9,7 @@ import json
 import logging
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
 from urllib.parse import urlparse
@@ -33,9 +33,11 @@ RISK = {
     "message_send": "sends_as_isaac",
 }
 
-MUSIC_Q = ('What music does Isaac want played? Return {"query": string, "kind": "track" | "artist" | '
+MUSIC_Q = ('What music does Isaac want played? Return {"query": string, "title": string, "artist": string, "kind": "track" | "artist" | '
            '"album" | "playlist"}. query is the song, artist, album or playlist name as it would be '
-           'searched on Spotify, or "" if he named nothing specific (like "play some music").')
+           'searched on Spotify, or "" if he named nothing specific (like "play some music"). title is the '
+           'song\'s name alone, without the artist ("Trance" for "trance by travis scott"), or "" if it isn\'t a song. '
+           'artist is the artist he named, or "" if he named none.')
 WEB_Q = ('Which web page does Isaac want opened? Return {"url": string}: a full https address. For a '
          'search on YouTube use https://www.youtube.com/results?search_query=WORDS, otherwise for a '
          'search use https://www.google.com/search?q=WORDS (words joined with +).')
@@ -56,6 +58,7 @@ class Done:
     ok: bool = True
     verified: bool | None = None
     detail: str = ""
+    others: list = field(default_factory=list)  # her runner-up guesses: "no, the other one" plays the next
 
 
 def failed(detail: str) -> Done:
@@ -101,16 +104,28 @@ class Skills:
         query = str(q.get("query") or "").strip()
         if not query:
             return await self._music_resume(text)
-        found = await self._search.find(query, str(q.get("kind") or "track"))
-        if not found:
+        ranked = await self._search.ranked(query, str(q.get("kind") or "track"), title=str(q.get("title") or "") or None,
+                                           artist=str(q.get("artist") or "") or None)
+        if not ranked:
             return Done(f"Couldn't find {query} on Spotify.", ok=False, detail="not found")
-        uri, label = found
+        return await self._play(ranked)
+
+    async def play_other(self, others: list) -> Done:
+        """"No, the other one": her next-best guess from the last search."""
+        if not others:
+            return Done("That was the only one I found.", ok=False, detail="no others")
+        done = await self._play(list(others))
+        self._write_log("music_play", done)
+        return done
+
+    async def _play(self, ranked: list) -> Done:
+        uri, label = ranked[0]
         r = await self._hands.do("spotify_play", timeout=10.0, uri=uri)  # may have to launch Spotify
         if not r.ok:
             return failed(r.detail)
         # Worked means: for a song, Spotify's current track IS that song; otherwise it's playing.
         verified = r.data.get("uri") == uri if uri.startswith("spotify:track:") else r.data.get("state") == "playing"
-        return Done(f"Playing {label}.", verified=verified)
+        return Done(f"Playing {label}.", verified=verified, others=list(ranked[1:4]))
 
     async def _music_pause(self, text: str) -> Done:
         return await self._spotify_op("spotify_pause", lambda d: "Paused.")

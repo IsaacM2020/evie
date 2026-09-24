@@ -520,3 +520,17 @@ async def test_after_choosing_she_says_the_title():
     r = await p.run("open a mrbeast video")
     r2 = await p.choose(r.pick, "the second one")
     assert r2.said == f"Playing {MB_TITLES[1]}."
+
+
+async def test_after_she_picks_by_herself_the_runners_up_are_kept():
+    hands = SimHands(pages={CH: CHANNEL_PAGE, "https://www.youtube.com/watch?v=n1": WATCH,
+                            "https://www.youtube.com/watch?v=n2": WATCH}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(NEWEST), PickJev())
+    r = await p.run("play the newest networkchuck video")
+    assert r.ok and r.pick and [row["id"] for row in r.pick["rows"]] == ["w4"]
+    assert r.pick["url"] == CH
+    # "no, the other one": she goes back to the list and opens her next pick, no model
+    p._jev = jev = PickJev()
+    r2 = await p.choose(r.pick, None, eid="w4")
+    assert r2.ok and "learn Linux" in r2.said and jev.asked == []
+    assert hands.url == "https://www.youtube.com/watch?v=n2"

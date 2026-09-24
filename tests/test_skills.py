@@ -63,11 +63,17 @@ class FakeSystem:
 
 class FakeSpotify:
     def __init__(self, found=("spotify:track:2qSkIjg1o9h3YT9RAgYN75", "Espresso by Sabrina Carpenter")):
-        self.found, self.queries = found, []
+        self.found, self.queries, self.titles = found, [], []
 
-    async def find(self, query, kind="track"):
+    async def find(self, query, kind="track", title=None, artist=None):
+        r = await self.ranked(query, kind, title, artist)
+        return r[0] if r else None
+
+    async def ranked(self, query, kind="track", title=None, artist=None):
         self.queries.append((query, kind))
-        return self.found
+        self.titles.append(title)
+        self.artists = getattr(self, "artists", []) + [artist]
+        return ([self.found] + list(getattr(self, "more", []))) if self.found else []
 
 
 class FakeJev:
@@ -293,6 +299,87 @@ async def test_spotify_playlist_search_skips_empty_items():
 
 
 @respx.mock
+async def test_a_title_alone_plays_the_most_popular_song_with_that_name():
+    """2026-09-24: "Trance" got "Who is the artist?". Spotify knows which Trance people mean."""
+    respx.post("https://accounts.spotify.com/api/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "T", "expires_in": 3600}))
+    search = respx.get("https://api.spotify.com/v1/search").mock(return_value=httpx.Response(200, json={
+        "tracks": {"items": [
+            {"uri": "spotify:track:mix0000001", "name": "Trance Music Mix 2024", "popularity": 55,
+             "artists": [{"name": "DJ Mix"}]},
+            {"uri": "spotify:track:sound00001", "name": "Trance (Sped Up)", "popularity": 30,
+             "artists": [{"name": "Sound Alike"}]},
+            {"uri": "spotify:track:metro00001", "name": "Trance (with Travis Scott & Young Thug)", "popularity": 81,
+             "artists": [{"name": "Metro Boomin"}, {"name": "Travis Scott"}]},
+            None]}}))
+    found = await SpotifySearch("id", "s").find("trance", "track", title="trance")
+    assert found == ("spotify:track:metro00001", "Trance (with Travis Scott & Young Thug) by Metro Boomin")
+    assert search.calls[0].request.url.params["limit"] == "10"
+
+
+@respx.mock
+async def test_a_named_artist_must_match_and_an_album_is_the_fallback():
+    """Live check 2026-09-24: "play utopia by travis scott" played Utopia by The Rose."""
+    respx.post("https://accounts.spotify.com/api/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "T", "expires_in": 3600}))
+
+    def answer(request):
+        if request.url.params["type"] == "album":
+            return httpx.Response(200, json={"albums": {"items": [
+                {"uri": "spotify:album:other00001", "name": "Utopia", "artists": [{"name": "Björk"}]},
+                {"uri": "spotify:album:utopia0001", "name": "UTOPIA", "artists": [{"name": "Travis Scott"}]}]}})
+        return httpx.Response(200, json={"tracks": {"items": [
+            {"uri": "spotify:track:rose000001", "name": "Utopia", "popularity": 70, "artists": [{"name": "The Rose"}]},
+            {"uri": "spotify:track:myeyes0001", "name": "MY EYES", "popularity": 85,
+             "artists": [{"name": "Travis Scott"}]}]}})
+
+    respx.get("https://api.spotify.com/v1/search").mock(side_effect=answer)
+    found = await SpotifySearch("id", "s").find("utopia travis scott", "track", title="utopia", artist="travis scott")
+    assert found == ("spotify:album:utopia0001", "UTOPIA by Travis Scott")
+
+
+@respx.mock
+async def test_an_artist_nobody_is_called_falls_back_to_the_song_and_repeats_are_dropped():
+    """Live 2026-09-24: "play trance" was sometimes read as an ARTIST and found nothing."""
+    respx.post("https://accounts.spotify.com/api/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "T", "expires_in": 3600}))
+
+    def answer(request):
+        if request.url.params["type"] == "artist":
+            return httpx.Response(200, json={"artists": {"items": [{"uri": "spotify:artist:a1", "name": "Trance Dudes"}]}})
+        return httpx.Response(200, json={"tracks": {"items": [
+            {"uri": "spotify:track:t1", "name": "Trance (with Travis Scott)", "popularity": 80, "artists": [{"name": "Metro Boomin"}]},
+            {"uri": "spotify:track:t2", "name": "Trance (with Travis Scott)", "popularity": 60, "artists": [{"name": "Metro Boomin"}]},
+            {"uri": "spotify:track:t3", "name": "Trance (Walk It Down)", "popularity": 50, "artists": [{"name": "Quavo"}]}]}})
+
+    respx.get("https://api.spotify.com/v1/search").mock(side_effect=answer)
+    r = await SpotifySearch("id", "s").ranked("trance", "artist")
+    assert [u for u, _ in r] == ["spotify:track:t1", "spotify:track:t3"]
+
+
+@respx.mock
+async def test_without_a_title_the_top_result_stands():
+    respx.post("https://accounts.spotify.com/api/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "T", "expires_in": 3600}))
+    respx.get("https://api.spotify.com/v1/search").mock(return_value=httpx.Response(200, json={
+        "tracks": {"items": [{"uri": "spotify:track:first00001", "name": "A", "popularity": 10, "artists": []},
+                             {"uri": "spotify:track:second0001", "name": "B", "popularity": 90, "artists": []}]}}))
+    assert (await SpotifySearch("id", "s").find("a b"))[0] == "spotify:track:first00001"
+
+
+async def test_the_song_title_is_passed_to_the_search(tmp_path):
+    hands, sp = FakeHands(), FakeSpotify()
+    s, _ = skills(tmp_path, hands=hands, spotify=sp,
+                  talker=FakeTalker({"query": "Trance Travis Scott", "title": "Trance", "kind": "track"}))
+    await s.run("music_play", "play Trance, Travis Scott on Spotify")
+    assert sp.titles == ["Trance"]
+    s2, _ = skills(tmp_path, hands=FakeHands(), spotify=(sp2 := FakeSpotify()),
+                   talker=FakeTalker({"query": "utopia", "title": "Utopia", "artist": "Travis Scott", "kind": "track"}))
+    await s2.run("music_play", "play utopia by travis scott")
+    assert sp2.artists == ["Travis Scott"]
+
+
+@respx.mock
 async def test_spotify_down_gives_none():
     respx.post("https://accounts.spotify.com/api/token").mock(return_value=httpx.Response(500))
     assert await SpotifySearch("id", "s").find("x") is None
@@ -308,3 +395,16 @@ async def test_live_spotify_search_finds_a_track():
     s = load_settings()
     found = await SpotifySearch(s.spotify_id, s.spotify_secret).find("Espresso Sabrina Carpenter")
     assert found and found[0].startswith("spotify:track:")
+
+
+
+async def test_after_a_guess_the_other_options_are_kept_for_no_the_other_one(tmp_path):
+    hands, sp = FakeHands(), FakeSpotify(found=("spotify:track:metro00001", "Trance by Metro Boomin"))
+    sp.more = [("spotify:track:quavo00001", "Trance (Walk It Down) by Quavo"), ("spotify:track:x000000001", "X by Y")]
+    s, _ = skills(tmp_path, hands=hands, spotify=sp, talker=FakeTalker({"query": "trance", "title": "Trance", "kind": "track"}))
+    done = await s.run("music_play", "play trance")
+    assert done.others == sp.more
+    nxt = await s.play_other(done.others)
+    assert hands.calls[-1] == ("spotify_play", {"uri": "spotify:track:quavo00001"})
+    assert nxt.said == "Playing Trance (Walk It Down) by Quavo." and nxt.others == sp.more[1:]
+    assert (await s.play_other([])).ok is False

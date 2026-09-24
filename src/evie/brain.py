@@ -87,6 +87,18 @@ def needs_resolve(text: str) -> bool:
     return bool(_REF.search(text))
 
 
+# "no, the other one" / "not that one" / "a different one": after she picked by herself, her next guess.
+_OTHER = re.compile(r"(?:(?:no|nah|nope)\s+)?(?:not (?:that|this) one(?:\s+either)?\s*)?"
+                    r"(?:(?:(?:the|a)\s+)?(?:other|different|wrong|another)\s+one)?")
+OTHER_S = 120.0  # her runners-up stay on offer this long
+
+
+def is_other(text: str) -> bool:
+    t = _norm(strip_wake(text))
+    t = re.sub(r"\s+(evie|please|then)$", "", t).strip()
+    return bool(t) and t not in ("no", "nah", "nope") and bool(_OTHER.fullmatch(t))
+
+
 @dataclass
 class Pending:
     """A question Evie just asked. Isaac's next sentence is probably the answer."""
@@ -130,6 +142,9 @@ class Brain:
         self.scene: Callable[[], dict] = dict  # the app's view of the Mac: front_app, in_call
         self._turn_seq = 0
         self._last_act: tuple[int, float] | None = None  # (turn, when) of the last turn she acted on
+        # After she picked something by herself: ("music", runner-up songs, when) or ("screen", the
+        # runner-up rows, when). "No, the other one" takes the next without asking anyone.
+        self._last_pick: tuple[str, object, float] | None = None
 
     async def hear(self, text: str, speaker: str = "isaac", addressed: bool = True, shadow: bool = False,
                    confidence: float = 1.0) -> dict:
@@ -153,6 +168,10 @@ class Brain:
         if speaker != "other" and is_stop(text) and (getattr(self._mouth, "speaking", False)
                                                       or not self._runner.current):
             return self._stop(text)
+        if speaker != "other" and self._last_pick and is_other(text):
+            other = await self._the_other_one(text)
+            if other is not None:
+                return other
         answered = await self._answer_pending(text, speaker)
         if answered is not None:
             return answered
@@ -257,6 +276,31 @@ class Brain:
         self._pending = None
         merged = f'{p.text}. Evie asked "{p.asked}", Isaac answered "{text}".' if p.asked else f"{p.text}. {text}"
         return await self._turn(merged, p.speaker, addressed=True, answered=True)
+
+    async def _the_other_one(self, text: str) -> dict | None:
+        kind, alts, at = self._last_pick
+        if self._clock() - at > OTHER_S:
+            self._last_pick = None
+            return None
+        self._bus.publish("heard", text=text)
+        self._mouth.stop()
+        said = None
+        if kind == "music":
+            done = await self._skills.play_other(alts)
+            self._last_pick = ("music", done.others, self._clock()) if done.others else None
+            said = self._say(done.said)
+        else:
+            rows = list(alts.get("rows") or [])
+            if not rows:
+                self._last_pick = None
+                said = self._say("That was the only one there.")
+            else:
+                rest = {**alts, "rows": rows[1:]}
+                self._last_pick = ("screen", rest, self._clock()) if rows[1:] else None
+                self._start_choice(alts, None, rows[0]["id"])
+        self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "the other one", "route": kind,
+                         "said": said})
+        return {"text": text, "action": "act", "reason": "the other one", "route": kind, "said": said}
 
     async def _answer_pick(self, p: Pending, text: str, speaker: str) -> dict | None:
         """The "Which one?" list is open on screen. "The latest one", "Evie, the island one": the
@@ -506,6 +550,8 @@ class Brain:
             return self._start_computer(strip_wake(text), skill)
         if skill and skill != "other" and self._skills and decision.skill_conf >= SKILL_CONF_MIN:
             done = await self._skills.run(skill, strip_wake(text))
+            if getattr(done, "others", None):
+                self._last_pick = ("music", done.others, self._clock())
             if done.said is not None:
                 return self._say(done.said)
         return await self._start_job(text)
@@ -546,6 +592,8 @@ class Brain:
             await self._start_job(f"{goal} (Evie tried this in the app's interface and got stuck. Do it another "
                                   "way, like osascript or Shortcuts; a screenshot only if there's truly no other way.)")
         else:
+            if out.ok and out.pick and out.pick.get("rows"):  # she picked by herself: keep the runners-up
+                self._last_pick = ("screen", out.pick, self._clock())
             self._say(out.said)
 
     async def _start_job(self, text: str, long: bool = False, decision=None) -> str:
