@@ -63,7 +63,7 @@ final class Hands {
             guard let uri = a["uri"]?.string, HandsGate.isSpotifyURI(uri) else {
                 return HandsOutcome(ok: false, detail: "bad Spotify link")
             }
-            return await spotify("play track \"\(uri)\"", launch: true)
+            return await spotify("play track \"\(uri)\"", launch: true, expect: uri.hasPrefix("spotify:track:") ? uri : nil)
         case "spotify_pause": return await spotify("pause", launch: false)
         case "spotify_resume": return await spotify("play", launch: true)
         case "spotify_next": return await spotify("next track", launch: false)
@@ -86,11 +86,31 @@ final class Hands {
         !NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").isEmpty
     }
 
-    private func spotify(_ command: String, launch: Bool) async -> HandsOutcome {
+    private func spotify(_ command: String, launch: Bool, expect uri: String? = nil) async -> HandsOutcome {
         if !launch && !spotifyRunning { return HandsOutcome(ok: false, detail: "Spotify isn't open") }
+        if launch && !spotifyRunning {
+            // 2026-09-24: "play Trance" with Spotify closed failed with -600. Open it, then wait until
+            // it answers AppleScript (a just-launched Spotify isn't scriptable for a few seconds).
+            guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") else {
+                return HandsOutcome(ok: false, detail: "Spotify isn't installed")
+            }
+            let cfg = NSWorkspace.OpenConfiguration()
+            cfg.activates = false
+            _ = try? await NSWorkspace.shared.openApplication(at: app, configuration: cfg)
+            let ready = await SpotifyLaunch.waitReady(limit: 10, every: 0.25, ready: {
+                await Self.osascript("tell application \"Spotify\" to player state as string").ok
+            }, sleep: { try? await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) })
+            if !ready { return HandsOutcome(ok: false, detail: "Spotify didn't open in time") }
+        }
         let r = await Self.osascript("tell application \"Spotify\" to \(command)")
         if !r.ok { return HandsOutcome(ok: false, detail: Self.friendly(r.out)) }
-        return await spotifyState()
+        var state = await spotifyState()
+        // The track can take a moment to switch: check a few times before reporting.
+        for _ in 0..<3 where uri != nil && state.data["uri"] != uri {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            state = await spotifyState()
+        }
+        return state
     }
 
     private func spotifyState() async -> HandsOutcome {
@@ -274,5 +294,20 @@ final class Hands {
             return HandsOutcome(ok: false, detail: "Calendar wouldn't remove it")
         }
         return HandsOutcome(ok: true, detail: "removed", data: was)
+    }
+}
+
+
+/// Waiting for a just-launched app to answer: poll `ready` every `every` seconds, up to `limit`.
+enum SpotifyLaunch {
+    static func waitReady(limit: Double, every: Double, ready: () async -> Bool,
+                          sleep: (Double) async -> Void) async -> Bool {
+        var waited = 0.0
+        while true {
+            if await ready() { return true }
+            if waited >= limit { return false }
+            await sleep(every)
+            waited += every
+        }
     }
 }

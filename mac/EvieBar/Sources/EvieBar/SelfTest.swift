@@ -202,6 +202,21 @@ enum SelfTest {
         let prog = try? CoreJSON.decoder.decode(CoreEvent.self, from: Data(
             #"{"kind":"job_progress","id":"j1","done":1,"total":4,"step":"Finding the missing env var"}"#.utf8))
         check(prog?.done == 1 && prog?.total == 4 && prog?.step == "Finding the missing env var", "decode job progress")
+        // Spotify closed (2026-09-24 14:09 "Spotify isn't open"): launch, then wait until it answers AppleScript.
+        final class Polls: @unchecked Sendable { var n = 0; var slept = 0.0; let sema = DispatchSemaphore(value: 0); var got: [Bool] = [] }
+        let polls = Polls()
+        Task.detached {
+            let late = await SpotifyLaunch.waitReady(limit: 10, every: 0.25, ready: { polls.n += 1; return polls.n >= 3 },
+                                                     sleep: { polls.slept += $0 })
+            let pollsLate = polls.n
+            polls.n = 0
+            let never = await SpotifyLaunch.waitReady(limit: 2, every: 0.25, ready: { polls.n += 1; return false },
+                                                      sleep: { polls.slept += $0 })
+            polls.got = [late, pollsLate == 3, !never, polls.n == 9]
+            polls.sema.signal()
+        }
+        _ = polls.sema.wait(timeout: .now() + 3)
+        check(polls.got == [true, true, true, true], "spotify: waits for a just-launched Spotify, gives up after the limit")
         let box = StatusBox()
         Task.detached {
             box.result = await CoreClient(base: URL(string: "http://127.0.0.1:1")!).status()
