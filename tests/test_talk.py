@@ -386,3 +386,13 @@ async def test_hedged_never_leaves_an_unread_error():
     finally:
         loop.set_exception_handler(old)
     assert not [m for m in seen if "never retrieved" in m]
+
+
+async def test_morning_brief_is_short_and_uses_only_the_facts():
+    from evie.talk import Talker
+    g = _JsonGroq(raw="Morning Isaac. School till 3:30, then sax at 4:45. It's Vedant's birthday.")
+    out = await Talker(g).brief({"today": "Today: Vedant Bday (all day), 8:00-15:30 School", "due": "Email bio teacher"})
+    system, user = g.prompts[0]
+    assert out.startswith("Morning") and "Email bio teacher" in user and "Vedant Bday" in user
+    assert "three short sentences" in user.lower()
+    assert await Talker(_JsonGroq(error=__import__("evie.talk", fromlist=["TalkError"]).TalkError("x"))).brief({}) == ""

@@ -333,6 +333,19 @@ class Talker:
             "above; if it's there, ask to confirm it instead (\"The Travis Scott one?\")."
         )
 
+    async def brief(self, facts: dict) -> str:
+        """The morning brief: at most three short sentences, only from these facts. "" if it fails
+        (then there's simply no brief today, never a made-up one)."""
+        user = ("It's morning and Isaac just opened his laptop. Give him his morning brief in at most three short "
+                "sentences: what's on today, what's due, anything special (a birthday). Only use these facts, and "
+                "skip what's empty.\n" + "\n".join(f"- {k}: {v}" for k, v in facts.items() if v))
+        try:
+            raw = await self._groq.chat(PERSONA.replace("Two short sentences at most.", "Three short sentences at most."),
+                                        user)
+        except TalkError:
+            return ""
+        return clean(raw)
+
     async def resolve(self, text: str, recent: list[str] | tuple[str, ...]) -> str:
         """"play that song on spotify" + what was just said ("trance, travis scott") -> "play Trance by
         Travis Scott on Spotify". His own words back if nothing fits or anything fails."""

@@ -272,3 +272,13 @@ async def test_updates_are_written_knowing_what_she_said_last():
     clock.t = 40
     await n.on_event(job, "Fixed it")
     assert seen == ["", "update 1"]
+
+
+async def test_a_finished_job_waits_when_he_is_busy():
+    n, _, mouth, _, bus = make(p=0.0)
+    q = bus.subscribe()
+    held = []
+    n.defer = lambda goal, text: held.append((goal, text)) or True
+    await n.on_done(Job(goal="fix it", status="done", result="Fixed chase.py"))
+    assert mouth.said == [] and held == [("fix it", "summary: Fixed chase.py")]
+    assert q.get_nowait()["kind"] == "job_done"  # the orb still knows

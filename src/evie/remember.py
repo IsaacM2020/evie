@@ -61,6 +61,7 @@ class Task:
     id: str
     content: str
     due: str | None
+    date: str | None = None  # YYYY-MM-DD, for the deadline radar
 
 
 class Todoist:
@@ -102,7 +103,8 @@ class Todoist:
         except (httpx.HTTPError, ValueError) as e:
             log.warning("todoist list failed: %s", type(e).__name__)
             return []
-        return [Task(str(t["id"]), t.get("content", ""), (t.get("due") or {}).get("string")) for t in rows if "id" in t]
+        return [Task(str(t["id"]), t.get("content", ""), (t.get("due") or {}).get("string"),
+                     ((t.get("due") or {}).get("date") or "")[:10] or None) for t in rows if "id" in t]
 
     async def close(self, tid: str) -> bool:
         try:

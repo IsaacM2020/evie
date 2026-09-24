@@ -145,12 +145,18 @@ class Brain:
         # After she picked something by herself: ("music", runner-up songs, when) or ("screen", the
         # runner-up rows, when). "No, the other one" takes the next without asking anyone.
         self._last_pick: tuple[str, object, float] | None = None
+        # Phase 4 proactive (evie.proactive): what she brings up herself, and when
+        self.proactive = None  # Sources: overheard plans go here
+        self.engine = None  # Engine: his answers to her offers go here
+        self.hands = None  # to reopen what he had open ("where was I?")
+        self._heard_at: float | None = None  # anyone talking near her (the "is he free?" gate)
 
     async def hear(self, text: str, speaker: str = "isaac", addressed: bool = True, shadow: bool = False,
                    confidence: float = 1.0) -> dict:
         """addressed: Isaac held the talk key or typed to Evie, so it's certainly for her.
         addressed=False is the open mic: Jev and the policy decide whether it was for her.
         shadow: open mic trial run. Decide and log what she WOULD do, do nothing."""
+        self._heard_at = self._clock()
         if shadow:
             return await self._shadow(text, speaker)
         self._turn_seq += 1
@@ -252,6 +258,8 @@ class Brain:
             return None
         if p.kind == "pick":
             return await self._answer_pick(p, text, speaker)
+        if p.kind == "offer":
+            return await self._answer_offer(p, text, speaker)
         if self._clock() - p.at > PENDING_S or _WAKE.match(text):
             self._pending = None
             return None
@@ -276,6 +284,52 @@ class Brain:
         self._pending = None
         merged = f'{p.text}. Evie asked "{p.asked}", Isaac answered "{text}".' if p.asked else f"{p.text}. {text}"
         return await self._turn(merged, p.speaker, addressed=True, answered=True)
+
+    def idle_s(self) -> float:
+        """Seconds since anyone spoke near her or she last spoke."""
+        now = self._clock()
+        times = [t for t in (self._heard_at, getattr(self._mouth, "quiet_at", None)) if isinstance(t, (int, float))]
+        return now - max(times) if times else float("inf")
+
+    def expect_followup(self, it) -> None:
+        """She just asked something by herself: his next sentence is probably the answer."""
+        if it.ask:  # "What time?": answered like any question of hers
+            self._pending = Pending("detail", it.request, "isaac", self._clock(), asked=it.line)
+        elif it.on_yes:
+            self._pending = Pending("offer", it.line, "isaac", self._clock(), asked=it.line, data={"id": it.id})
+
+    async def _answer_offer(self, p: Pending, text: str, speaker: str) -> dict | None:
+        if self._clock() - p.at > 2 * PENDING_S:
+            self._pending = None
+            return None
+        if speaker == "other":
+            return None
+        words = _norm(strip_wake(text))
+        action = "yes" if _YES.match(words) else "no" if _NO.match(words) else None
+        if action is None:
+            return None  # something else: handle it fresh, the offer stays on the orb
+        self._pending = None
+        if self.engine is not None:
+            await self.engine.answer(p.data["id"], action)
+        self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "follow-up", "route": action})
+        return {"text": text, "action": "act", "reason": "follow-up", "route": action, "said": None}
+
+    async def do_followup(self, it) -> None:
+        """He said yes to something she brought up."""
+        act = it.on_yes or {}
+        do = act.get("do")
+        if do == "say":
+            self._say(str(act.get("text") or ""))
+        elif do == "turn":
+            await self._turn(str(act.get("text") or ""), "isaac", addressed=True, answered=True)
+        elif do == "job":
+            await self._start_job(str(act.get("goal") or ""))
+        elif do == "reopen" and self.hands is not None:
+            for url in list(act.get("urls") or [])[:8]:
+                await self.hands.do("open_url", url=url, app="Safari", new_tab=True)
+            if act.get("app") and act.get("app") != "Safari":
+                await self.hands.do("activate", app=act["app"])
+            self._say("Opened them again.")
 
     async def _the_other_one(self, text: str) -> dict | None:
         kind, alts, at = self._last_pick
@@ -404,6 +458,9 @@ class Brain:
         if not addressed and o.verdict.action == Action.IGNORE:
             # Overheard and not for her (Isaac talking to someone): keep it off the panel.
             self._bus.publish("overheard", text=text, reason=o.verdict.reason)
+            if o.verdict.followup and speaker == "isaac" and self.proactive is not None:
+                # "Mom, I've got the dentist Wednesday": later, "What time?" (only what/when is kept)
+                asyncio.create_task(self.proactive.overheard(text))
         else:
             if not addressed:
                 self._bus.publish("heard", text=text)

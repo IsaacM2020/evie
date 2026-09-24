@@ -385,3 +385,47 @@ def test_text_mode_toggle_through_settings():
     while not q.empty():
         kinds.append(q.get_nowait())
     assert [e["mode"] for e in kinds if e["kind"] == "quiet"] == ["text", "voice"]
+
+
+def test_proactive_endpoints():
+    from evie.proactive.queue import FollowUp
+
+    class Eng:
+        def __init__(self):
+            self.answers = []
+
+            class Q:
+                def waiting(self):
+                    return [FollowUp("stuck", "Stuck on this?", "k", chip_only=True, on_yes={"do": "job", "goal": "g"})]
+            self.queue = Q()
+
+        async def answer(self, fid, action, text=None):
+            self.answers.append((fid, action, text))
+            return fid == "a1"
+
+    class Src:
+        def __init__(self):
+            self.acts, self.screens = [], []
+            self.enabled = lambda n: True
+
+        async def activity(self, kind):
+            self.acts.append(kind)
+
+        def screen_text(self, app, text):
+            self.screens.append((app, text))
+
+    d = full_deps()
+    d.engine, d.proactive = Eng(), Src()
+    with client(deps=d) as c:
+        cards = c.get("/followups").json()
+        assert cards[0]["line"] == "Stuck on this?" and cards[0]["yes"] is True
+        assert c.post("/followup", json={"id": "a1", "action": "yes", "text": "4pm"}).json() == {"ok": True}
+        assert c.post("/followup", json={"id": "a1", "action": "maybe"}).status_code == 422
+        assert c.post("/activity", json={"kind": "back"}).json() == {"ok": True}
+        assert c.post("/activity", json={"kind": "dancing"}).status_code == 422
+        assert c.post("/screen_text", json={"app": "Terminal", "text": "Traceback"}).json() == {"ok": True}
+        out = c.post("/settings", json={"proactive": {"stuck": False}}).json()
+        assert out["proactive"] == {"stuck": False}
+    assert d.engine.answers == [("a1", "yes", "4pm")] and d.proactive.acts == ["back"]
+    assert d.proactive.screens == [("Terminal", "Traceback")]
+    assert d.proactive.enabled("stuck") is False and d.proactive.enabled("brief") is True

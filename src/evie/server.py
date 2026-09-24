@@ -112,6 +112,8 @@ class Deps:
     close: Callable[[], Awaitable[None]] | None = None
     ui: dict = field(default_factory=lambda: {"show_work": True})  # settings the app sets (the orb's menu)
     quiet: object | None = None  # evie.quiet: voice or text, from his calendar and his toggle
+    engine: object | None = None  # evie.proactive.engine: when she brings things up herself
+    proactive: object | None = None  # evie.proactive.sources: what she brings up
 
 
 async def keep_warm(pings: list[Callable[[], Awaitable[None]]], interval_s: float = 20.0) -> None:
@@ -264,6 +266,7 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
     class SettingsIn(BaseModel):
         show_work: bool | None = None
         output: Literal["voice", "text", "auto"] | None = None  # text-only mode toggle
+        proactive: dict[str, bool] | None = None  # per-source switches: {"stuck": False}
 
     def settings_now() -> dict:
         d: Deps = app.state.d
@@ -281,7 +284,47 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
         if body.output is not None and d.quiet is not None:
             d.quiet.set(body.output)
             d.bus.publish("quiet", **d.quiet.state())
+        if body.proactive is not None:
+            switches = d.ui.setdefault("proactive", {})
+            switches.update(body.proactive)
+            if d.proactive is not None:
+                d.proactive.enabled = lambda name: switches.get(name, True)
         return settings_now()
+
+    class FollowUpIn(BaseModel):
+        id: str
+        action: Literal["yes", "no", "later"]
+        text: str | None = None
+
+    class ActivityIn(BaseModel):
+        kind: Literal["active", "idle", "back"]
+
+    class ScreenTextIn(BaseModel):
+        app: str
+        text: str
+
+    @app.get("/followups")
+    async def followups() -> list:
+        """What's waiting on the orb (chips she hasn't had an answer to)."""
+        from evie.proactive.engine import _card
+        eng = app.state.d.engine
+        return [_card(i) for i in eng.queue.waiting()] if eng is not None else []
+
+    @app.post("/followup")
+    async def followup(body: FollowUpIn) -> dict:
+        return {"ok": await need("engine").engine.answer(body.id, body.action, body.text)}
+
+    @app.post("/activity")
+    async def activity(body: ActivityIn) -> dict:
+        """The app: unlocked / first input ("active"), 20 min without input ("idle"), "back"."""
+        await need("proactive").proactive.activity(body.kind)
+        return {"ok": True}
+
+    @app.post("/screen_text")
+    async def screen_text(body: ScreenTextIn) -> dict:
+        """The front dev app's window text (stuck detector). Stays on this Mac."""
+        need("proactive").proactive.screen_text(body.app, body.text[-6000:])
+        return {"ok": True}
 
     @app.post("/stop")
     async def stop_all() -> dict:
@@ -569,6 +612,29 @@ def build_deps(s: Settings) -> Deps:
     open_mic, voiceid = build_ears(stt, brain, mouth, bus)
     if open_mic is not None:
         open_mic.paused = quiet.mic_paused  # no open mic in class
+    # Phase 4/5: what she brings up herself (evie.proactive)
+    from evie.proactive.engine import Engine
+    from evie.proactive.queue import FollowUps
+    from evie.proactive.sources import Sources
+
+    def moment() -> str:  # for Jev's "is this a good moment?"
+        scene = brain.scene()
+        job = runner.current
+        return (f"Time: {datetime.now(TZ):%A %H:%M}. App in front: {scene.get('front_app') or 'unknown'}. "
+                + (f"Evie is working on: {job.goal}." if job else "Evie isn't working on anything."))
+
+    engine = Engine(FollowUps(), mouth, bus, jev, act=brain.do_followup, idle_s=brain.idle_s, text_mode=text_now,
+                    in_call=lambda: bool(brain.scene().get("in_call", False)), context=moment,
+                    on_spoken=brain.expect_followup)
+    engine.ready = lambda: cal.updated_at is not None
+    proactive = Sources(engine, cal, todoist, talker, hands=hands, text_mode=text_now)
+    proactive.enabled = lambda name: ui.setdefault("proactive", {}).get(name, True)
+    brain.proactive, brain.engine, brain.hands = proactive, engine, hands
+    narrator.defer = proactive.job_done
+
+    async def proactive_tick() -> None:  # every 20 s with the keep-warm pings
+        await proactive.collect()
+        await engine.tick()
     seen_quiet: dict = {}
 
     async def watch_quiet() -> None:  # a class starting or ending flips the mode: tell the orb
@@ -598,8 +664,10 @@ def build_deps(s: Settings) -> Deps:
         await stt.aclose()
 
     return Deps(sb=sb, calendar=cal, bus=bus, brain=brain, mouth=mouth, stt=stt, runner=runner,
-                warm=warm, close=close, pings=[jev.warm, groq.warm, stt.warm, unload_idle, watch_quiet],
-                open_mic=open_mic, voiceid=voiceid, hands=hands, mouth_link=mouth_link, ui=ui, quiet=quiet)
+                warm=warm, close=close,
+                pings=[jev.warm, groq.warm, stt.warm, unload_idle, watch_quiet, proactive_tick],
+                open_mic=open_mic, voiceid=voiceid, hands=hands, mouth_link=mouth_link, ui=ui, quiet=quiet,
+                engine=engine, proactive=proactive)
 
 
 def build_ears(stt, brain, mouth, bus):

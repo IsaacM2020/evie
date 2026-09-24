@@ -71,6 +71,8 @@ class Narrator:
         self._last: dict[str, float] = {}
         self._count: dict[str, int] = {}
         self._said: dict[str, str] = {}  # the last update she said per job (updates build on it)
+        # proactive.Sources.job_done: if he's in the middle of something, the result waits for a free moment
+        self.defer: Callable[[str, str], bool] | None = None
 
     def start(self, job: Job) -> None:
         """Called right after "On it", which counts as the last thing she said."""
@@ -142,7 +144,8 @@ class Narrator:
     async def on_done(self, job: Job) -> None:
         result = job.result if job.status == "done" else f"FAILED: {job.result}"
         text = await self._talker.summarize(job.goal, result)
-        self._mouth.say(text, kind="reply")
+        if not (self.defer and self.defer(job.goal, text)):
+            self._mouth.say(text, kind="reply")
         self._bus.publish("job_done", id=job.id, status=job.status, summary=text, result=job.result[:2000])
         self._last.pop(job.id, None)
         self._count.pop(job.id, None)
