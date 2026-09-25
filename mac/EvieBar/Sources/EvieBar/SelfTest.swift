@@ -223,6 +223,16 @@ enum SelfTest {
               && shown(end) == Array((10 - CardLayout.listVisible)...9) && end.contains { $0.role == .hint("That's all 9") }
               && shown(CardLayout.parts(.list(tag: "Evie", say: "3.", items: ["a", "b", "c"], first: 0), side: .right)) == [1, 2, 3],
               "list card: fits its fixed max height, shows what fits, says how many more, clamps when scrolled")
+        let stale: (Bool, Bool) = MainActor.assumeIsolated {
+            let m = AppModel(preview: true)
+            let dec = { (j: String) in try! CoreJSON.decoder.decode(CoreEvent.self, from: Data(j.utf8)) }
+            m.apply(dec(#"{"kind":"list","say":"Three.","items":["a","b","c"]}"#))
+            m.apply(dec(#"{"kind":"say","text":"Three."}"#))
+            let kept = m.listItems.count == 3
+            m.apply(dec(#"{"kind":"say","text":"Still going on the deploy."}"#))
+            return (kept, m.listItems.isEmpty)
+        }
+        check(stale.0 && stale.1, "list card: her own line keeps the list, a later line (narration, a nudge) clears it")
         var li = OrbCard.Inputs()
         li.said = "Nine."; li.items = nine; li.linger = true
         let listCard = OrbCard.pick(li)

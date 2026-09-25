@@ -83,6 +83,7 @@ final class AppModel: ObservableObject {
     @Published var asked = ""
     @Published var listItems: [String] = []  // a long answer, said short and listed here (T19)
     @Published var listFirst = 0
+    private var listSay = ""  // the spoken line the list belongs to
     @Published var followups: [FollowCard] = []  // things she brought up, waiting for an answer
     @Published var followupFresh = false
     @Published var quietMode = "voice"  // evie.quiet: "text" in class or a call
@@ -545,7 +546,7 @@ final class AppModel: ObservableObject {
 
     // MARK: live events from the core
 
-    private func apply(_ ev: CoreEvent) {
+    func apply(_ ev: CoreEvent) {  // internal so the selftest can feed it events
         switch ev.kind {
         case "hello":
             if let j = ev.job {
@@ -562,11 +563,13 @@ final class AppModel: ObservableObject {
             verdict = [ev.action, ev.reason].compactMap { $0 }.joined(separator: " · ")
         case "say":
             said = ev.text ?? ""
+            if said != listSay { listItems = [] }  // a later line (narration, a nudge) isn't this list's
             if ev.textOnly == true { lingerBriefly(for: 20) }  // text mode: long enough to read in class
         case "list":  // say it short, list it all: up long enough to read
             listItems = ev.items ?? []
             listFirst = 0
-            said = ev.say ?? said
+            listSay = ev.say ?? ""
+            said = listSay
             lingerBriefly(for: listLinger)
         case "options":  // "Which one?" rows (empty: the list is done)
             options = ev.options ?? []
