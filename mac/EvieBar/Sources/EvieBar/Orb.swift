@@ -127,6 +127,7 @@ enum OrbCard: Equatable {
     case followup(FollowCard)
     case countdown(line: String)
     case job(goal: String, step: String?, count: String?)
+    case list(tag: String, say: String, items: [String], first: Int)  // say it short, list it all
 
     var isChip: Bool { if case .chip = self { return true }; return false }
 
@@ -142,6 +143,9 @@ enum OrbCard: Equatable {
         var clickTalking = false
         var options: [OptionRow] = []
         var asked = ""
+        var items: [String] = []  // a long answer's list (T19)
+        var listFirst = 0
+        var cardHover = false  // the pointer is on the card itself
         var countdown = false
         var followup: FollowCard? = nil
         var followupFresh = false
@@ -160,6 +164,9 @@ enum OrbCard: Equatable {
         if s.countdown, !s.said.isEmpty { return .countdown(line: s.said) }
         if s.state == "listening" { return .talk(tag: "Listening", text: s.clickTalking ? "Click me again to send." : "Go ahead…") }
         if s.state == "thinking" { return .talk(tag: "Thinking", text: s.heard.isEmpty ? "…" : s.heard) }
+        if !s.items.isEmpty && (s.state == "speaking" || s.linger || s.cardHover) {
+            return .list(tag: s.textMode ? textTag : (s.heard.isEmpty ? "Evie" : s.heard), say: s.said, items: s.items, first: s.listFirst)
+        }
         if (s.state == "speaking" || s.linger) && !s.said.isEmpty {
             return s.textMode ? .typing(tag: textTag, reply: s.said) : .talk(tag: s.heard.isEmpty ? "Evie" : s.heard, text: s.said)
         }
@@ -184,10 +191,15 @@ enum CardLayout {
     static let tagH: CGFloat = 12, titleH: CGFloat = 18, bodyH: CGFloat = 38, replyH: CGFloat = 56
     static let rowH: CGFloat = 31, rowGap: CGFloat = 5, fieldH: CGFloat = 28, pillH: CGFloat = 26
     static let pillW: CGFloat = 78, pillGap: CGFloat = 6
+    static let itemH: CGFloat = 32, itemGap: CGFloat = 3, listVisible = 7, listMaxH: CGFloat = 360
+
+    /// The first item a list can start at (the last page still shows `listVisible` items).
+    static func listStart(_ first: Int, count: Int) -> Int { max(0, min(first, count - listVisible)) }
 
     enum Role: Equatable {
         case tag(String), count(String), title(String), body(String), reply(String), hint(String), chip(String)
         case row(Int, OptionRow), pill(Hit, String, primary: Bool), field(String), bar
+        case item(Int, String)  // a list line, numbered from 1
     }
 
     struct Part: Equatable {
@@ -270,6 +282,18 @@ enum CardLayout {
             out.append(Part(role: .body(step ?? "Working on it…"), rect: CGRect(x: x, y: y, width: w - pillW - 10, height: pillH)))
             out.append(Part(role: .pill(.stop, "Stop", primary: false), rect: CGRect(x: right - pillW, y: y, width: pillW, height: pillH)))
             y += pillH
+        case .list(let tag, let say, let items, let first):
+            add(.tag(tag), tagH, gap: 6)
+            add(.body(say), bodyH, gap: 8)
+            let start = listStart(first, count: items.count)
+            let shown = items.dropFirst(start).prefix(listVisible)
+            for (i, t) in zip(shown.indices, shown) {
+                add(.item(i + 1, t), itemH, gap: i == shown.indices.last ? 8 : itemGap)
+            }
+            let more = items.count - start - shown.count
+            if more > 0 { add(.hint("Scroll for \(more) more"), 15, gap: 0) }
+            else if start > 0 { add(.hint("That's all \(items.count)"), 15, gap: 0) }
+            else { y -= 8 }
         }
         return out
     }
@@ -496,6 +520,14 @@ struct OrbCardView: View {
             .overlay(Capsule().strokeBorder(Ember.tint(0.12), lineWidth: 1))
         case .bar:
             CountdownBar(until: model.countdownUntil, total: model.countdownTotal)
+        case .item(let n, let t):
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\(n)").font(.system(size: 10.5, weight: .semibold, design: .monospaced)).foregroundStyle(Ember.ink2)
+                    .frame(width: 16, alignment: .trailing)
+                Text(t).font(.system(size: 12.5)).foregroundStyle(Ember.ink).lineLimit(2).truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .frame(maxHeight: .infinity, alignment: .topLeading)
         }
     }
 }
@@ -557,6 +589,7 @@ protocol OrbMouse: AnyObject {
     func dragged(_ e: NSEvent)
     func up(_ e: NSEvent, in panel: OrbPanel)
     func menu(_ e: NSEvent, in panel: OrbPanel)
+    func scroll(_ e: NSEvent)
 }
 
 final class OrbPanel: NSPanel {
@@ -578,6 +611,7 @@ final class OrbPanel: NSPanel {
         case .leftMouseDragged: mouse?.dragged(e)
         case .leftMouseUp: mouse?.up(e, in: self)
         case .rightMouseDown: mouse?.menu(e, in: self)
+        case .scrollWheel: mouse?.scroll(e)  // pages a long list (the hosting view never sees the mouse)
         default: super.sendEvent(e)
         }
     }
@@ -825,6 +859,18 @@ final class OrbController: NSObject, OrbMouse {
         }
         guard let hit = downHit, CardLayout.counts(hit, shownFor: e.timestamp - shownAt) else { return }
         model.tap(hit, on: shown)
+    }
+
+    private var wheel: CGFloat = 0
+
+    /// Wheel or two-finger scroll over a list card: one item per 24 points of travel.
+    func scroll(_ e: NSEvent) {
+        guard let model, case .list(_, _, let items, _) = shown else { return }
+        wheel += e.hasPreciseScrollingDeltas ? e.scrollingDeltaY : e.scrollingDeltaY * 12
+        let step = Int(wheel / 24)
+        guard step != 0 else { return }
+        wheel -= CGFloat(step) * 24
+        model.listFirst = CardLayout.listStart(model.listFirst - step, count: items.count)
     }
 
     func menu(_ e: NSEvent, in panel: OrbPanel) {

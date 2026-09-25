@@ -21,7 +21,7 @@ BIG_MODEL = "openai/gpt-oss-120b"  # hard questions only: slower (~1-2 s) but it
 
 PERSONA = (
     "You are Evie, Isaac's voice assistant on his MacBook. Isaac is 16 and lives in Singapore. "
-    "Everything you write is spoken out loud, so use plain words: no markdown, no lists, no emoji, "
+    "Everything you write is spoken out loud, so use plain words: no markdown, no emoji, no lists unless told how, "
     "no em dashes. Be casual and warm, like a sharp friend. Two short sentences at most. "
     "Never do arithmetic in your head: write the expression inside double brackets and it will be "
     "replaced with the exact result, for example \"That's [[0.18*240]].\" You can use sqrt, log (base 10), "
@@ -273,6 +273,48 @@ def clean(text: str) -> str:
     return " ".join(_SENTENCE_END.split(text)[:2])
 
 
+class Reply(str):
+    """A spoken answer; .items holds the list shown on the card (not read out)."""
+    items: list[str]
+
+    def __new__(cls, text: str, items: list[str] | None = None):
+        r = super().__new__(cls, text)
+        r.items = items or []
+        return r
+
+
+LIST_RULE = ("If the answer is a list of three or more things (tasks, events, steps, songs, options), write one "
+             "short sentence that sums it up (how many, and the top one), then every item on its own line "
+             "starting with '- '. Only that first sentence is spoken; the lines are shown on his screen.")
+LONG_S = 180  # longer than this with 3+ sentences: say the first, show the rest
+_ITEM = re.compile(r"^\s*(?:[-•*]|\d{1,2}[.)])\s+(.+)$")
+
+
+def split_list(text: str) -> tuple[str, list[str]]:
+    """Say it short, list it all (Isaac, 2026-09-24). Returns (what she says, what the card lists)."""
+    say, items = [], []
+    for line in text.splitlines():
+        m = _ITEM.match(line)
+        if m:
+            items.append(m.group(1).strip())
+        elif line.strip():
+            say.append(line.strip())
+    spoken = " ".join(say)
+    if len(items) >= 3:
+        return spoken or f"Here are {len(items)}.", items
+    if items:  # one or two bullets: just say them
+        spoken = " ".join([spoken] + [i.rstrip(".") + "." for i in items]).strip()
+    sentences = _SENTENCE_END.split(spoken)
+    if len(spoken) > LONG_S and len(sentences) >= 3:
+        return sentences[0], sentences[1:]
+    return spoken, []
+
+
+def _item(text: str) -> str:
+    text = re.sub(r"[*`#]", "", text)
+    return re.sub(r"\s*[—–]\s*", ", ", text).strip()
+
+
 EXTRACT = ("You read one request that Isaac said out loud to his voice assistant (a raw transcript, "
            "may contain mishearings) and pull out details as JSON. Reply with one JSON object only. ")
 
@@ -292,15 +334,20 @@ class Talker:
             return {}
         return out if isinstance(out, dict) else {}
 
-    async def _say(self, user: str, model: str | None = None, reasoning: str | None = None) -> str:
+    async def _say(self, user: str, model: str | None = None, reasoning: str | None = None,
+                   lists: bool = False) -> str:
+        """lists: the answer may come as one line + items (a Reply with .items); otherwise plain speech."""
         try:
             raw = await self._groq.chat(PERSONA + "\n\n" + capabilities.sheet(), user, model=model, reasoning=reasoning)
         except TalkError:
-            return FALLBACK
+            return Reply(FALLBACK) if lists else FALLBACK
         try:
-            return clean(fill_math(raw)) or FALLBACK
+            if not lists:
+                return clean(fill_math(raw)) or FALLBACK
+            say, items = split_list(fill_math(raw))
+            return Reply(clean(say) or FALLBACK, [i for i in map(_item, items) if i])
         except MathError:
-            return CANT_COMPUTE
+            return Reply(CANT_COMPUTE) if lists else CANT_COMPUTE
 
     async def reply(self, utterance: str, facts: dict, hard: bool = False) -> str:
         """hard: a question that needs real reasoning goes to the bigger model (gpt-oss-120b)."""
@@ -308,9 +355,10 @@ class Talker:
         return await self._say(
             f"What you know right now:\n{lines or '- nothing extra'}\n\n"
             f'Isaac said: "{utterance}"\n'
-            "Answer him. If what you know doesn't cover it, say so briefly. Never make up events or facts."
+            "Answer him. If what you know doesn't cover it, say so briefly. Never make up events or facts. "
+            + LIST_RULE
             + (" Think it through carefully, then give the answer in plain spoken words." if hard else ""),
-            model=BIG_MODEL if hard else None, reasoning="medium" if hard else None,
+            model=BIG_MODEL if hard else None, reasoning="medium" if hard else None, lists=True,
         )
 
     async def sum_up(self, summary: str, turns: list[dict]) -> str:

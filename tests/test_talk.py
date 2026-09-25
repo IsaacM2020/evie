@@ -396,3 +396,47 @@ async def test_morning_brief_is_short_and_uses_only_the_facts():
     assert out.startswith("Morning") and "Email bio teacher" in user and "Vedant Bday" in user
     assert "three short sentences" in user.lower()
     assert await Talker(_JsonGroq(error=__import__("evie.talk", fromlist=["TalkError"]).TalkError("x"))).brief({}) == ""
+
+
+# T19 (Isaac, 2026-09-24): "when there's too much text, list it down" -> say it short, list it all.
+from evie.talk import split_list  # noqa: E402
+
+
+def test_a_list_answer_is_one_spoken_line_plus_items():
+    say, items = split_list("You've got 4 things due, top one is Chem HW.\n- Chem tuition HW\n- Email bio teacher\n"
+                            "* Physics worksheet\n2. Spanish vocab")
+    assert say == "You've got 4 things due, top one is Chem HW."
+    assert items == ["Chem tuition HW", "Email bio teacher", "Physics worksheet", "Spanish vocab"]
+
+
+def test_two_bullets_are_not_a_list():
+    say, items = split_list("Two things.\n- Chem HW\n- Sax")
+    assert items == [] and say == "Two things. Chem HW. Sax."
+
+
+def test_long_prose_is_said_short_and_the_rest_listed():
+    text = ("Jev is the model that decides what Evie does with each sentence. It reads the words and gives "
+            "probabilities for each route. Plain code then turns those into act, ask or ignore. The thresholds "
+            "live in one file so the evals can tune them.")
+    say, items = split_list(text)
+    assert say == "Jev is the model that decides what Evie does with each sentence."
+    assert len(items) == 3 and items[0].startswith("It reads the words")
+
+
+def test_short_prose_is_left_alone():
+    assert split_list("It's 4pm. You have Math. Then iGEM.") == ("It's 4pm. You have Math. Then iGEM.", [])
+
+
+@respx.mock
+async def test_reply_keeps_the_list_for_the_card_and_speaks_one_line():
+    route = respx.post(URL).mock(return_value=ok("You've got 3 today, **Chem** first.\n- Chem HW\n- Sax — 4:45\n- Call Dada"))
+    out = await talker().reply("what's due today", {})
+    assert out == "You've got 3 today, Chem first." and out.items == ["Chem HW", "Sax, 4:45", "Call Dada"]
+    assert "own line" in json.loads(route.calls[0].request.content)["messages"][1]["content"]
+
+
+@respx.mock
+async def test_a_plain_reply_has_no_items():
+    respx.post(URL).mock(return_value=ok("It's 4:05."))
+    out = await talker().reply("time", {})
+    assert out == "It's 4:05." and out.items == []

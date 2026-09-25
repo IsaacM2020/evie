@@ -1223,3 +1223,28 @@ async def test_its_for_you_is_a_yes_to_was_that_for_me():
         await b.hear("set a timer for 30 seconds", "isaac", addressed=False)
         await b.hear(yes, "isaac", addressed=False)
         assert sb.contexts[-1].utterance == "set a timer for 30 seconds" and sb.contexts[-1].addressed, yes
+
+
+async def test_a_list_answer_speaks_one_line_and_sends_the_items_to_the_card():
+    """T19: 'say it short, list it all'."""
+    from evie.talk import Reply
+
+    class ListTalker(FakeTalker):
+        async def reply(self, utterance, facts):
+            return Reply("You've got 3 today, Chem first.", ["Chem HW", "Sax at 4:45", "Call Dada"])
+
+    b, p = brain()
+    b._talker = ListTalker()
+    q = p["bus"].subscribe()
+    out = await b.hear("what's due today", addressed=True)
+    assert p["mouth"].said == ["You've got 3 today, Chem first."]
+    lists = [e for e in (q.get_nowait() for _ in range(q.qsize())) if e["kind"] == "list"]
+    assert lists and lists[0]["say"] == "You've got 3 today, Chem first." and lists[0]["items"][2] == "Call Dada"
+    assert "Call Dada" in out["said"]  # the turn log keeps the whole answer
+
+
+async def test_a_plain_answer_sends_no_list():
+    b, p = brain()
+    q = p["bus"].subscribe()
+    await b.hear("what time is it", addressed=True)
+    assert not [e for e in (q.get_nowait() for _ in range(q.qsize())) if e["kind"] == "list"]

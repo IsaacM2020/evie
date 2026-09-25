@@ -642,7 +642,13 @@ class Brain:
     def _say_answer(self, text: str, reply: str) -> str | None:
         """Speak an answer, unless it promises screen work the answer route can't do: then do it."""
         if not _PROMISE.match(reply.strip()):
-            return self._say(reply)
+            items = getattr(reply, "items", None)
+            if not items:
+                return self._say(reply)
+            # Say it short, list it all (T19): one spoken line, every item on the card
+            self._bus.publish("list", say=str(reply), items=items)
+            self._say(str(reply))
+            return str(reply) + "\n" + "\n".join(f"- {i}" for i in items)
         log.info("answer promised an action (%r): doing it on screen", reply[:60])
         if self._computer is not None:
             return self._start_computer(strip_wake(text), "computer")

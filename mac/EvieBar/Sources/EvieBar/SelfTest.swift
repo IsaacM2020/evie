@@ -184,7 +184,9 @@ enum SelfTest {
                                 .typing(tag: "Text only", reply: nil), .options(asked: "MrBeast's latest", rows: rows),
                                 .followup(FollowCard(id: "f", about: "tasks", line: "Due today. Help?", yes: true)),
                                 .followup(FollowCard(id: "g", about: "overheard", line: "What time?", ask: true)),
-                                .countdown(line: "Sending hi to Mom."), .job(goal: "Fix deploy", step: "Testing", count: "3/5")]
+                                .countdown(line: "Sending hi to Mom."), .job(goal: "Fix deploy", step: "Testing", count: "3/5"),
+                                .list(tag: "Evie", say: "You've got 9 things, Chem HW first.",
+                                      items: (1...9).map { "Thing \($0) with a longer name that might wrap onto two lines" }, first: 0)]
         var inside = true, sides = true
         for c in cards {
             let g = CGRect(origin: .zero, size: CardLayout.glass(c))
@@ -208,6 +210,30 @@ enum SelfTest {
               && CardLayout.counts(.yes, shownFor: 0.8) && CardLayout.counts(.mark, shownFor: 0)
               && CardLayout.counts(.cancel, shownFor: 0.1) && CardLayout.counts(.stop, shownFor: 0.1),
               "card: Yes/rows only count once the card has been up 0.6 s (Cancel/Stop always do)")
+        // T19 "say it short, list it all": one spoken line, every item on the card, the wheel pages it.
+        let listEv = try? CoreJSON.decoder.decode(CoreEvent.self, from: Data(
+            #"{"kind":"list","say":"You've got 3.","items":["Chem HW","Sax","Call Dada"]}"#.utf8))
+        check(listEv?.say == "You've got 3." && listEv?.items?.count == 3, "decode list event")
+        let nine = (1...9).map { "Item \($0)" }
+        let top = CardLayout.parts(.list(tag: "Evie", say: "Nine.", items: nine, first: 0), side: .right)
+        let end = CardLayout.parts(.list(tag: "Evie", say: "Nine.", items: nine, first: 9), side: .left)
+        func shown(_ ps: [CardLayout.Part]) -> [Int] { ps.compactMap { if case .item(let n, _) = $0.role { return n }; return nil } }
+        check(CardLayout.glass(.list(tag: "Evie", say: "Nine.", items: nine, first: 0)).height <= CardLayout.listMaxH
+              && shown(top) == Array(1...CardLayout.listVisible) && top.contains { $0.role == .hint("Scroll for 2 more") }
+              && shown(end) == Array((10 - CardLayout.listVisible)...9) && end.contains { $0.role == .hint("That's all 9") }
+              && shown(CardLayout.parts(.list(tag: "Evie", say: "3.", items: ["a", "b", "c"], first: 0), side: .right)) == [1, 2, 3],
+              "list card: fits its fixed max height, shows what fits, says how many more, clamps when scrolled")
+        var li = OrbCard.Inputs()
+        li.said = "Nine."; li.items = nine; li.linger = true
+        let listCard = OrbCard.pick(li)
+        li.linger = false
+        let gone = OrbCard.pick(li)
+        li.cardHover = true
+        let held = OrbCard.pick(li)
+        li.state = "listening"
+        check(listCard == .list(tag: "Evie", say: "Nine.", items: nine, first: 0) && gone == .none
+              && held == listCard && OrbCard.pick(li) != listCard,
+              "list card: shows while she talks and lingers, stays while he hovers it, gives way when he talks")
         check(JobView.modelName("quick") == "Haiku" && JobView.modelName("hard") == "Sonnet high"
               && JobView.modelName("") == nil && !["quick", "normal", "hard"].contains { JobView.modelName($0)!.contains("Opus") },
               "job card: says which Claude is on it (Haiku or Sonnet, never Opus)")

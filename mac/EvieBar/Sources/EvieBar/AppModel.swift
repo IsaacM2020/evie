@@ -81,6 +81,8 @@ final class AppModel: ObservableObject {
     // Phase 4: what the card shows (Orb.swift)
     @Published var options: [OptionRow] = []  // "Which one?" rows, tap or say
     @Published var asked = ""
+    @Published var listItems: [String] = []  // a long answer, said short and listed here (T19)
+    @Published var listFirst = 0
     @Published var followups: [FollowCard] = []  // things she brought up, waiting for an answer
     @Published var followupFresh = false
     @Published var quietMode = "voice"  // evie.quiet: "text" in class or a call
@@ -178,6 +180,9 @@ final class AppModel: ObservableObject {
         s.clickTalking = clickTalking
         s.options = options
         s.asked = asked
+        s.items = listItems
+        s.listFirst = listFirst
+        s.cardHover = bubbleHover
         s.countdown = countdownUntil.map { $0 > Date() } ?? false
         s.followup = followups.first
         s.followupFresh = followupFresh
@@ -315,7 +320,10 @@ final class AppModel: ObservableObject {
 
     var stopVisible: Bool { job != nil || state == "speaking" || state == "working" }
 
+    private var listLinger: Double { min(60, 8 + 2.5 * Double(listItems.count)) }
+
     private func lingerBriefly(for seconds: Double = 4) {
+        let seconds = listItems.isEmpty ? seconds : max(seconds, listLinger)
         linger = true
         lingerTask?.cancel()
         lingerTask = Task { [weak self] in
@@ -548,12 +556,18 @@ final class AppModel: ObservableObject {
         case "heard":
             heard = (ev.text ?? "").isEmpty ? "(didn't catch that)" : (ev.text ?? "")
             said = ""
+            listItems = []
             verdict = ""
         case "verdict":
             verdict = [ev.action, ev.reason].compactMap { $0 }.joined(separator: " · ")
         case "say":
             said = ev.text ?? ""
             if ev.textOnly == true { lingerBriefly(for: 20) }  // text mode: long enough to read in class
+        case "list":  // say it short, list it all: up long enough to read
+            listItems = ev.items ?? []
+            listFirst = 0
+            said = ev.say ?? said
+            lingerBriefly(for: listLinger)
         case "options":  // "Which one?" rows (empty: the list is done)
             options = ev.options ?? []
             asked = ev.asked ?? ""

@@ -100,6 +100,8 @@ struct CoreEvent: Decodable, Equatable {
     // Phase 4: "Which one?" rows, follow-ups, text mode, say-stop windows
     var options: [OptionRow]? = nil
     var asked: String? = nil
+    var say: String? = nil  // list: the one line she speaks
+    var items: [String]? = nil  // list: everything else, shown on the card
     var textOnly: Bool? = nil
     var about: String? = nil
     var ask: Bool? = nil
