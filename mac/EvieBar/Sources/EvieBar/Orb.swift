@@ -20,10 +20,22 @@ enum OrbSide: String { case left, right }
 // MARK: - Tokens
 
 enum Ember {
-    static let ink = Color.white.opacity(0.95)
-    static let ink2 = Color.white.opacity(0.58)
+    /// Light or dark glass (Isaac, 2026-09-24: follow the Mac, plus a toggle). Set by AppModel before
+    /// it publishes the change, so every view that redraws reads the new colours.
+    nonisolated(unsafe) static var dark = true
+    static var ink: Color { tint(dark ? 0.95 : 0.88) }
+    static var ink2: Color { tint(dark ? 0.58 : 0.55) }
     static let accent = Color(red: 1.0, green: 0.56, blue: 0.26)
-    static let hair = Color.white.opacity(0.12)
+    static var hair: Color { tint(0.12) }
+    /// White on dark glass, near-black on light glass.
+    static func tint(_ a: Double) -> Color { (dark ? Color.white : Color(red: 0.08, green: 0.08, blue: 0.1)).opacity(a) }
+    static var onTint: Color { dark ? .black : .white }
+    static var body: Color { dark ? Color.black.opacity(0.3) : Color.white.opacity(0.42) }
+
+    /// "auto" follows the Mac's appearance; "light" / "dark" force one.
+    static func resolve(_ setting: String, systemDark: Bool) -> Bool {
+        setting == "dark" ? true : setting == "light" ? false : systemDark
+    }
     static let live = Color(red: 0.2, green: 0.85, blue: 0.4)
     static let tagFont = Font.system(size: 9.5, weight: .medium, design: .monospaced)
 }
@@ -306,7 +318,7 @@ struct EvieLine: View {
                                                  level: level, progress: progress) }
         }
         .frame(width: 34, height: 22)
-        .shadow(color: online && state != "idle" ? Ember.accent.opacity(0.8) : .white.opacity(online ? 0.45 : 0), radius: 3)
+        .shadow(color: online && state != "idle" ? Ember.accent.opacity(0.8) : Ember.tint(online ? 0.45 : 0), radius: 3)
         .accessibilityLabel("Evie, \(online ? state : "offline")")
     }
 
@@ -331,11 +343,11 @@ struct EvieLine: View {
             }
             ctx.stroke(p, with: .color(Ember.accent), style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
         case "thinking":  // a short ember dash travelling along the line
-            line(0, len, .white.opacity(0.22))
+            line(0, len, Ember.tint(0.22))
             let a = CGFloat((sin(t * 3.2) + 1) / 2) * (len - 8)
             line(a, a + 8, Ember.accent)
         case "working":
-            line(0, len, .white.opacity(0.22))
+            line(0, len, Ember.tint(0.22))
             if let p = progress {
                 line(0, max(2, len * CGFloat(p)), Ember.accent)
             } else {
@@ -343,9 +355,9 @@ struct EvieLine: View {
                 line(max(0, a), min(len, a + 8), Ember.accent)
             }
         case "offline":
-            line(0, len, .white.opacity(0.35), dash: [2.5, 2.5])
+            line(0, len, Ember.tint(0.35), dash: [2.5, 2.5])
         default:
-            line(2, len - 2, .white.opacity(0.9))
+            line(2, len - 2, Ember.tint(0.9))
         }
     }
 }
@@ -360,14 +372,17 @@ struct GlassBody: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         ZStack {
-            shape.fill(reduceTransparency ? Color(white: 0.12) : Color.black.opacity(0.3))
+            shape.fill(reduceTransparency ? Color(white: Ember.dark ? 0.12 : 0.94) : Ember.body)
             shape.fill(LinearGradient(colors: [.white.opacity(0.10), .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.55)))
             shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.07), .white.opacity(0.18)],
                                               startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
         }
         .frame(width: size.width, height: size.height)
         .glassEffect(.clear, in: shape)
-        .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+        // The shadow is its own blurred copy of the shape, behind the glass. `.shadow` on the glass
+        // itself took the glass layer's rectangle: a grey box the size of the whole panel, always
+        // on (Isaac's screenshot, 2026-09-24).
+        .background(shape.fill(Color.black.opacity(reduceTransparency ? 0 : 0.28)).blur(radius: 7).offset(y: 4))
     }
 }
 
@@ -389,6 +404,7 @@ struct OrbMarkView: View {
             }
         }
         .frame(width: OrbGeometry.markPanel.width, height: OrbGeometry.markPanel.height)
+        .environment(\.colorScheme, model.darkUI ? .dark : .light)  // the glass follows the Theme menu too
     }
 }
 
@@ -423,6 +439,7 @@ struct OrbCardView: View {
         .frame(width: g.width, height: g.height, alignment: .topLeading)
         .frame(width: g.width + 2 * OrbGeometry.pad, height: g.height + 2 * OrbGeometry.pad)
         .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 1.0), value: model.said)
+        .environment(\.colorScheme, model.darkUI ? .dark : .light)
     }
 
     @ViewBuilder private func part(_ r: CardLayout.Role) -> some View {
@@ -448,7 +465,7 @@ struct OrbCardView: View {
             HStack(spacing: 10) {
                 Text("\(i + 1)").font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(i == 0 ? Color.black : Ember.ink2).frame(width: 19, height: 19)
-                    .background(Circle().fill(i == 0 ? Ember.accent : Color.white.opacity(0.08)))
+                    .background(Circle().fill(i == 0 ? Ember.accent : Ember.tint(0.08)))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(o.label).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Ember.ink).lineLimit(1)
                     if let m = o.meta, !m.isEmpty {
@@ -459,24 +476,24 @@ struct OrbCardView: View {
             }
             .padding(.horizontal, 5)
             .frame(maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(i == 0 ? Color.white.opacity(0.07) : .clear))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(i == 0 ? Ember.tint(0.07) : .clear))
         case .pill(_, let label, let primary):
             Text(label).font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(primary ? Color.black : Ember.ink)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Capsule().fill(primary ? Ember.accent : Color.white.opacity(0.09)))
-                .overlay(Capsule().strokeBorder(Color.white.opacity(primary ? 0 : 0.14), lineWidth: 1))
+                .background(Capsule().fill(primary ? Ember.accent : Ember.tint(0.09)))
+                .overlay(Capsule().strokeBorder(Ember.tint(primary ? 0 : 0.14), lineWidth: 1))
         case .field(let placeholder):
             HStack {
                 Text(model.typing ? "" : placeholder).font(.system(size: 12.5)).foregroundStyle(Ember.ink2)
                 Spacer()
-                Image(systemName: "arrow.up").font(.system(size: 10, weight: .bold)).foregroundStyle(.black)
-                    .frame(width: 20, height: 20).background(Circle().fill(Color.white.opacity(0.9)))
+                Image(systemName: "arrow.up").font(.system(size: 10, weight: .bold)).foregroundStyle(Ember.onTint)
+                    .frame(width: 20, height: 20).background(Circle().fill(Ember.tint(0.9)))
             }
             .padding(.leading, 11).padding(.trailing, 4)
             .frame(maxHeight: .infinity)
-            .background(Capsule().fill(Color.white.opacity(0.07)))
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+            .background(Capsule().fill(Ember.tint(0.07)))
+            .overlay(Capsule().strokeBorder(Ember.tint(0.12), lineWidth: 1))
         case .bar:
             CountdownBar(until: model.countdownUntil, total: model.countdownTotal)
         }
@@ -493,7 +510,7 @@ struct CountdownBar: View {
             let left = max(0, (until ?? tl.date).timeIntervalSince(tl.date))
             GeometryReader { g in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.12))
+                    Capsule().fill(Ember.tint(0.12))
                     Capsule().fill(Ember.accent).frame(width: g.size.width * CGFloat(total > 0 ? left / total : 0))
                         .shadow(color: Ember.accent.opacity(0.8), radius: 3)
                 }
@@ -594,15 +611,22 @@ final class TypeField: NSTextField {
         f.drawsBackground = false
         f.focusRingType = .none
         f.font = .systemFont(ofSize: 12.5)
-        f.textColor = .white
-        f.placeholderAttributedString = NSAttributedString(string: "Ask Evie…", attributes: [
-            .foregroundColor: NSColor.white.withAlphaComponent(0.5), .font: NSFont.systemFont(ofSize: 12.5)])
+        f.recolor()
         f.cell?.usesSingleLineMode = true
         f.cell?.isScrollable = true
         f.target = f
         f.action = #selector(submit)
         f.isHidden = true
         return f
+    }
+
+    /// Ink on the frosted light glass, white on the dark one (follows Ember.dark).
+    func recolor() {
+        let ink: NSColor = Ember.dark ? .white : NSColor(red: 0.08, green: 0.08, blue: 0.1, alpha: 1)
+        guard textColor != ink else { return }
+        textColor = ink
+        placeholderAttributedString = NSAttributedString(string: "Ask Evie…", attributes: [
+            .foregroundColor: ink.withAlphaComponent(0.5), .font: NSFont.systemFont(ofSize: 12.5)])
     }
 
     @objc private func submit() {
@@ -699,6 +723,7 @@ final class OrbController: NSObject, OrbMouse {
     private func refresh() {
         guard let model, let card = cardPanel, let mark = markPanel, mark.isVisible || card.isVisible else { return }
         let want = model.card
+        field?.recolor()
         placeField(want)
         guard want != shown else { return }
         let was = shown
@@ -830,6 +855,13 @@ final class OrbController: NSObject, OrbMouse {
         let proItem = NSMenuItem(title: "Bring things up", action: nil, keyEquivalent: "")
         proItem.submenu = pro
         m.addItem(proItem)
+        let theme = NSMenu()
+        for (mode, title) in [("auto", "Auto (follow the Mac)"), ("light", "Light"), ("dark", "Dark")] {
+            item(title, on: model.themeSetting == mode, in: theme) { model.setTheme(mode) }
+        }
+        let themeItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
+        themeItem.submenu = theme
+        m.addItem(themeItem)
         item("Show her work on screen", on: model.showWork) { model.setShowWork(!model.showWork) }
         if let rec = model.recording {
             item("Record for tuning", on: rec) { Task { await model.setRecording(!rec) } }

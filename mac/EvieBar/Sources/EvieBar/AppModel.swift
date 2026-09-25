@@ -91,6 +91,9 @@ final class AppModel: ObservableObject {
     @Published var typing = false
     @Published var nextEvent: String? = nil
     @Published var proactive: [String: Bool] = (UserDefaults.standard.dictionary(forKey: "proactive") as? [String: Bool]) ?? [:]
+    // Look: "auto" follows the Mac's appearance, "light"/"dark" override it (Isaac, 2026-09-24)
+    @Published var themeSetting = UserDefaults.standard.string(forKey: "theme") ?? "auto"
+    @Published var darkUI = true
     private var calEvents: [CalEventDTO] = []
     private var freshTask: Task<Void, Never>?
     private var countdownTask: Task<Void, Never>?
@@ -113,7 +116,12 @@ final class AppModel: ObservableObject {
 
     /// preview: true builds a model with no side effects (no mic, keys, network) for snapshots.
     init(preview: Bool = false) {
+        applyTheme()
         guard !preview else { return }
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyTheme() }
+        }
         Task { await pollForever() }
         let feed = CalendarFeed(core: core) { [weak self] granted in self?.calendarDenied = !granted }
         feed.onEvents = { [weak self] evs in
@@ -198,6 +206,20 @@ final class AppModel: ObservableObject {
     ]
 
     func proactiveOn(_ name: String) -> Bool { proactive[name] ?? true }
+
+    /// Theme menu: Auto / Light / Dark, remembered across launches.
+    func setTheme(_ setting: String) {
+        themeSetting = setting
+        UserDefaults.standard.set(setting, forKey: "theme")
+        applyTheme()
+    }
+
+    /// Ember's colours are read while drawing, so set them before publishing the change that redraws.
+    private func applyTheme() {
+        let systemDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+        Ember.dark = Ember.resolve(themeSetting, systemDark: systemDark)
+        darkUI = Ember.dark
+    }
 
     func setProactive(_ name: String, _ on: Bool) {
         proactive[name] = on

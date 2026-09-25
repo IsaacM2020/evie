@@ -211,6 +211,20 @@ enum SelfTest {
         check(JobView.modelName("quick") == "Haiku" && JobView.modelName("hard") == "Sonnet high"
               && JobView.modelName("") == nil && !["quick", "normal", "hard"].contains { JobView.modelName($0)!.contains("Opus") },
               "job card: says which Claude is on it (Haiku or Sonnet, never Opus)")
+        check(Ember.resolve("auto", systemDark: true) && !Ember.resolve("auto", systemDark: false)
+              && !Ember.resolve("light", systemDark: true) && Ember.resolve("dark", systemDark: false),
+              "theme: Auto follows the Mac, Light and Dark override it")
+        let themed: (Bool, Bool) = MainActor.assumeIsolated {
+            let saved = UserDefaults.standard.string(forKey: "theme")  // the selftest shares the app's defaults
+            let m = AppModel(preview: true)
+            m.setTheme("light")
+            let light = !Ember.dark && !m.darkUI
+            m.setTheme("dark")
+            let dark = Ember.dark && m.darkUI
+            m.setTheme(saved ?? "auto")
+            return (light, dark)
+        }
+        check(themed.0 && themed.1, "theme: the menu's Light/Dark switch the card's colours")
         for side in [OrbSide.left, .right] {
             let c = CGPoint(x: side == .left ? 41 : 1399, y: 450)
             let m = OrbGeometry.markFrame(center: c)
