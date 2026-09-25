@@ -37,6 +37,18 @@ TRANSFORMER_SEARCH = [SEARCH_BOX,
                       v("t2", "Transformers Rise of the Beasts | Official Trailer", "Paramount 40M views", "w3"),
                       v("t3", "Top 10 Transformers toys 2024", "ToyReview 200K views", "w4")]
 WATCH = [{"id": "w1", "role": "video", "label": "video"}]
+# 2026-09-24 18:31: each row's thumbnail link came first and was labelled by its time badge
+# ("Which one? 14:13 Now playing, 0:31 ...") instead of the video's title.
+PARROT_VIDEOS = [SEARCH_BOX,
+                 {"id": "w2", "role": "tab", "label": "Videos", "href": f"{YT}/@Parrot/videos", "selected": True},
+                 {"id": "w3", "role": "link", "label": "14:13 Now playing", "href": f"{YT}/watch?v=p1", "region": "main"},
+                 v("p1", "I Built A Parrot Paradise", "2M views 1 day ago", "w4"),
+                 {"id": "w5", "role": "link", "label": "0:31", "href": f"{YT}/watch?v=p2", "region": "main"},
+                 v("p2", "Parrot Learns To Talk In 30 Days", "900K views 1 week ago", "w6")]
+NETFLIX = "https://www.netflix.com"
+# He said "Darrell"; the profile is spelled "Darryl" (2026-09-24 18:23)
+NF_PROFILES = [{"id": f"w{i}", "role": "link", "label": name, "href": f"{NETFLIX}/browse?profile={name.lower()}",
+                "region": "main"} for i, name in enumerate(["Isaac", "Darryl", "Kids"], 1)]
 
 BBC = "https://www.bbc.com/news"
 BBC_HOME = [{"id": "w1", "role": "link", "label": "News", "href": BBC, "region": "nav"},
@@ -175,4 +187,10 @@ TASKS = [
     task("ask3", "open a bbc article", SAFARI_FRONT, {"asked_options": True, "url": "articles/c1"},
          pages={BBC: BBC_HOME, "https://www.bbc.com/news/": BBC_HOME, f"{BBC}/articles/c1": []},
          answer="the one about solar power"),
+    # Phase 5b: the 18:22 test
+    task("parrot1", "play a video by parrot", SAFARI_FRONT,
+         {"asked_options": True, "url": "watch?v=p2", "said_not": ["now playing", "14:13", "0:31"]},
+         pages={f"{YT}/@Parrot/videos": PARROT_VIDEOS, f"{YT}/watch?v=p2": WATCH}, answer="the talking one"),
+    task("netflix1", "go to netflix and open darrell's profile", SAFARI_FRONT, {"url": "profile=darryl"},
+         pages={NETFLIX: NF_PROFILES, "https://netflix.com": NF_PROFILES, f"{NETFLIX}/browse?profile=darryl": []}),
 ]

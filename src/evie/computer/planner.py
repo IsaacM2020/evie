@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
-from evie.computer.find import candidates, find_in_code, pick_pool
+from evie.computer.find import _BADGE, candidates, find_in_code, pick_pool
 from evie.computer.observe import Screen
 from evie.computer.safety import is_risky
 from evie.computer.world import Target, World
@@ -446,7 +446,11 @@ class Planner:
         """The rows he was shown, on the screen just read: by link first (ids change on re-render)."""
         out = []
         for row in rows:
-            el = next((e for e in self._screen.elements if row.get("href") and e.get("href") == row["href"]), None) \
+            same = [e for e in self._screen.elements if row.get("href") and e.get("href") == row["href"]]
+            # a YouTube row has two links to one video: the thumbnail ("14:13 Now playing") and the title
+            el = next((e for e in same if e.get("label") == row.get("label")), None) \
+                or next((e for e in same if not _BADGE.match((e.get("label") or "").strip())), None) \
+                or (same[0] if same else None) \
                 or next((e for e in self._screen.elements if e.get("label") == row.get("label")), None)
             out.append((row, el))
         return out

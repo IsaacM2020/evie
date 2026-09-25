@@ -605,3 +605,23 @@ async def test_a_just_launched_app_is_waited_for():
     p._window_poll = 0.01
     out = await p.run("create a new page in notion")
     assert out.ok and out.said == "New page made."
+
+
+async def test_his_answer_is_matched_against_titles_not_the_thumbnail_badges():
+    """Eval parrot1 (the 18:31 shape): the rows were shown by title, but choose() found them again by
+    link, and the first link with that href is the thumbnail ("14:13 Now playing"), so Jev was asked to
+    pick "the talking one" out of "14:13 Now playing" and "0:31"."""
+    from evals.computer.tasks import PARROT_VIDEOS
+    parrot = "https://www.youtube.com/@Parrot/videos"
+    plan = {"understood": "Opening Parrot's videos", "steps": [
+        {"do": "open_url", "url": parrot}, {"do": "pick", "among": "videos", "want": "a video", "then": "press",
+                                            "ask": True}, {"do": "done", "say": "Playing {picked}."}]}
+    hands = SimHands(pages={parrot: PARROT_VIDEOS, "https://www.youtube.com/watch?v=p2": WATCH}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan), PickJev())
+    r = await p.run("play a video by parrot")
+    assert r.ask and [o["label"] for o in r.options] == ["I Built A Parrot Paradise", "Parrot Learns To Talk In 30 Days"]
+    p._jev = jev = PickJev(choose=lambda opts: opts[1])
+    r2 = await p.choose(r.pick, "the talking one")
+    state, opts = jev.asked[0]
+    assert opts == ["w4", "w6"]  # the title links, never the badges
+    assert r2.ok and hands.url.endswith("watch?v=p2")

@@ -90,6 +90,8 @@ def judge(t: dict, r: Outcome, hands: SimHands, said: list[str], msgs: FakeMessa
         m = msgs.sent[-1] if msgs.sent else {}
         if e["message_to"] not in str(m.get("contact", "")).lower() or e["message_body"] not in str(m.get("body", "")).lower():
             why.append(f"message {m}")
+    if "said_not" in e and any(w in " ".join(said + [r.said or ""]).lower() for w in e["said_not"]):
+        why.append(f"said a badge, not a title: {said!r}")
     if e.get("asked_options") and not asked_options:
         why.append("didn't show the list and ask which one")
     if e.get("asked") and not r.ask:
