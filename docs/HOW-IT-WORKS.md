@@ -652,6 +652,81 @@ Isaac's friends tested Evie. "Play a MrBeast video" got "Which one?" before anyt
 - **Classroom calendars:** the app only reads Isaac + the Classroom calendars CalendarPick allows (mostly empty today), so the deadline radar leans on Todoist.
 - **The stuck detector reads Accessibility text:** Terminal works; VS Code's integrated terminal usually doesn't expose its text.
 
+# Phase 5b: less finicky (after the 2026-09-24 18:22 test)
+
+Isaac's live test showed the same pattern everywhere: Evie gave up too early, asked too much, and heard names wrong. Netflix → "Darrell" → The Mentalist fell back to a 2-minute Claude Code job; "Tell him what's up" got "Was that for me?"; "message anyone" became four questions; "Parrot" came out as "Barrett". He also asked for Jev to pick the job's model (never Opus), a girl's voice, no grey box, a light/dark theme, and long answers as a list. Plan: `~/IsaacOS/projects/evie/phase-5b-plan.md`.
+
+## The big idea in 5 lines
+
+1. **Wait before giving up.** A page that's still loading (`about:blank`) or an app with no window yet is "not ready", not "wrong": `expect` re-reads for 6 s, `_look` waits 8 s for a window.
+2. **His answer is an answer.** When Evie just asked something, his next sentence is judged as a reply to HER (new Jev wording + "it's for you" = yes), keeps the route of the original request, and never triggers a second question.
+3. **Say what you mean to do, then do it.** An answer that promises action ("Opening that BBC article now") now runs the screen hands instead of just saying it.
+4. **Right-size the worker.** One Jev question picks the Claude for a job: Haiku 4.5 (quick), Sonnet 5 medium (normal), Sonnet 5 high (hard). Opus is refused in code.
+5. **Say it short, list it all.** A long answer is one spoken sentence; everything else goes to a numbered list on the card.
+
+## Background concepts
+
+- **Polling with a deadline.** Instead of checking once, check every 0.4 s until it's true or 6 s pass. Fast when the page is fast, patient when it isn't.
+- **Fuzzy matching.** `difflib.SequenceMatcher` scores how alike two strings are (0 to 1). "Darrell" vs "Darryl" is 0.77; the rule also needs the same first letter and that neither word is just the other plus letters ("video"/"videos" isn't a typo).
+- **Whisper's prompt.** Whisper accepts a short text "prompt" of words it should expect. It's a hint, not a dictionary: names in it get transcribed right far more often. Evie builds it from names he spelled out loud ("P-A-R-R-O-T"), `people.json` (Dada, Mamma) and a fixed list, capped under Whisper's limit.
+- **Conversational turn-taking.** After someone answers you, there's a window where their next words are for you. Evie's window (12 s) starts when she STOPS talking, not when she started.
+- **Theme tokens.** Colours are named roles (`ink`, `ink2`, `tint`, `body`) that read one global switch, so light/dark is one flag, not two copies of every view.
+
+## File map (new or changed)
+
+| file | what it does |
+|---|---|
+| `computer/planner.py` | `expect` waits (EXPECT_S 6 s), `_look` waits for an app window (8 s), clean "understood" lines, `Outcome.tried` for the Claude Code handoff, `choose()` prefers the title link over the thumbnail badge |
+| `computer/find.py` | fuzzy name term in `score` (`_near`), `pick_pool` swaps time badges ("14:13 Now playing") for the row's title |
+| `computer/messages.py` | `people.json` relations ("my father" → Dada), WhatsApp Return fallback when there's no Send button |
+| `brain.py` | `_answer_p` (new Jev wording), `ANSWERED` (no second question), `Pending.route/skill`, `_PROMISE`, follow-up window from her last word, the `list` event |
+| `switchboard/policy.py` | `answered` never clarifies twice |
+| `jobs.py` | `TIERS`, `pick_tier`, Opus refused in `make_client` |
+| `stt.py` | `Vocab` (learned + people + base names), `join_spelled` |
+| `talk.py` | `LIST_RULE`, `split_list`, `Reply` (a str with `.items`) |
+| `proactive/sources.py`, `narrator.py` | short done lines ("Done: go to Netflix"), no "Want the summary?" after narration already told him |
+| `voice.py` | `VOICE = "eve"` |
+| `mac/.../Orb.swift` | shape-only shadow (the grey box), `Ember` light/dark tokens, Theme menu, the list card (7 per page, wheel pages it), 0.6 s settle before Yes/rows count |
+| `mac/.../AppModel.swift` | `themeSetting`/`darkUI` (follows the Mac's appearance notification), `listItems`, job card shows Haiku/Sonnet |
+| `evals/answers.jsonl`, `evals/tiers.jsonl` | 12 answer-to-her-question cases, 15 labelled job goals |
+| `evals/computer/tasks.py` | `parrot1` (badge rows), `netflix1` ("Darrell" → Darryl) |
+
+## One thing, traced end to end
+
+**"Open Netflix, Darrell's account, then play The Mentalist."**
+
+1. Jev: quick_action, skill `computer`. The planner (gpt-oss-120b) writes one plan: `open_url netflix.com` → `expect url_contains netflix` → `find "Darrell"` → `find "The Mentalist"` → press.
+2. `open_url` opens a new tab. Before: `expect` read the tab once, saw `about:blank`, failed, replanned 3 times in 3 s and handed off to Claude Code (2 minutes). Now: it re-reads every 0.4 s; the url becomes netflix.com after ~1.2 s → passes, 0 replans.
+3. `find "Darrell"`: no exact label. The fuzzy term scores "Darryl" 0.9 (same first letter, similarity 0.77) and it's the only one close → pressed.
+4. The search/title step runs the same way. If it really gets stuck, the Claude Code job now gets "What she tried: …" plus "It's a quick screen task: be fast", and Jev's tier usually picks Haiku.
+
+## Why each choice beat the alternatives
+
+- **Wait-then-fail, not replan.** A replan costs a model call (~1 s) and usually writes the same plan. Waiting costs nothing when the page is ready.
+- **Fuzzy only when there's no exact match, and only with one clear winner.** Otherwise "Kids" could be "pressed" for "Kid's show"; ties still ask.
+- **Jev picks the tier, not a keyword list.** "Fix the failing chase test" and "what's the capital of Peru" don't differ by keywords a list would catch. It's one Jev call, off the hot path (after the read-back), and falls back to Sonnet medium if unsure.
+- **Learned vocab, not a bigger Whisper.** large-v3-turbo already hears well; the misses were names it had never seen. A prompt fixes names for free; a bigger model is slower for everything.
+- **Items in a `str` subclass.** `reply()` already returned a string to ~10 callers; `Reply` carries `.items` without touching any of them.
+- **The list pages with the wheel in AppKit.** A SwiftUI `ScrollView` would need mouse events, which is the crash class the capsule design exists to avoid.
+
+## Numbers (2026-09-25)
+
+| what | result |
+|---|---|
+| Switchboard eval | false_action **0**, route 0.968, 0 flips |
+| Hands eval, 35 tasks (+parrot1, netflix1) | **35/35**, unsafe **0**, median 2 model calls |
+| Job tiers | **15/15**, Opus 0 |
+| Answers to her own questions | **12/12** (old wording 10/12) |
+| Narration / proactive day / ears | 0.92 / PASS / PASS |
+| Tests | **752** offline + app selftest **62** + orb stress 60 s clean |
+| Core | 928 MB, one process |
+
+## Known limits
+
+- **Needs Isaac's eyes/voice:** the grey box gone and the light theme's contrast on his real screen; Netflix/Mentalist and "a video by Parrot" by voice; Spotify closed → play.
+- **The ear test (T16e) is his:** read the 12 lines with the talk key and in Live with "Record for tuning" on; `evals/replay.py` then scores both. Live's echo cancel (VPIO) zeroes up to 28% of some sentences; whether a raw mic is better waits for those clips.
+- **`notion1` can fail in the sim** when Qwen plans Notion's ⌘P quick-find (the fake Notion has no search box). It passed on the final run.
+
 # Change log
 
 - **2026-09-23, keys + pill crash.** The talk key moved from 🌐 (Fn) to **hold left ⌃⌥**, and **left ⌃⌥⌘** flips the Live open mic on and off (left keys only, so Right Option stays Ripple's). `Chord` in `PushToTalk.swift` reads the left/right bits of the modifier flags. The pill crashed the app: its window was set to resize itself to fit its text, and a text change ("Listening…") started an endless resize → layout → resize loop (stack overflow, 2 crash reports). The pill is now a fixed 400×60 transparent window with the capsule on the left, SwiftUI is never allowed to size it, and a `DragPanel` starts the window drag itself (SwiftUI was swallowing the mouse, which is why it couldn't be moved).
