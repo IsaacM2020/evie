@@ -898,6 +898,61 @@ async def test_single_display_never_calls_place_window():
     assert [a for op, a in hands.calls if op == "place_window"] == []
 
 
+async def test_expect_element_and_url_contains_route_through_verifier_module():
+    """P2-E wiring: _expect_problem used to hardcode url_contains/element checking inline. Now it
+    calls verifier.check_url_contains/check_element -- same logic (find_in_code first, substring
+    fallback), now shared and independently unit-tested (tests/test_verifier.py) instead of only
+    living inline in planner.py. Behavior for both existing kinds is unchanged."""
+    bad = {"steps": [{"do": "expect", "url_contains": "/nope"}]}
+    hands = SimHands(pages={"https://example.com/": []}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(bad, bad, bad))
+    r = await p.run("go somewhere")
+    assert not r.ok and r.stuck
+
+
+async def test_expect_app_front_is_a_new_check_kind_via_verifier():
+    """P2-E wiring: a new expect kind, {"do": "expect", "app_front": "Notion"}, backed by
+    verifier.check_app_front against the already-tracked World.front_app -- no new hands op
+    needed, the world read already carries this."""
+    plan = {"steps": [{"do": "activate", "app": "Notion"},
+                      {"do": "expect", "app_front": "Notion"}, {"do": "done", "say": "Opened Notion."}]}
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Notion", "apps": ["Notion"], "windows": [], "tabs": [], "selected": ""})
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("open notion")
+    assert r.ok and r.verified
+
+
+async def test_expect_app_front_fails_when_a_different_app_is_frontmost():
+    plan = {"steps": [{"do": "expect", "app_front": "Notion"}, {"do": "done", "say": "x"}]}
+    hands = SimHands(apps={"Safari": []}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan, plan, plan))
+    r = await p.run("open notion")
+    assert not r.ok and r.stuck
+
+
+async def test_expect_file_exists_is_a_new_check_kind_via_verifier(tmp_path):
+    """P2-E wiring: {"do": "expect", "file_exists": "<path>"} backed by verifier.check_file_exists."""
+    target = tmp_path / "report.pdf"
+    target.write_text("x")
+    plan = {"steps": [{"do": "open_url", "url": "https://example.com/save"},
+                      {"do": "expect", "file_exists": str(target)}, {"do": "done", "say": "Saved."}]}
+    hands = SimHands(pages={"https://example.com/save": []}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("save the report")
+    assert r.ok and r.verified
+
+
+async def test_expect_file_exists_fails_when_the_file_isnt_there(tmp_path):
+    missing = tmp_path / "nope.pdf"
+    plan = {"steps": [{"do": "open_url", "url": "https://example.com/save"},
+                      {"do": "expect", "file_exists": str(missing)}, {"do": "done", "say": "x"}]}
+    hands = SimHands(pages={"https://example.com/save": []}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan, plan, plan))
+    r = await p.run("save the report")
+    assert not r.ok and r.stuck
+
+
 async def test_assign_workspace_uses_objective_not_its_own_duplicate_policy_call():
     """P2-D wiring: _assign_workspace used to call workspace.default_policy itself, independently
     of objective.from_goal computing the exact same thing from the exact same goal text -- two

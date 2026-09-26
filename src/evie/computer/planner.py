@@ -18,6 +18,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
@@ -27,6 +28,7 @@ from evie.computer.objective import Objective, from_goal as objective_from_goal
 from evie.computer.perception import PerceptionSource, choose_source
 from evie.computer.safety import is_risky
 from evie.computer.state import ComputerState
+from evie.computer.verifier import check_app_front, check_element, check_file_exists, check_url_contains
 from evie.computer.workspace import DisplayPolicy, assign_display
 from evie.computer.world import Target, World
 from evie.countdown import Countdown
@@ -660,13 +662,26 @@ class Planner:
             await self._look()
 
     def _expect_problem(self, st: dict) -> str | None:
-        if st.get("url_contains") and st["url_contains"] not in (self._screen.url or ""):
-            return f"expected the address to contain {st['url_contains']!r}, it's {self._screen.url!r}"
+        """Each named check kind is a small, independently-tested predicate in verifier.py (spec
+        §12) -- this just dispatches to them and turns a failed CheckResult into the same
+        free-text problem string _run_steps already expects (recovery.classify_failure pattern-
+        matches this text, so the wording for url_contains/element must stay exactly as it was)."""
+        if st.get("url_contains"):
+            r = check_url_contains(self._screen, str(st["url_contains"]))
+            if not r.ok:
+                return r.detail
         if st.get("element"):
-            el, _ = find_in_code(self._screen, str(st["element"]))
-            if el is None and not any(str(st["element"]).lower() in (e.get("label") or "").lower()
-                                      for e in self._screen.elements):
-                return f"expected to see {st['element']!r}"
+            r = check_element(self._screen, str(st["element"]))
+            if not r.ok:
+                return r.detail
+        if st.get("app_front"):
+            r = check_app_front(str(st["app_front"]), self._world_now.front_app)
+            if not r.ok:
+                return r.detail
+        if st.get("file_exists"):
+            r = check_file_exists(Path(str(st["file_exists"])))
+            if not r.ok:
+                return r.detail
         return None
 
     async def _fresh(self) -> None:
