@@ -29,7 +29,8 @@ from evie.computer.perception import PerceptionSource, choose_source
 from evie.computer.recovery import FailureClass, RecoveryStrategy, classify_failure, strategy_for
 from evie.computer.safety import classify, is_risky
 from evie.computer.state import ComputerState
-from evie.computer.verifier import check_app_front, check_element, check_file_exists, check_url_contains
+from evie.computer.verifier import (check_app_front, check_element, check_file_exists, check_url_contains,
+                                    check_window_on_display)
 from evie.computer.workspace import DisplayPolicy, assign_display
 from evie.computer.world import Target, World
 from evie.countdown import Countdown
@@ -692,7 +693,20 @@ class Planner:
         current = next((w.display for w in state.windows if w.app == app), None)
         if current == display_id:
             return
-        await self._hands.do("place_window", app=app, display_id=display_id)
+        r = await self._hands.do("place_window", app=app, display_id=display_id)
+        if not r.ok:
+            # 2026-09-26 completion pass: this used to discard the result entirely -- spec's own
+            # completion gate ("window placement/movement must be verified after execution", "no
+            # silent failure"). A failed move never blocks the actual task (the goal usually has
+            # nothing to do with which display it's on), but it must show up if the task later
+            # gets stuck, not vanish.
+            self._history.append(f"place_window {app!r} onto {display_id!r} failed: {r.detail}")
+            return
+        fresh = await self._state()
+        check = check_window_on_display(app, display_id, [
+            {"app": w.app, "display": w.display} for w in fresh.windows])
+        self._history.append(f"place_window {app!r} onto {display_id!r}: "
+                             f"{'verified' if check.ok else check.detail}")
 
     async def _choose_tab(self, goal: str, target: Target) -> Target:
         crit = {f"t{i}": f"{t.title} ({t.host})" for i, t in enumerate(target.choices)}

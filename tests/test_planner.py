@@ -864,6 +864,46 @@ async def test_display_assignment_waits_until_after_go_to_for_a_cold_launched_ap
     assert ops.index("activate") < ops.index("state")
 
 
+async def test_place_window_result_is_verified_and_a_failure_is_never_silent():
+    """2026-09-26 completion pass: _assign_workspace called hands.do('place_window', ...) and threw
+    away the HandsResult -- no verifier.check_window_on_display call, no _history entry either way.
+    Every existing test only asserted the CALL was made, never that it actually landed (spec's own
+    completion gate: 'window placement/movement must be verified after execution', 'no silent
+    failure'). A place_window that fails (e.g. the window closed mid-move) must show up in a stuck
+    task's `tried` report, not vanish silently."""
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Finder", "apps": ["Notion"], "windows": [{"app": "Notion", "title": ""}],
+                           "tabs": [], "selected": ""})
+    hands.state_response = TWO_DISPLAYS_STATE
+    orig_do = hands.do
+
+    async def fail_place(op, **kw):
+        if op == "place_window":
+            return HandsResult(False, "no window to move")
+        return await orig_do(op, **kw)
+    hands.do = fail_place
+    plan = {"steps": [{"do": "find", "what": "New", "then": "press"}, {"do": "done", "say": "Opened Notion."}]}
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("open notion and make a note")
+    assert r.ok  # a failed window move never blocks the actual task
+    assert any("place_window" in h or "display" in h.lower() for h in p._history)
+
+
+async def test_place_window_success_is_verified_against_the_new_state():
+    """The happy path also verifies (not just fires-and-forgets): after a successful move,
+    verifier.check_window_on_display against a FRESH state read confirms the window really landed,
+    matching spec §12's 'a successful click is not evidence, a changed verified state is.'"""
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Finder", "apps": ["Notion"], "windows": [{"app": "Notion", "title": ""}],
+                           "tabs": [], "selected": ""})
+    hands.state_response = TWO_DISPLAYS_STATE
+    plan = {"steps": [{"do": "find", "what": "New", "then": "press"}, {"do": "done", "say": "Opened Notion."}]}
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("open notion and make a note")
+    assert r.ok
+    assert hands.ops().count("state") >= 2  # re-read after the move to verify it landed
+
+
 async def test_vision_is_never_called_more_than_twice_per_task():
     """spec §4 Level 3: 'max 2 cloud vision calls per task, logged.' A goal that fails to find
     its target on every replan must not call self._groq.look() a third time."""

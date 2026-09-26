@@ -91,6 +91,14 @@ class SimHands:
                                             "marks": json.dumps({str(i + 1): e["id"] for i, e in enumerate(els)})})
         if op == "applescript":
             return HandsResult(True, "ok", {"out": self.script_out})
+        if op == "place_window":
+            state = json.loads(self.state_response or "{}")
+            win = next((w for w in state.get("windows", []) if w.get("app") == a.get("app")), None)
+            if win is None:
+                return HandsResult(False, "no window to move")
+            win["display"] = a["display_id"]
+            self.state_response = json.dumps(state)
+            return HandsResult(True, "moved")
         return HandsResult(False, f"unknown op {op}")
 
     def ops(self) -> list[str]:
