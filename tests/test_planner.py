@@ -805,3 +805,75 @@ async def test_find_uses_perception_choose_source_not_a_duplicate_threshold():
         await p.run("open notion and search")
         assert mock.called
         assert mock.call_args.args[0] == "open notion and search"  # the goal, not the bare target
+
+
+TWO_DISPLAYS_STATE = json.dumps({
+    "version": 1, "ts": 100.0, "front_element": None,
+    "displays": [{"id": "display-1", "builtin": True, "frame": [2048, 35, 1512, 982]},
+                {"id": "display-3", "builtin": False, "frame": [0, 0, 2048, 1152]}],
+    "windows": [{"app": "Notion", "title": "", "frame": [0, 0, 1000, 800], "display": "display-3", "focused": False}],
+    "front_app": "Finder", "tabs": []})
+
+
+async def test_autonomous_work_moves_to_evies_own_display_when_two_displays_exist():
+    """workspace.py's spec default: 'evie_private' for ordinary autonomous work -- Evie's own
+    MacBook display, not wherever the window happened to open. With two displays and no
+    'show me' in the goal, opening Notion should trigger a place_window call onto the builtin
+    display, since Notion's window is currently on the external one."""
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Finder", "apps": ["Notion"], "windows": [{"app": "Notion", "title": ""}],
+                           "tabs": [], "selected": ""})
+    hands.state_response = TWO_DISPLAYS_STATE
+    plan = {"steps": [{"do": "done", "say": "Opened Notion."}]}
+    p, _ = planner(hands, PlanGroq(plan))
+    await p.run("open notion and make a note")
+    place_calls = [a for op, a in hands.calls if op == "place_window"]
+    assert place_calls == [{"app": "Notion", "display_id": "display-1"}]
+
+
+async def test_show_me_keeps_work_on_isaacs_display_not_evies():
+    """'show me' -> isaac_visible: assign_display returns the EXTERNAL display for this policy,
+    so no place_window call should target the builtin display -- and since Notion's window is
+    already on the external display, no move is needed at all."""
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Finder", "apps": ["Notion"], "windows": [{"app": "Notion", "title": ""}],
+                           "tabs": [], "selected": ""})
+    hands.state_response = TWO_DISPLAYS_STATE
+    plan = {"steps": [{"do": "done", "say": "Opened Notion."}]}
+    p, _ = planner(hands, PlanGroq(plan))
+    await p.run("open notion and show me the note")
+    place_calls = [a for op, a in hands.calls if op == "place_window"]
+    assert place_calls == []  # already on the external display -- no move needed
+
+
+async def test_display_assignment_waits_until_after_go_to_for_a_cold_launched_app():
+    """Live bug found while wiring this in: a not-yet-running app has no window in ComputerState
+    yet at the point world.resolve() returns its Target -- _go_to's own activate() is what
+    launches it and waits for the window. Reading state before _go_to (the plan's first draft)
+    meant a cold launch's place_window always got 'no window to move', silently skipping the
+    move it should have made. This proves _state() is called (for assign_workspace's decision)
+    only after activate has already run, by asserting the "activate" call precedes "state" in
+    the hands call log."""
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Finder", "apps": [], "windows": [], "tabs": [], "selected": ""})
+    hands.state_response = TWO_DISPLAYS_STATE
+    plan = {"steps": [{"do": "done", "say": "Opened Notion."}]}
+    p, _ = planner(hands, PlanGroq(plan))
+    await p.run("open notion and make a note")
+    ops = [op for op, _ in hands.calls]
+    assert ops.index("activate") < ops.index("state")
+
+
+async def test_single_display_never_calls_place_window():
+    """assign_display returns None with only one display connected (single-display mode) --
+    no place_window call should happen at all."""
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Finder", "apps": ["Notion"], "windows": [{"app": "Notion", "title": ""}],
+                           "tabs": [], "selected": ""})
+    hands.state_response = json.dumps({"version": 1, "ts": 100.0, "front_element": None,
+                                       "displays": [{"id": "display-1", "builtin": True, "frame": [0, 0, 1512, 982]}],
+                                       "windows": [], "front_app": "Finder", "tabs": []})
+    plan = {"steps": [{"do": "done", "say": "Opened Notion."}]}
+    p, _ = planner(hands, PlanGroq(plan))
+    await p.run("open notion and make a note")
+    assert [a for op, a in hands.calls if op == "place_window"] == []

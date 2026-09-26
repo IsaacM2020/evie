@@ -23,9 +23,11 @@ from typing import Callable
 from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
 from evie.computer.find import _BADGE, NO_MATCH_FLOOR, best_score, candidates, find_in_code, pick_pool
 from evie.computer.observe import Screen
+from evie.computer.objective import _SHOW_ME
 from evie.computer.perception import PerceptionSource, choose_source
 from evie.computer.safety import is_risky
 from evie.computer.state import ComputerState
+from evie.computer.workspace import DisplayPolicy, assign_display, default_policy
 from evie.computer.world import Target, World
 from evie.countdown import Countdown
 from evie.jev import JevError
@@ -210,6 +212,8 @@ class Planner:
             target = await self._choose_tab(goal, target)
         self._target, self._world_now = target, world
         await self._go_to(target)
+        if target.kind == "app" and target.app:
+            await self._assign_workspace(target.app, goal)
         self._understood = ""
         if steps is None:
             steps = await self._plan(first=True)
@@ -607,6 +611,20 @@ class Planner:
             return ComputerState.from_data(json.loads(r.data.get("state") or "{}") if r.ok else {})
         except ValueError:
             return ComputerState.from_data({})
+
+    async def _assign_workspace(self, app: str, goal: str) -> None:
+        """spec §6-7: ordinary autonomous work belongs on Evie's own display, not wherever a
+        window happened to open; 'show me'/observe move it to Isaac's. Single-display (or no
+        second display connected) is a no-op -- assign_display returns None."""
+        state = await self._state()
+        policy = default_policy(explicit_show_me=bool(_SHOW_ME.search(goal)), explicit_observe=False)
+        display_id = assign_display(policy, state.displays)
+        if display_id is None:
+            return
+        current = next((w.display for w in state.windows if w.app == app), None)
+        if current == display_id:
+            return
+        await self._hands.do("place_window", app=app, display_id=display_id)
 
     async def _choose_tab(self, goal: str, target: Target) -> Target:
         crit = {f"t{i}": f"{t.title} ({t.host})" for i, t in enumerate(target.choices)}
