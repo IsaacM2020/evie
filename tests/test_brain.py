@@ -1036,6 +1036,24 @@ async def test_stuck_on_screen_gives_claude_code_the_real_hands_via_mcp():
     assert p["runner"].mcp_servers["evie_hands"]["type"] == "sdk"
 
 
+async def test_stuck_on_screen_escalation_is_logged_with_the_reason(tmp_path):
+    """spec item 10 (telemetry): 'when Claude escalation occurred and why' must be answerable from
+    the logs for every task -- the stuck-handoff branch said the reason out loud (self._say) but
+    never wrote it to turns.jsonl, so nothing durable recorded WHY a task got escalated."""
+    from evie.computer.planner import Outcome as CO
+    log_path = tmp_path / "turns.jsonl"
+    b, p = brain(SkillSB("computer"), log=log_path)
+    b._computer = FakeComputer(CO(False, "I got stuck doing that on screen.", stuck=True,
+                                  tried="found nothing / FAILED: couldn't find it"))
+    await b.hear("evie turn on do not disturb")
+    await asyncio.sleep(0.05)
+    rows = [json.loads(line) for line in log_path.read_text().splitlines()]
+    esc = next((r for r in rows if r.get("reason") == "claude_escalation"), None)
+    assert esc is not None
+    assert "turn on do not disturb" in esc["text"]
+    assert "couldn't find it" in esc.get("tried", "")
+
+
 async def test_computer_question_back_waits_for_the_answer():
     from evie.computer.planner import Outcome as CO
     b, p = brain_c(SkillSB("computer"))

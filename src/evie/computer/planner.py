@@ -450,6 +450,11 @@ class Planner:
         if self._vision_calls >= 2:  # spec §4 Level 3: max 2 cloud-vision calls per task
             raise _Fail(f"already looked twice this task, couldn't find {what!r}")
         self._vision_calls += 1
+        # spec item 10 (telemetry): "when vision ran and why" must be answerable from the logs --
+        # cloud vision is the most expensive and most privacy-sensitive perception source, so it
+        # never runs silently (2026-09-26 completion pass: _vision_calls was tracked but unlogged).
+        log.info("computer vision call %d/2: looking for %r in %s (structured perception had too "
+                 "little to work with)", self._vision_calls, what, self._app())
         r = await self._hands.do("marked_shot", timeout=8.0, app=self._app())
         if not r.ok or not hasattr(self._groq, "look"):
             raise _Fail(f"couldn't see {what!r} ({r.detail})")

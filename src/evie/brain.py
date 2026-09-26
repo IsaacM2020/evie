@@ -843,6 +843,12 @@ class Brain:
         elif out.stuck:
             self._say("That's fiddly on screen, I'll get Claude Code to do it.")
             tried = f" What she tried: {out.tried}." if getattr(out, "tried", "") else ""
+            # spec item 10 (telemetry): "when Claude escalation occurred and why" must be
+            # answerable from the logs -- the generic computer _write_log above already records
+            # ok/stuck, but not WHY (the fast path's own attempted-steps/failure trace), which only
+            # existed as a spoken line before this (2026-09-26 completion pass).
+            self._write_log({"t": time.time(), "text": goal, "action": "act", "reason": "claude_escalation",
+                             "route": "computer", "tried": getattr(out, "tried", "")})
             # P3: give Claude Code the SAME hands/countdown/say the fast planner just used (spec
             # §25: "SAME HANDS, SAME STATE, SAME SAFETY") instead of only telling it to reinvent
             # this via osascript. The instruction still names osascript/Shortcuts as the fallback

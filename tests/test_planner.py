@@ -246,6 +246,22 @@ async def test_an_app_with_barely_any_readable_buttons_is_looked_at():
     assert r.ok and ("press", {"id": "a2", "snapshot": "s1"}) in hands.calls and "crop tool" in groq.looked[0]
 
 
+async def test_every_vision_call_is_logged_with_what_and_why(caplog):
+    """spec item 10 (telemetry): 'when vision ran and why' must be answerable for every task --
+    _vision_calls was tracked as a per-task counter but never actually logged anywhere, so nothing
+    in Evie's logs could answer that question. A cloud-vision call (the most expensive, most
+    privacy-sensitive perception source) must never run silently."""
+    world = {"front_app": "Pixelmator", "apps": ["Pixelmator"], "windows": [], "tabs": []}
+    screen = [{"id": "a1", "role": "group", "label": ""}, {"id": "a2", "role": "button", "label": ""}]
+    plan = {"steps": [{"do": "find", "what": "the crop tool", "then": "press"}, {"do": "done", "say": "x"}]}
+    hands = SimHands(apps={"Pixelmator": screen}, world=world)
+    groq = LookGroq(plan, n=2)
+    import logging
+    with caplog.at_level(logging.INFO, logger="evie.computer"):
+        await planner(hands, groq)[0].run("pick the crop tool in pixelmator")
+    assert any("vision" in r.message.lower() and "crop tool" in r.message for r in caplog.records)
+
+
 async def test_a_number_that_is_not_a_box_presses_nothing():
     world = {"front_app": "Pixelmator", "apps": ["Pixelmator"], "windows": [], "tabs": []}
     screen = [{"id": "a1", "role": "button", "label": ""}]
