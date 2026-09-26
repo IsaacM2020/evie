@@ -10,6 +10,7 @@ that has already worked more than once, and retires one that stops working.
 """
 import json
 import logging
+import re
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -24,6 +25,19 @@ MATCH_MIN = 0.6
 REUSE_AFTER = 2  # successes needed before a procedure is trusted enough to replace planning
 RETIRE_AFTER = 2  # consecutive failures since its last success before it's retired
 MAX_PROCEDURES = 200  # a growth cap (Phase 6 P2 memory policy): least-recently-used drop first
+
+_ON_OFF = re.compile(r"\b(on|off)\b")
+_NUMBER = re.compile(r"\b\d+(?:\.\d+)?\b")
+
+
+def _entities(goal: str) -> frozenset[str]:
+    """The parts of a goal that must match EXACTLY for a procedure to be reused: on/off state and
+    numbers. Word-shape similarity alone conflates 'wifi on' with 'wifi off' (0.88 by
+    SequenceMatcher) -- this catches that class of mismatch regardless of overall phrasing
+    similarity, without needing capitalization (goals arrive lowercased from speech-to-text, so a
+    proper-noun heuristic keyed on capital letters would never fire on real input)."""
+    g = goal.lower()
+    return frozenset(_ON_OFF.findall(g)) | frozenset(_NUMBER.findall(g))
 
 
 @dataclass
@@ -73,7 +87,8 @@ class ProcedureStore:
     def find_any(self, goal: str) -> Procedure | None:
         """The closest record for this goal, whatever its status. learn() uses this to decide
         whether a fresh success reinforces an existing record or starts a new one."""
-        cands = [p for p in self._procs.values() if p.status != "retired"]
+        cands = [p for p in self._procs.values() if p.status != "retired"
+                 and _entities(goal) == _entities(p.goal_pattern)]
         if not cands:
             return None
         best = max(cands, key=lambda p: self._score(goal, p))

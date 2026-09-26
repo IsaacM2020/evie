@@ -44,7 +44,7 @@ class Recipes:
         out = await self._planner.run(text, steps=proc.steps if proc else None)
         if proc is not None:
             (self._procedures.record_success if out.ok else self._procedures.record_failure)(proc.id)
-        elif out.ok:
+        elif out.ok and out.verified:
             self._procedures.learn(text, self._planner.last_steps)
         return out
 

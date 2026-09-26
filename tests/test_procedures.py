@@ -95,3 +95,29 @@ def test_unknown_id_operations_are_a_no_op(tmp_path):
     s.record_success("nope")
     s.record_failure("nope")
     assert s.get("nope") is None
+
+
+def test_on_and_off_are_never_treated_as_the_same_procedure(tmp_path):
+    """P0 #4 (core.log): 'wifi on' matched a learned 'wifi off' procedure at 0.88 similarity.
+    On/off (and other opposite-entity pairs) must never fuzzy-match each other, however similar
+    the surrounding words are."""
+    s = ProcedureStore(path=tmp_path / "p.json")
+    s.learn("turn the wifi off", [{"do": "x"}])
+    s.learn("turn the wifi off", [{"do": "x"}])  # promote to active
+    assert s.find("turn the wifi on") is None
+    assert s.find_any("turn the wifi on") is None
+
+
+def test_different_numbers_are_never_treated_as_the_same_procedure(tmp_path):
+    s = ProcedureStore(path=tmp_path / "p.json")
+    s.learn("set the volume to 20", [{"do": "x"}])
+    s.learn("set the volume to 20", [{"do": "x"}])
+    assert s.find("set the volume to 80") is None
+
+
+def test_same_entities_different_phrasing_still_matches(tmp_path):
+    """The fix must not become so strict it breaks the existing near-identical-phrasing case."""
+    s = ProcedureStore(path=tmp_path / "p.json")
+    s.learn("play a video by mrbeast", [{"do": "x"}])
+    s.learn("play a video by MrBeast", [{"do": "x"}])
+    assert len(s.list_procedures()) == 1

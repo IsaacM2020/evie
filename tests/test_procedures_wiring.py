@@ -19,7 +19,7 @@ class FakePlanner:
     async def run(self, goal, app=None, steps=None):
         self.calls.append((goal, steps))
         self.last_steps = steps if steps is not None else [{"do": "fresh", "n": len(self.calls)}]
-        return self._results.pop(0) if self._results else Outcome(True, f"did: {goal}")
+        return self._results.pop(0) if self._results else Outcome(True, f"did: {goal}", verified=True)
 
 
 def rec(planner, procedures=None):
@@ -87,3 +87,23 @@ async def test_without_a_procedures_store_behaviour_is_exactly_the_old_planner_c
     planner = FakePlanner()
     out = await rec(planner, procedures=None).run(GOAL)
     assert out.ok and planner.calls == [(GOAL, None)]
+
+
+async def test_an_unverified_success_is_never_learned_as_a_procedure():
+    """P0 #4's other half: 'learn only verified runs' -- a plan that reached done() without ever
+    passing an expect (Outcome.verified=False, Task 3) must not become a reusable procedure, even
+    though out.ok is True."""
+    procs = mem_store()
+    planner = FakePlanner(results=[Outcome(True, "did it", verified=False)])
+    out = await rec(planner, procs).run(GOAL)
+    assert out.ok and not out.verified
+    assert procs.find_any(GOAL) is None  # nothing was learned
+
+
+async def test_a_verified_success_is_still_learned_exactly_as_before():
+    procs = mem_store()
+    planner = FakePlanner(results=[Outcome(True, "did it", verified=True)])
+    out = await rec(planner, procs).run(GOAL)
+    assert out.ok and out.verified
+    learned = procs.find_any(GOAL)
+    assert learned is not None and learned.success_count == 1
