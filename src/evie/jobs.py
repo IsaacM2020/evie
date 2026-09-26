@@ -111,6 +111,11 @@ def describe(block) -> str | None:
 TIERS = {"quick": ("claude-haiku-4-5-20251001", "low"),
          "normal": ("claude-sonnet-5", "medium"),
          "hard": ("claude-sonnet-5", "high")}
+
+# Isaac, 2026-09-26 Computer Use V2 P0 #5: an allowlist, not a denylist, so a new or renamed
+# model string can't accidentally sail through. Fable is reserved for retrying a failed Sonnet
+# escalation (see jobs.py callers), never a first choice.
+ALLOWED_MODELS = frozenset({"claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-fable-5-1"})
 TIER_Q = {"tier": {"type": "choice", "instructions": (
     "Evie is handing this task to Claude Code, an AI agent working on Isaac's Mac. How capable a model "
     "does it need? Pick the cheapest one that will do it well."), "criteria": {
@@ -135,8 +140,9 @@ async def pick_tier(jev, goal: str) -> str:
 def make_client(cwd: Path | str = Path.home() / "IsaacOS", max_turns: int = 60, model: str | None = None,
                 effort: str | None = None, session_id: str | None = None,
                 resume: str | None = None) -> ClaudeSDKClient:
-    if model and "opus" in model.lower():
-        raise ValueError("Evie never runs Opus")  # Isaac, 2026-09-24
+    model = model or TIERS["normal"][0]  # never let Claude Code's own settings pick a model unvetted
+    if model not in ALLOWED_MODELS:
+        raise ValueError(f"Evie never runs {model!r} — only {sorted(ALLOWED_MODELS)}")  # Isaac, 2026-09-24/26
     extra = {}
     if resume:  # picking up a paused job: the SAME Claude Code conversation, not a fresh one
         extra = {"resume": resume, "continue_conversation": True}
@@ -150,7 +156,7 @@ def make_client(cwd: Path | str = Path.home() / "IsaacOS", max_turns: int = 60, 
         setting_sources=["user", "project"],
         max_turns=max_turns,
         system_prompt={"type": "preset", "preset": "claude_code", "append": WORKER_NOTE},
-        hooks={"PreToolUse": [HookMatcher(matcher="Bash", hooks=[bash_hook])]},
+        hooks={"PreToolUse": [HookMatcher(matcher="Bash|Task|Agent", hooks=[bash_hook])]},
         **extra,
     ))
 

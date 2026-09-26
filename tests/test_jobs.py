@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
 
-from evie.jobs import Busy, JobRunner, bash_hook, describe, guard_bash
+from evie.jobs import ALLOWED_MODELS, Busy, JobRunner, TIERS, bash_hook, describe, guard_bash, make_client
 
 
 @pytest.mark.parametrize("cmd,blocked", [
@@ -335,7 +335,6 @@ async def test_the_picked_tier_sets_model_and_effort():
 
 
 def test_opus_is_never_used():
-    from evie.jobs import TIERS, make_client
     assert all("opus" not in m for m, _ in TIERS.values())
     with pytest.raises(ValueError):
         make_client(model="claude-opus-5-5")
@@ -350,3 +349,73 @@ async def test_jev_failing_means_the_normal_tier():
             raise JevError("down")
 
     assert await pick_tier(Down(), "research MIT's early action deadline") == "normal"
+
+
+def test_allowlist_rejects_any_model_not_explicitly_listed():
+    with pytest.raises(ValueError, match="never runs"):
+        make_client(model="some-future-model-nobody-vetted")
+
+
+def test_allowlist_still_rejects_opus_explicitly():
+    with pytest.raises(ValueError, match="never runs"):
+        make_client(model="claude-opus-5-5")
+
+
+def test_none_model_resolves_to_the_normal_tier_default_not_claude_codes_own_setting():
+    client = make_client(model=None)
+    assert client.options.model == TIERS["normal"][0]
+
+
+def test_hook_matcher_covers_bash_task_and_agent():
+    client = make_client()
+    matcher = client.options.hooks["PreToolUse"][0].matcher
+    assert "Bash" in matcher and "Task" in matcher and "Agent" in matcher
+
+
+def test_allowed_models_set_matches_the_three_named_in_the_spec():
+    assert ALLOWED_MODELS == frozenset({"claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-fable-5-1"})
+
+
+def test_job_runner_calls_the_factory_with_no_model_kwarg_when_tier_is_unset():
+    """job.tier == "" (pick_tier wasn't wired, or Jev was down) must still reach make_client's
+    own model=None -> TIERS['normal'] resolution -- not skip model validation by never calling
+    make_client's checks at all. JobRunner._run builds kw from TIERS[job.tier] only when
+    job.tier is a real key (jobs.py:262); with tier="" it calls self._factory() with NO model
+    kwarg, which is exactly the make_client(model=None) path Step 3 fixed -- this test pins that
+    the empty-kw call shape reaches that path, using a lightweight fake factory (not the real
+    make_client, which would spawn an actual Claude Code subprocess)."""
+    calls = []
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            pass
+
+        async def query(self, prompt):
+            pass
+
+        async def receive_response(self):
+            return
+            yield  # pragma: no cover - makes this an async generator
+
+    def factory(**kw):
+        calls.append(kw)
+        return _FakeClient()
+
+    async def _noop_event(job, line):
+        pass
+
+    async def _noop_done(job):
+        pass
+
+    async def _drive():
+        runner = JobRunner(on_event=_noop_event, on_done=_noop_done, client_factory=factory)
+        job = await runner.start("do something simple")
+        await runner.wait()
+        return job
+
+    job = asyncio.run(_drive())
+    assert job.tier == ""  # no pick_tier callable was given to JobRunner -> tier stays unset
+    assert calls == [{}]  # confirms the empty-kwarg call shape that make_client(model=None) handles
