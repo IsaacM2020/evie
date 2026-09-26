@@ -43,13 +43,25 @@ class RecoveryStrategy(Enum):
 
 
 _PATTERNS: list[tuple[re.Pattern, FailureClass]] = [
-    (re.compile(r"isn't on screen any more", re.I), FailureClass.STALE_STATE),
+    # Eyes.swift press/setText's real live rejection when the snapshot id doesn't match ("the
+    # screen changed, look again") or the targeted element vanished between read and act ("that
+    # button's gone" / "that field's gone") -- both are staleness, not a target that was simply
+    # never on screen (2026-09-26 completion pass: this was previously unmatched -> UNKNOWN,
+    # so a real stale-snapshot press never got REFRESH_AND_RETRY at all).
+    (re.compile(r"isn't on screen any more|the screen changed, look again|that (button|field)'s gone", re.I),
+     FailureClass.STALE_STATE),
     (re.compile(r"is the evie app running", re.I), FailureClass.UNREACHABLE),
     (re.compile(r"none of these are|nothing on screen looks like", re.I), FailureClass.MISSING_TARGET),
     (re.compile(r"not sure which one", re.I), FailureClass.AMBIGUITY),
     (re.compile(r"expected the address to contain|expected to see", re.I), FailureClass.LOADING),
     (re.compile(r"couldn't see .* \(", re.I), FailureClass.ACCESSIBILITY_EMPTY),
     (re.compile(r"isn't in the screenshot", re.I), FailureClass.VISUAL_ONLY),
+    # Eyes.swift press(): AXUIElementPerformAction failed on an element that's genuinely still
+    # there -- the OS refused the action itself, not staleness or a missing target.
+    (re.compile(r"it didn't respond|no such element", re.I), FailureClass.ACTION_REJECTED),
+    # verifier.check_app_front's real live failure text, wired into _expect_problem (P2-D): the
+    # wrong app is frontmost -- refocusing the expected app is the fix, not a fresh plan call.
+    (re.compile(r"to be frontmost, it's", re.I), FailureClass.WRONG_WINDOW),
 ]
 
 

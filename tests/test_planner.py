@@ -981,6 +981,87 @@ async def test_unreachable_hands_error_waits_and_retries_without_burning_a_repla
     assert ("press", {"id": "a1", "snapshot": "s1"}) in hands.calls
 
 
+async def test_a_stale_snapshot_press_refreshes_and_retries_without_burning_a_replan():
+    """P2-E full wiring (recovery.py): Eyes.swift's real press() rejects with 'the screen changed,
+    look again' when the id's snapshot no longer matches the live one (something on screen moved
+    between the read and the act). classify_failure -> STALE_STATE -> REFRESH_AND_RETRY: re-observe
+    the screen and retry the SAME step against freshly-found state, not a full _plan(first=False)
+    model call (only ONE plan is queued here; a replan would exhaust PlanGroq and fail the test)."""
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Notion", "apps": ["Notion"], "windows": [], "tabs": [], "selected": ""})
+    plan = {"steps": [{"do": "find", "what": "New", "then": "press"}, {"do": "done", "say": "Done."}]}
+    p, _ = planner(hands, PlanGroq(plan))
+    orig_do = hands.do
+    calls = {"n": 0}
+
+    async def stale_once(op, **kw):
+        if op == "press" and calls["n"] == 0:
+            calls["n"] += 1
+            return HandsResult(False, "the screen changed, look again")
+        return await orig_do(op, **kw)
+    hands.do = stale_once
+    r = await p.run("press new")
+    assert r.ok and not r.stuck
+    assert hands.ops().count("observe") >= 2  # refreshed before retrying
+    assert ("press", {"id": "a1", "snapshot": "s2"}) in hands.calls  # retried with the FRESH snapshot
+
+
+async def test_wrong_app_frontmost_refocuses_and_retries_without_burning_a_replan():
+    """P2-E full wiring: an app_front expect step wired to verifier.check_app_front (P2-D) fails
+    with 'expected X to be frontmost' when something else stole focus (e.g. a notification, a
+    slow-to-activate app). classify_failure -> WRONG_WINDOW -> REFOCUS_AND_VERIFY: re-activate the
+    target app and retry the SAME steps, not a fresh plan call (only ONE plan queued)."""
+    hands = SimHands(apps={"Mail": [{"id": "a1", "role": "button", "label": "Compose"}]},
+                     world={"front_app": "Safari", "apps": ["Safari", "Mail"], "windows": [], "tabs": [],
+                            "selected": ""})
+    plan = {"steps": [{"do": "expect", "app_front": "Mail"}, {"do": "find", "what": "Compose", "then": "press"},
+                      {"do": "done", "say": "Done."}]}
+    p, _ = planner(hands, PlanGroq(plan))
+
+    async def fix_after_activate(op, **kw):
+        if op == "activate":
+            p._world_now.front_app = kw["app"]  # activating Mail actually brings it frontmost
+        return await SimHands.do(hands, op, **kw)
+    hands.do = fix_after_activate
+    r = await p.run("compose a new email")
+    assert r.ok and not r.stuck
+    assert any(op == "activate" and kw.get("app") == "Mail" for op, kw in hands.calls)
+
+
+async def test_missing_target_still_escalates_to_claude_code_after_replans_exhaust():
+    """MISSING_TARGET/AMBIGUITY (recovery.py's REFRESH_THEN_ASK) is classified correctly but
+    deliberately still ends in the same stuck-escalation path as every other unhandled class --
+    see the comment above run()'s stuck return for why (this was tried as a direct "ask" during
+    the 2026-09-26 completion pass and reverted: it broke test_jev_choose_refuses_when_nothing_is_
+    a_plausible_match's considered prior call that Claude Code's fuller context beats a shallow
+    question when a named target plausibly isn't there at all)."""
+    page = [{"id": f"a{i}", "role": "button", "label": lbl} for i, lbl in
+           enumerate(["New", "Edit", "Share", "Duplicate", "Export", "Print"], 1)]
+    hands = SimHands(pages={"https://example.com/": page}, world=SAFARI_FRONT)
+    plan = {"steps": [{"do": "open_url", "url": "https://example.com/"},
+                      {"do": "find", "what": "Zorblatt", "then": "press"}, {"do": "done", "say": "Done."}]}
+    p, _ = planner(hands, PlanGroq(plan, plan, plan), PickJev(choose=lambda opts: "none"))
+    r = await p.run("press zorblatt")
+    assert not r.ok and r.stuck
+
+
+async def test_a_screen_that_keeps_changing_still_reaches_stuck():
+    """REFRESH_AND_RETRY is bounded separately from replans, same shape as UNREACHABLE's wait --
+    a target that never stabilizes must still stop instead of refreshing forever."""
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Notion", "apps": ["Notion"], "windows": [], "tabs": [], "selected": ""})
+    plan = {"steps": [{"do": "find", "what": "New", "then": "press"}, {"do": "done", "say": "Done."}]}
+    p, _ = planner(hands, PlanGroq(plan))
+
+    async def always_stale(op, **kw):
+        if op == "press":
+            return HandsResult(False, "the screen changed, look again")
+        return await SimHands.do(hands, op, **kw)
+    hands.do = always_stale
+    r = await p.run("press new")
+    assert not r.ok and r.stuck
+
+
 async def test_unreachable_hands_error_still_gives_up_eventually():
     """The wait-and-retry for UNREACHABLE is bounded separately from replans -- an app that never
     comes back must still reach a stuck Outcome rather than looping forever."""

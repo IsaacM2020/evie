@@ -36,6 +36,38 @@ def test_an_unrecognized_message_is_unknown():
     assert classify_failure("something completely unexpected happened") == FailureClass.UNKNOWN
 
 
+def test_the_real_swift_stale_snapshot_rejection_is_stale_state():
+    """Eyes.swift's actual press/setText guard (snap == snapshot) rejects with 'the screen
+    changed, look again' -- NOT 'isn't on screen any more' (that text only comes from
+    planner.py's choose()/_find_rows path). Before this fix a real live stale-snapshot press
+    classified as UNKNOWN, so it never got REFRESH_AND_RETRY at all."""
+    assert classify_failure("press 'Delete': the screen changed, look again") == FailureClass.STALE_STATE
+    assert classify_failure("set_text 'Search': the screen changed, look again") == FailureClass.STALE_STATE
+
+
+def test_a_vanished_web_element_is_stale_state():
+    """Eyes.swift press(): a web element that no longer exists by the time the click runs
+    ('that button's gone' / 'that field's gone') is the same staleness as a rejected snapshot,
+    not a target that was simply never there (MISSING_TARGET is for _find failing to match
+    anything on the CURRENT screen at all)."""
+    assert classify_failure("press 'Submit': that button's gone") == FailureClass.STALE_STATE
+    assert classify_failure("set_text 'Email': that field's gone") == FailureClass.STALE_STATE
+
+
+def test_an_action_rejected_by_the_os_is_action_rejected():
+    """Eyes.swift press(): AXUIElementPerformAction failing on an element that's still there
+    ('it didn't respond') is the OS refusing the action, not staleness or a missing target."""
+    assert classify_failure("press 'Save': it didn't respond") == FailureClass.ACTION_REJECTED
+
+
+def test_verifier_check_app_front_failure_is_wrong_window():
+    """verifier.check_app_front's real live failure text ('expected X to be frontmost, it's Y') --
+    wired into _expect_problem this session (P2-D) -- was previously unmatched by any pattern
+    (-> UNKNOWN), so an app_front expect step never got the WRONG_WINDOW/REFOCUS_AND_VERIFY
+    treatment the spec's own failure-class table names it for."""
+    assert classify_failure("expected 'Mail' to be frontmost, it's 'Safari'") == FailureClass.WRONG_WINDOW
+
+
 def test_loading_strategy_is_wait_then_verify():
     assert strategy_for(FailureClass.LOADING) == RecoveryStrategy.WAIT_AND_VERIFY
 

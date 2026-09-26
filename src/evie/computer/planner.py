@@ -256,7 +256,39 @@ class Planner:
                     waits += 1
                     await asyncio.sleep(1.0)
                     continue
+                # REFRESH_AND_RETRY (STALE_STATE): Eyes.swift rejected a press/set_text because
+                # something on screen moved between the read and the act. No plan call can fix a
+                # target that just needs re-finding against a fresh screen -- re-observe and retry
+                # the SAME steps, exactly like WAIT_AND_VERIFY's UNREACHABLE/TIMEOUT case, bounded
+                # the same separate way so a screen that keeps changing still reaches stuck.
+                if strategy_for(cls) == RecoveryStrategy.REFRESH_AND_RETRY and waits < MAX_REPLANS:
+                    waits += 1
+                    self._screen = None
+                    await self._look()
+                    continue
+                # REFOCUS_AND_VERIFY (WRONG_WINDOW/WRONG_DISPLAY): verifier.check_app_front found
+                # the wrong app frontmost (something stole focus -- a notification, a slow-to-
+                # activate app). Re-activating the expected app and retrying the SAME steps fixes
+                # this directly; a fresh plan call can't do anything a re-activate doesn't already do.
+                if strategy_for(cls) in (RecoveryStrategy.REFOCUS_AND_VERIFY,) and waits < MAX_REPLANS:
+                    m = re.search(r"expected '([^']+)' to be frontmost", str(f))
+                    if m:
+                        waits += 1
+                        app = m.group(1)
+                        await self._hands.do("activate", app=app)
+                        self._target = Target("app", app, bring_front=True, why="refocused after wrong window")
+                        self._screen = None
+                        await self._settle_now()
+                        continue
                 if replans >= MAX_REPLANS:
+                    # MISSING_TARGET/AMBIGUITY (REFRESH_THEN_ASK) still end here, same as every
+                    # other unhandled class: Claude Code's stuck escalation IS this architecture's
+                    # "ask only once autonomous recovery is genuinely exhausted" gate (spec's own
+                    # worked examples all end in "escalation gate", never a bare question back to
+                    # Isaac) -- 2026-09-26 completion pass tried making these two classes ask
+                    # directly instead, but that broke test_jev_choose_refuses_when_nothing_is_a_
+                    # plausible_match's deliberate prior call (a named target that plausibly isn't
+                    # there deserves Claude Code's fuller context, not a shallow "what should I do?").
                     log.info("computer goal stuck: %s | %s", goal, " / ".join(self._history[-6:]))
                     tried = " / ".join(self._history[-8:])
                     return Outcome(False, "I got stuck doing that on screen.", stuck=True, tried=tried)
