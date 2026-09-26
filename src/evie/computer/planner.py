@@ -454,8 +454,8 @@ class Planner:
         # spec item 10 (telemetry): "when vision ran and why" must be answerable from the logs --
         # cloud vision is the most expensive and most privacy-sensitive perception source, so it
         # never runs silently (2026-09-26 completion pass: _vision_calls was tracked but unlogged).
-        log.info("computer vision call %d/2: looking for %r in %s (structured perception had too "
-                 "little to work with)", self._vision_calls, what, self._app())
+        log.info("computer vision call %d/2 [level 3]: looking for %r in %s (structured perception "
+                 "had too little to work with)", self._vision_calls, what, self._app())
         r = await self._hands.do("marked_shot", timeout=8.0, app=self._app())
         if not r.ok or not hasattr(self._groq, "look"):
             raise _Fail(f"couldn't see {what!r} ({r.detail})")
@@ -471,6 +471,35 @@ class Planner:
             raise _Fail(f"{what!r} isn't in the screenshot")
         self._history.append(f"saw {what!r} in the screenshot")
         return self._screen.get(eid)
+
+    async def _look_at(self, question: str) -> str:
+        """spec §4 Level 2: ONE targeted visual question ("where is the play button", "what does
+        question 7 say", "what number is written in this diagram") answered as free text --
+        genuinely different from _look_for's numbered-box element-selection (Level 3): there's no
+        element being pressed here, no marks/id mapping, just a direct question about what's drawn.
+        Reuses the exact same screenshot infrastructure (marked_shot's PNG capture) rather than a
+        new Swift op, and shares _look_for's own per-task cloud-vision budget -- Level 2 and Level 3
+        are both cloud vision, so a task can't get 2+2=4 free calls by mixing the two."""
+        if self._vision_calls >= 2:  # spec §4: max 2 cloud-vision calls per task, Level 2 included
+            raise _Fail(f"already used this task's vision budget, couldn't answer {question!r}")
+        self._vision_calls += 1
+        log.info("computer vision call %d/2 [level 2]: asking %r about %s (structured perception "
+                 "had nothing useful)", self._vision_calls, question, self._app())
+        r = await self._hands.do("marked_shot", timeout=8.0, app=self._app())
+        if not r.ok or not hasattr(self._groq, "look"):
+            raise _Fail(f"couldn't see anything to answer {question!r} ({r.detail})")
+        try:
+            out = json.loads(await self._groq.look(
+                f'Isaac asked: "{self._goal}". Look at this screenshot of {self._app()} and answer this specific '
+                f'question: {question}. Answer in JSON: {{"answer": your answer in one short sentence}}.',
+                str(r.data.get("png", ""))))
+        except Exception as e:  # noqa: BLE001
+            raise _Fail(f"couldn't look at {self._app()} to answer {question!r}: {e}")
+        answer = str(out.get("answer") or "").strip()
+        if not answer:
+            raise _Fail(f"couldn't make out an answer to {question!r} in the screenshot")
+        self._history.append(f"saw the answer to {question!r} in the screenshot")
+        return answer
 
     async def _pick(self, st: dict) -> dict:
         pool = pick_pool(self._screen, str(st.get("among") or ""))
@@ -668,9 +697,20 @@ class Planner:
         if self._web():
             r = await self._hands.do("screen_info", page=True)
             text = str(r.data.get("page_text", "")) if r.ok else ""
+            useful = bool(text.strip())
         else:
             await self._look()
             text = "\n".join(f"{e.get('role')}: {e.get('label')} {e.get('value') or ''}" for e in self._screen.elements)
+            # A role name alone ("group:  ") isn't useful content -- only a real label or value is.
+            useful = any((e.get("label") or "").strip() or (e.get("value") or "").strip()
+                        for e in self._screen.elements)
+        # spec §4: "prefer structured perception first, invoke vision only when structured data is
+        # insufficient." choose_source's goal-level visual-language detection (TARGETED_VISION) only
+        # fires here once structured text has ALREADY been tried and found wanting -- a visually-
+        # worded goal on a screen with real readable text (a web page whose DOM actually describes
+        # the diagram, say) still uses the cheap structured path, never pays for a vision call.
+        if not useful and choose_source(self._goal, self._screen) == PerceptionSource.TARGETED_VISION:
+            return await self._look_at(what)
         return await self._answer(text, what)
 
     async def _answer(self, text: str, what: str) -> str:

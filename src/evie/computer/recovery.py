@@ -55,7 +55,11 @@ _PATTERNS: list[tuple[re.Pattern, FailureClass]] = [
     (re.compile(r"not sure which one", re.I), FailureClass.AMBIGUITY),
     (re.compile(r"expected the address to contain|expected to see", re.I), FailureClass.LOADING),
     (re.compile(r"couldn't see .* \(", re.I), FailureClass.ACCESSIBILITY_EMPTY),
-    (re.compile(r"isn't in the screenshot", re.I), FailureClass.VISUAL_ONLY),
+    # _look_for's (Level 3) "X isn't in the screenshot" and _look_at's (Level 2) "couldn't make
+    # out an answer... in the screenshot" both mean the same thing: vision was tried and still
+    # couldn't resolve this.
+    (re.compile(r"isn't in the screenshot|couldn't make out an answer.*in the screenshot", re.I),
+     FailureClass.VISUAL_ONLY),
     # Eyes.swift press(): AXUIElementPerformAction failed on an element that's genuinely still
     # there -- the OS refused the action itself, not staleness or a missing target.
     (re.compile(r"it didn't respond|no such element", re.I), FailureClass.ACTION_REJECTED),

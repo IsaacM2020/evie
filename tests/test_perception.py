@@ -35,12 +35,31 @@ def test_a_sparsely_labelled_web_screen_still_prefers_structured():
     assert choose_source("find the play button", screen=_screen(3, web=True)) == PerceptionSource.STRUCTURED
 
 
-def test_an_explicitly_visual_goal_goes_straight_to_vision_even_with_a_well_labelled_screen():
-    """spec §5: "What does this Physics diagram mean?" Needed: visual perception -- regardless of
-    how many labelled elements happen to be on screen, understanding a diagram's content needs
-    genuine visual understanding, not element-finding."""
-    assert choose_source("what does this diagram mean", screen=_screen(50)) == PerceptionSource.VISION
-    assert choose_source("explain this graph to me", screen=_screen(50)) == PerceptionSource.VISION
+def test_an_explicitly_visual_goal_goes_to_targeted_vision_not_full_enumeration():
+    """spec §4 Level 2 vs Level 3: "What does this Physics diagram mean?" needs ONE targeted visual
+    answer (Level 2), regardless of how many labelled elements happen to be on screen -- never the
+    full numbered-box enumeration Level 3 (PerceptionSource.VISION) exists for, since there's no
+    pressable element being searched for here, just a question about what's drawn.
+    2026-09-26 completion pass: this used to assert PerceptionSource.VISION, back when there was no
+    Level 2/Level 3 distinction at all -- TARGETED_VISION is the new, correct answer."""
+    assert choose_source("what does this diagram mean", screen=_screen(50)) == PerceptionSource.TARGETED_VISION
+    assert choose_source("explain this graph to me", screen=_screen(50)) == PerceptionSource.TARGETED_VISION
+
+
+def test_the_specs_own_level_2_examples_are_recognized_as_visual_questions():
+    """spec §4 Level 2's own worked examples ('where is the Play button', 'what does question 7
+    say', 'what number is written in this diagram') must all route to TARGETED_VISION, not just the
+    original diagram/graph/chart word list."""
+    for goal in ("where is the play button", "what does question 7 say",
+                "what number is written in this diagram"):
+        assert choose_source(goal, screen=_screen(50)) == PerceptionSource.TARGETED_VISION, goal
+
+
+def test_finding_a_pressable_element_on_a_sparse_screen_still_uses_full_vision():
+    """Level 3 (VISION) is unchanged for its original purpose: finding a specific pressable
+    element among numbered boxes when structured perception has too little to work with -- this
+    is NOT a "visual question" goal, so it must not be rerouted to TARGETED_VISION."""
+    assert choose_source("find the play button", screen=_screen(3)) == PerceptionSource.VISION
 
 
 def test_no_screen_and_no_filesystem_hint_defaults_to_structured():

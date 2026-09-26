@@ -233,6 +233,19 @@ class LookGroq(PlanGroq):
         return json.dumps({"n": self.n})
 
 
+class TargetedLookGroq(PlanGroq):
+    """spec §4 Level 2: answers a specific visual QUESTION (free text), never a numbered-box
+    selection -- a genuinely different JSON shape from LookGroq's {"n": ...} (Level 3)."""
+
+    def __init__(self, *plans, answer="the play button is bottom-left"):
+        super().__init__(*plans)
+        self.answer, self.looked = answer, []
+
+    async def look(self, prompt, png_b64, max_tokens=60):
+        self.looked.append(prompt)
+        return json.dumps({"answer": self.answer})
+
+
 async def test_an_app_with_barely_any_readable_buttons_is_looked_at():
     """Some apps (games, canvas apps) show almost nothing to Accessibility: a screenshot with
     numbered boxes, and Qwen picks the number, which is a real element id."""
@@ -244,6 +257,74 @@ async def test_an_app_with_barely_any_readable_buttons_is_looked_at():
     p, _ = planner(hands, groq)
     r = await p.run("pick the crop tool in pixelmator")
     assert r.ok and ("press", {"id": "a2", "snapshot": "s1"}) in hands.calls and "crop tool" in groq.looked[0]
+
+
+async def test_a_visual_question_with_no_structured_text_uses_targeted_vision():
+    """spec §4 Level 2: 'what does this diagram mean' on a screen with no useful AX text (a
+    canvas/image-only app) must ask ONE targeted visual question and return its free-text answer --
+    never the full numbered-box enumeration Level 3 exists for, since there's no element to press."""
+    world = {"front_app": "Preview", "apps": ["Preview"], "windows": [], "tabs": []}
+    screen = [{"id": "a1", "role": "group", "label": ""}]  # nothing readable
+    plan = {"steps": [{"do": "read", "what": "what this diagram shows"}, {"do": "done", "say": "x"}]}
+    hands = SimHands(apps={"Preview": screen}, world=world)
+    groq = TargetedLookGroq(plan, answer="It's a diagram of the water cycle.")
+    p, _ = planner(hands, groq)
+    r = await p.run("what does this diagram mean")
+    assert r.ok and r.said == "It's a diagram of the water cycle."
+    assert groq.looked and "diagram" in groq.looked[0].lower()
+
+
+async def test_targeted_vision_question_names_what_isaac_actually_asked():
+    """The Level 2 prompt must carry the SPECIFIC question (spec examples: 'where is the play
+    button', 'what does question 7 say') -- not a generic 'describe this screen' prompt."""
+    world = {"front_app": "Preview", "apps": ["Preview"], "windows": [], "tabs": []}
+    screen = [{"id": "a1", "role": "group", "label": ""}]
+    plan = {"steps": [{"do": "read", "what": "what question 7 says"}, {"do": "done", "say": "x"}]}
+    hands = SimHands(apps={"Preview": screen}, world=world)
+    groq = TargetedLookGroq(plan, answer="Question 7 asks for the boiling point of water.")
+    p, _ = planner(hands, groq)
+    r = await p.run("what does question 7 say")
+    assert r.ok and "boiling point" in r.said
+    assert "question 7" in groq.looked[0].lower()
+
+
+async def test_structured_perception_is_tried_before_targeted_vision():
+    """spec §4: 'prefer structured perception first, invoke vision only when structured data is
+    insufficient.' A visually-worded goal on a screen that DOES have real readable text must still
+    use the cheap structured path, never pay for a vision call it doesn't need."""
+    world = dict(SAFARI_FRONT)
+    plan = {"steps": [{"do": "read", "what": "what this diagram shows"}, {"do": "done", "say": "x"}]}
+    hands = SimHands(world=world, page_text={"https://www.google.com/": "The water cycle diagram shows evaporation."})
+    groq = TargetedLookGroq(plan, answer="should never be used")
+    groq.text = "It shows evaporation."  # PlanGroq.chat's non-json_mode answer (the _answer() call)
+    p, _ = planner(hands, groq)
+    r = await p.run("what does this diagram mean")
+    assert r.ok and r.said == "It shows evaporation."
+    assert groq.looked == []  # never called .look() -- structured text was enough
+
+
+async def test_targeted_vision_shares_the_same_per_task_vision_budget_as_full_vision():
+    """spec §4 Level 3's 'max 2 cloud-vision calls per task, logged' must cover Level 2 calls too
+    -- they're both cloud vision. Calling _look_at directly after the budget is already spent
+    (run()'s own self._vision_calls = 0 reset makes this untestable through a full p.run() call
+    within one invocation) proves the SAME counter/guard _look_for uses also gates _look_at."""
+    world = {"front_app": "Preview", "apps": ["Preview"], "windows": [], "tabs": []}
+    screen = [{"id": "a1", "role": "group", "label": ""}]
+    hands = SimHands(apps={"Preview": screen}, world=world)
+    from evie.computer.world import Target
+    groq = TargetedLookGroq()
+    p, _ = planner(hands, groq)
+    p._goal, p._history, p._screen = "what does this diagram mean", [], None
+    p._target = Target("app", "Preview", running=True)
+    await p._look()
+    p._vision_calls = 2  # Level 3 already spent the whole per-task budget
+    try:
+        await p._look_at("what this shows")
+        raised = False
+    except Exception as e:  # noqa: BLE001
+        raised, msg = True, str(e)
+    assert raised and ("budget" in msg or "already" in msg)
+    assert groq.looked == []
 
 
 async def test_every_vision_call_is_logged_with_what_and_why(caplog):
@@ -260,6 +341,45 @@ async def test_every_vision_call_is_logged_with_what_and_why(caplog):
     with caplog.at_level(logging.INFO, logger="evie.computer"):
         await planner(hands, groq)[0].run("pick the crop tool in pixelmator")
     assert any("vision" in r.message.lower() and "crop tool" in r.message for r in caplog.records)
+
+
+async def test_a_failed_targeted_vision_answer_classifies_as_visual_only_and_recovers_normally():
+    """Recovery interaction: when _look_at (Level 2) genuinely can't make out an answer, that
+    failure must flow through run()'s normal classify_failure/replan machinery exactly like any
+    other _Fail -- not a special, unrecoverable dead end. Here the SAME plan (a "read" step) is
+    retried after a replan and the second attempt's TargetedLookGroq answer succeeds."""
+    world = {"front_app": "Preview", "apps": ["Preview"], "windows": [], "tabs": []}
+    screen = [{"id": "a1", "role": "group", "label": ""}]
+    plan = {"steps": [{"do": "read", "what": "what this shows"}, {"do": "done", "say": "x"}]}
+    hands = SimHands(apps={"Preview": screen}, world=world)
+    groq = TargetedLookGroq(plan, plan, answer="")  # empty answer -> _look_at raises _Fail first try
+    calls = {"n": 0}
+    orig_look = groq.look
+
+    async def flaky_look(prompt, png_b64, max_tokens=60):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return json.dumps({"answer": ""})  # genuinely couldn't make one out
+        return json.dumps({"answer": "It's the water cycle."})
+    groq.look = flaky_look
+    p, _ = planner(hands, groq)
+    r = await p.run("what does this diagram mean")
+    assert r.ok and r.said == "It's the water cycle."
+
+
+async def test_a_targeted_vision_call_is_logged_as_level_2_not_level_3(caplog):
+    """spec item 10: 'log the reason for every visual call and whether it was Level 2 or Level 3.'
+    A targeted question (_look_at) must be distinguishable in the logs from a numbered-box
+    enumeration (_look_for) -- they're different capabilities with different costs and purposes."""
+    world = {"front_app": "Preview", "apps": ["Preview"], "windows": [], "tabs": []}
+    screen = [{"id": "a1", "role": "group", "label": ""}]
+    plan = {"steps": [{"do": "read", "what": "what this diagram shows"}, {"do": "done", "say": "x"}]}
+    hands = SimHands(apps={"Preview": screen}, world=world)
+    groq = TargetedLookGroq(plan, answer="It's the water cycle.")
+    import logging
+    with caplog.at_level(logging.INFO, logger="evie.computer"):
+        await planner(hands, groq)[0].run("what does this diagram mean")
+    assert any("level 2" in r.message.lower() for r in caplog.records)
 
 
 async def test_a_number_that_is_not_a_box_presses_nothing():

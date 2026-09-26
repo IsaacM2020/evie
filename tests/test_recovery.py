@@ -60,6 +60,14 @@ def test_an_action_rejected_by_the_os_is_action_rejected():
     assert classify_failure("press 'Save': it didn't respond") == FailureClass.ACTION_REJECTED
 
 
+def test_a_targeted_vision_call_that_could_not_answer_is_visual_only():
+    """_look_at's (spec §4 Level 2) own failure text when Qwen genuinely can't make out an answer
+    -- the same VISUAL_ONLY class _look_for's (Level 3) 'isn't in the screenshot' already gets,
+    since both mean 'vision was tried and still couldn't resolve this.'"""
+    assert classify_failure("couldn't make out an answer to 'what this shows' in the screenshot") == \
+        FailureClass.VISUAL_ONLY
+
+
 def test_verifier_check_app_front_failure_is_wrong_window():
     """verifier.check_app_front's real live failure text ('expected X to be frontmost, it's Y') --
     wired into _expect_problem this session (P2-D) -- was previously unmatched by any pattern
