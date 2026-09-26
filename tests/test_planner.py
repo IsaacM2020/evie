@@ -1152,6 +1152,34 @@ async def test_act_records_the_safety_effect_class_in_history_for_a_risky_press(
     assert any("destructive" in h.lower() for h in p._history)
 
 
+async def test_act_rejects_a_stale_target_that_went_bad_during_the_risky_countdown():
+    """Typed action contracts (spec §9): _act used to read self._screen.snapshot fresh AT ACT TIME
+    rather than validating the target it already resolved is still genuinely on the CURRENT screen
+    -- if something invalidates self._screen during the 3s "say stop" countdown (a background
+    observe, a concurrent path), the old code would happily send the stale element's id against
+    whatever snapshot self._screen now holds. This proves the precondition check catches it: the
+    element that was 'Delete' at snapshot s1 no longer exists once self._screen moves to s2, so the
+    press must be refused and refreshed rather than blindly sent."""
+    plan = {"steps": [{"do": "open_url", "url": "https://example.com/"},
+                      {"do": "find", "what": "Delete", "then": "press"}, {"do": "done", "say": "x"}]}
+    page = [{"id": "d1", "role": "button", "label": "Delete"}]
+    hands = SimHands(pages={"https://example.com/": page}, world=SAFARI_FRONT)
+    from evie.computer.observe import Screen
+    p, said = planner(hands, PlanGroq(plan, plan, plan))
+    orig_wait = p._countdown.wait
+
+    async def wait_and_go_stale(*a, **kw):
+        p._screen = Screen(snapshot="stale-mid-countdown", app="Safari", kind="web", url=hands.url,
+                           elements=[{"id": "d1", "role": "button", "label": "Something Else"}])
+        return await orig_wait(*a, **kw)
+    p._countdown.wait = wait_and_go_stale
+    await p.run("go to example.com and press delete")
+    # the only "press" call made must be against the FRESH snapshot's id, never the stale one built
+    # during the countdown -- i.e. a press against "stale-mid-countdown" must never happen.
+    assert not any(op == "press" and kw.get("snapshot") == "stale-mid-countdown" for op, kw in hands.calls)
+    assert any("stale" in h.lower() for h in p._history)
+
+
 async def test_act_credential_block_still_raises_ask_and_records_credential_class():
     plan = {"steps": [{"do": "open_url", "url": "https://example.com/login"},
                       {"do": "find", "what": "Password", "typeable": True, "then": "set_text", "text": "x"},

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Callable
 
 from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
+from evie.computer.contract import build_contract, validate_postcondition, validate_precondition
 from evie.computer.find import _BADGE, NO_MATCH_FLOOR, best_score, candidates, find_in_code, pick_pool
 from evie.computer.observe import Screen
 from evie.computer.objective import Objective, from_goal as objective_from_goal
@@ -595,10 +596,12 @@ class Planner:
         then = st.get("then", "press")
         text = str(st.get("text") or "")
         op = "set_text" if then == "set_text" else "press"
-        # safety.classify() is additive (P2-G wiring): is_risky/the credential ban below stay the
-        # actual gates, exactly as before -- this only labels what's about to happen so a stuck
-        # task's history says WHY a step was gated (Law 11: no silent failure), not just that it was.
-        effect = classify(op, el, text, flagged=bool(st.get("risky")), screen_has_password=_is_login_screen(self._screen))
+        # Typed action contract (spec §9): built once, up front, from exactly what _act already had
+        # -- operation/target/originating snapshot/effect/reversibility -- and used as the single
+        # source for everything below instead of re-deriving classify()/is_risky() separately.
+        contract = build_contract(op, el, self._screen, text, flagged=bool(st.get("risky")),
+                                  screen_has_password=_is_login_screen(self._screen))
+        effect = contract.effect
         if op == "set_text" and _is_credential_field(el, self._screen):
             self._history.append(f"blocked: credential field {el.get('label')!r} [{effect.value}]")
             raise _Ask("I don't type into password or login fields. You'll need to do that part yourself.")
@@ -612,6 +615,16 @@ class Planner:
             self._history.append(f"confirming {el.get('label')!r} [{effect.value}]")
             if not await self._countdown.wait(self._window):
                 raise _Ask("Okay, I didn't do it.")
+        # Precondition validation (spec §9: "the executor must validate preconditions against
+        # current state before acting"): the countdown above can take several seconds, during which
+        # self._screen may have moved on -- a target resolved against an OLD snapshot must never be
+        # blindly sent (Law 4/§3). Re-validate against whatever self._screen is RIGHT NOW, not the
+        # screen the contract was built from a moment ago.
+        ok, why = validate_precondition(contract, self._screen)
+        if not ok:
+            self._history.append(f"blocked: stale target -- {why}")
+            self._screen = None
+            raise _Fail(f"{op} {el.get('label')!r}: {why}")
         before = self._screen.url if self._screen else ""
         args = {"id": el["id"], "snapshot": self._screen.snapshot}
         if op == "set_text":
