@@ -999,6 +999,34 @@ async def test_unreachable_hands_error_still_gives_up_eventually():
     assert not r.ok and r.stuck
 
 
+async def test_act_records_the_safety_effect_class_in_history_for_a_risky_press():
+    """P2-G wiring: safety.classify() is additive per its own docstring ("nothing calling
+    is_risky changes; classify() is read by new code, not a replacement for the existing gates")
+    -- this wires it into _act's own _history log line so a stuck task's `tried` report (which
+    Claude Code reads to avoid starting blind) says WHICH effect class gated a step, not just
+    that a countdown happened. is_risky/the countdown/the credential ban are all untouched."""
+    plan = {"steps": [{"do": "open_url", "url": "https://example.com/"},
+                      {"do": "find", "what": "Delete", "then": "press"}, {"do": "done", "say": "x"}]}
+    page = [{"id": "d1", "role": "button", "label": "Delete"}]
+    hands = SimHands(pages={"https://example.com/": page}, world=SAFARI_FRONT)
+    p, said = planner(hands, PlanGroq(plan))
+    r = await p.run("go to example.com and press delete")
+    assert r.ok
+    assert any("destructive" in h.lower() for h in p._history)
+
+
+async def test_act_credential_block_still_raises_ask_and_records_credential_class():
+    plan = {"steps": [{"do": "open_url", "url": "https://example.com/login"},
+                      {"do": "find", "what": "Password", "typeable": True, "then": "set_text", "text": "x"},
+                      {"do": "done", "say": "x"}]}
+    page = [{"id": "e1", "role": "textfield password", "label": "Password", "typeable": True}]
+    hands = SimHands(pages={"https://example.com/login": page}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("log into example.com")
+    assert not r.ok and r.ask
+    assert any("credential" in h.lower() for h in p._history)
+
+
 async def test_assign_workspace_uses_objective_not_its_own_duplicate_policy_call():
     """P2-D wiring: _assign_workspace used to call workspace.default_policy itself, independently
     of objective.from_goal computing the exact same thing from the exact same goal text -- two

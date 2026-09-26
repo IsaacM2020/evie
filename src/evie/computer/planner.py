@@ -27,7 +27,7 @@ from evie.computer.observe import Screen
 from evie.computer.objective import Objective, from_goal as objective_from_goal
 from evie.computer.perception import PerceptionSource, choose_source
 from evie.computer.recovery import FailureClass, RecoveryStrategy, classify_failure, strategy_for
-from evie.computer.safety import is_risky
+from evie.computer.safety import classify, is_risky
 from evie.computer.state import ComputerState
 from evie.computer.verifier import check_app_front, check_element, check_file_exists, check_url_contains
 from evie.computer.workspace import DisplayPolicy, assign_display
@@ -550,7 +550,12 @@ class Planner:
         then = st.get("then", "press")
         text = str(st.get("text") or "")
         op = "set_text" if then == "set_text" else "press"
+        # safety.classify() is additive (P2-G wiring): is_risky/the credential ban below stay the
+        # actual gates, exactly as before -- this only labels what's about to happen so a stuck
+        # task's history says WHY a step was gated (Law 11: no silent failure), not just that it was.
+        effect = classify(op, el, text, flagged=bool(st.get("risky")), screen_has_password=_is_login_screen(self._screen))
         if op == "set_text" and _is_credential_field(el, self._screen):
+            self._history.append(f"blocked: credential field {el.get('label')!r} [{effect.value}]")
             raise _Ask("I don't type into password or login fields. You'll need to do that part yourself.")
         known = self._app() in CARDS
         if is_risky(op, el, text, flagged=bool(st.get("risky"))):
@@ -559,6 +564,7 @@ class Planner:
                 raise _Ask(f"That's {what} in {self._app()}, and I can't undo it. Should I go ahead?")
             line = str(st.get("say") or f"About to press {el.get('label', '')}").strip()
             self._say(f"{line.rstrip('.')}. Say stop to cancel.")
+            self._history.append(f"confirming {el.get('label')!r} [{effect.value}]")
             if not await self._countdown.wait(self._window):
                 raise _Ask("Okay, I didn't do it.")
         before = self._screen.url if self._screen else ""
