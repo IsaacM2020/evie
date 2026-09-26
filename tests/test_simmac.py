@@ -63,3 +63,17 @@ async def test_filesystem_state_persists_across_calls_within_one_task():
     r = await m.do("applescript", source='tell application "Finder" to delete (POSIX file ("Old Report.pdf"))')
     assert r.ok is True
     assert "Old Report.pdf" not in m.files
+
+
+def test_task_factory_accepts_an_optional_hands_cls_defaulting_to_simhands():
+    """Task 8: the ≥15 new eval cases that need SimMac's stateful primitives (stale snapshot,
+    dialogs, place_window, persistent files) must be able to opt in per-task without changing
+    the 36 existing cases, which have no hands_cls and must keep using plain SimHands."""
+    from evals.computer.tasks import task
+    from evals.sim import SimHands
+
+    plain = task("x1", "goal", {}, {})
+    assert plain["hands_cls"] is SimHands
+
+    stateful = task("x2", "goal", {}, {}, hands_cls=SimMac)
+    assert stateful["hands_cls"] is SimMac

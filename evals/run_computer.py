@@ -125,8 +125,15 @@ async def main() -> None:
     for t in TASKS:
         if only and t["id"] not in only:
             continue
-        hands = SimHands(pages=t["pages"], apps=t["apps"], world=t["world"], page_text=t["page_text"],
-                         script_out=t["script_out"])
+        hands_cls = t.get("hands_cls", SimHands)
+        extra = {}
+        if hands_cls is not SimHands:  # SimMac-only construction args
+            if t.get("files") is not None:
+                extra["files"] = set(t["files"])
+        hands = hands_cls(pages=t["pages"], apps=t["apps"], world=t["world"], page_text=t["page_text"],
+                          script_out=t["script_out"], **extra)
+        if t.get("dialog"):
+            hands.show_dialog(t["dialog"])
         groq, jev, said, msgs = Counting(groq_inner), Counting(jev_inner), [], FakeMessages()
         planner = Planner(hands, groq, jev, Countdown(seconds=0.01), say=said.append, settle_s=0, window_s=0.01,
                           messages=msgs)

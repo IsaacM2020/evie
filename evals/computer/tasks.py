@@ -113,10 +113,16 @@ BANK = [{"id": "a1", "role": "button", "label": "Transfer"}, {"id": "a2", "role"
                                                                 "typeable": True}]
 
 
-def task(tid, goal, world, expect, pages=None, apps=None, page_text=None, script_out="", answer=None):
-    """answer: Phase 4 "Which one?" tasks. She should open the list and ask; this is what Isaac says back."""
+def task(tid, goal, world, expect, pages=None, apps=None, page_text=None, script_out="", answer=None,
+        hands_cls=None, files=None, dialog=None):
+    """answer: Phase 4 "Which one?" tasks. She should open the list and ask; this is what Isaac says back.
+    hands_cls: Task 8 (stateful SimMac) -- the 36 original cases leave this None and get plain SimHands;
+    a case needing stale-snapshot rejection, place_window, a blocking dialog, or persistent filesystem
+    state passes evals.simmac.SimMac. files/dialog are SimMac-only construction args, ignored by SimHands."""
+    from evals.sim import SimHands
     return {"id": tid, "goal": goal, "world": world, "expect": expect, "pages": pages or {}, "apps": apps or {},
-            "page_text": page_text or {}, "script_out": script_out, "answer": answer}
+            "page_text": page_text or {}, "script_out": script_out, "answer": answer,
+            "hands_cls": hands_cls or SimHands, "files": files, "dialog": dialog}
 
 
 TASKS = [
