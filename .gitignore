@@ -5,3 +5,4 @@ __pycache__/
 mac/EvieBar/.build/
 .superpowers/
 evals/ears/clips/
+.DS_Store
