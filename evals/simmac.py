@@ -19,6 +19,8 @@ class SimMac(SimHands):
         super().__init__(*a, **kw)
         self.files = files if files is not None else set()
         self._dialog: str | None = None
+        self._delay: dict[str, tuple[int, list[dict]]] = {}  # app -> (calls left holding, final elements)
+        self._delay_seen: dict[str, int] = {}
 
     def show_dialog(self, text: str) -> None:
         self._dialog = text
@@ -26,7 +28,26 @@ class SimMac(SimHands):
     def dismiss_dialog(self) -> None:
         self._dialog = None
 
+    def delay_screens(self, app: str, n: int, final_elements: list[dict]) -> None:
+        """The first n observe()/find() calls against `app` see an empty screen; from the n+1th
+        call on, they see `final_elements`. Models a slow-loading dialog or pane."""
+        self._delay[app] = (n, final_elements)
+        self._delay_seen[app] = 0
+
     async def do(self, op, timeout=5.0, **a):
+        if op == "observe":
+            app = a.get("app")
+            if app in self._delay:
+                n, final = self._delay[app]
+                seen = self._delay_seen[app]
+                self._delay_seen[app] = seen + 1
+                if seen < n:
+                    self.calls.append((op, a))
+                    self.focus = app if app != "Safari" else "web"
+                    self.snap += 1
+                    return HandsResult(True, "ok", {"snapshot": f"s{self.snap}", "app": app, "kind": "app",
+                                                    "window": app, "elements": "[]"})
+                self.apps[app] = final
         if op in ("press", "set_text"):
             self.calls.append((op, a))
             if self._dialog is not None:

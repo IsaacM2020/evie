@@ -77,3 +77,18 @@ def test_task_factory_accepts_an_optional_hands_cls_defaulting_to_simhands():
 
     stateful = task("x2", "goal", {}, {}, hands_cls=SimMac)
     assert stateful["hands_cls"] is SimMac
+
+
+async def test_delay_screens_hold_a_different_screen_for_the_first_n_observes():
+    """spec §27 'slow UI': the real page doesn't have its final content on the very first read --
+    SimMac.delay_screens(app, n, els) makes the first n observe() calls of that app return an
+    empty screen, then the real elements from then on, so an expect-poll loop (planner.py's
+    EXPECT_S deadline) has something genuine to wait through."""
+    m = SimMac(apps={"Settings": [{"id": "a1", "role": "checkbox", "label": "Do Not Disturb"}]})
+    m.delay_screens("Settings", 2, [{"id": "a1", "role": "checkbox", "label": "Do Not Disturb"}])
+    r1 = await m.do("observe", app="Settings")
+    assert r1.data["elements"] == "[]"
+    r2 = await m.do("observe", app="Settings")
+    assert r2.data["elements"] == "[]"
+    r3 = await m.do("observe", app="Settings")
+    assert "Do Not Disturb" in r3.data["elements"]
