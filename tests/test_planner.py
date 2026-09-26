@@ -789,3 +789,19 @@ async def test_state_falls_back_to_empty_on_a_failed_op():
     p, _ = planner(hands, PlanGroq())
     s = await p._state()
     assert isinstance(s, ComputerState) and s.version == 0
+
+
+async def test_find_uses_perception_choose_source_not_a_duplicate_threshold():
+    """Once perception.py exists, _find must call it rather than keep its own inline
+    VISION_BELOW check -- two independent copies of the same threshold could silently drift.
+    This patches perception.choose_source and confirms _find actually calls through to it."""
+    from unittest.mock import patch
+    from evie.computer.perception import PerceptionSource
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Notion", "apps": ["Notion"], "windows": [], "tabs": [], "selected": ""})
+    plan = {"steps": [{"do": "find", "what": "Search", "then": "press"}, {"do": "done", "say": "x"}]}
+    p, _ = planner(hands, PlanGroq(plan, {"steps": []}, {"steps": []}))
+    with patch("evie.computer.planner.choose_source", return_value=PerceptionSource.STRUCTURED) as mock:
+        await p.run("open notion and search")
+        assert mock.called
+        assert mock.call_args.args[0] == "open notion and search"  # the goal, not the bare target

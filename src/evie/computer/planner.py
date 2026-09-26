@@ -23,6 +23,7 @@ from typing import Callable
 from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
 from evie.computer.find import _BADGE, NO_MATCH_FLOOR, best_score, candidates, find_in_code, pick_pool
 from evie.computer.observe import Screen
+from evie.computer.perception import PerceptionSource, choose_source
 from evie.computer.safety import is_risky
 from evie.computer.state import ComputerState
 from evie.computer.world import Target, World
@@ -39,7 +40,6 @@ FALLBACKS = ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
 MAX_REPLANS = 2
 MAX_STEPS = 20
 LONG_STEPS = 3  # plans with this many doing steps take long enough to mention "say stop"
-VISION_BELOW = 5  # an app showing fewer labelled elements than this gets looked at
 
 SYSTEM = """You plan tasks on Isaac's Mac for his assistant Evie. Write the WHOLE route to the goal as steps, in one go,
 using what's open, the app guide and the screen shown. Reply with one JSON object:
@@ -370,8 +370,7 @@ class Planner:
         if el is not None:
             self._history.append(f"found {el.get('label')!r} by its name")
             return el
-        labelled = [e for e in self._screen.elements if e.get("label")]
-        if not self._web() and len(labelled) < VISION_BELOW:
+        if choose_source(self._goal, self._screen) == PerceptionSource.VISION and not self._web():
             return await self._look_for(what)  # almost nothing readable: look at it instead
         if not cands:
             cands = candidates(self._screen, what)
