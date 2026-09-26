@@ -681,3 +681,39 @@ async def test_replan_still_hits_the_credential_ban():
     r = await p.run("log into example.com")
     assert not r.ok and r.ask
     assert not any(op == "set_text" for op, _ in hands.calls)
+
+
+async def test_done_without_any_expect_is_not_marked_verified():
+    """P0 #3: 'ok=True without evidence' -- a plan that runs a fixed action and immediately says
+    done, with no expect step anywhere, must not be marked verified even though it still reports
+    success. Outcome.verified distinguishes a checked completion from an assumed one; what to say
+    about that distinction is a caller's decision, not baked into the spoken text here."""
+    plan = {"steps": [{"do": "action", "name": "wifi", "args": {"on": "on"}}, {"do": "done", "say": "Wi-Fi's on."}]}
+    hands = SimHands(world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("turn wifi on")
+    assert r.ok is True
+    assert r.verified is False
+
+
+async def test_done_after_a_passed_expect_is_verified():
+    plan = {"steps": [{"do": "open_url", "url": "https://example.com/settings"},
+                      {"do": "expect", "element": "Bluetooth"}, {"do": "done", "say": "Done."}]}
+    page = [{"id": "e1", "label": "Bluetooth", "role": "text"}]
+    hands = SimHands(pages={"https://example.com/settings": page}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("open settings and check bluetooth is there")
+    assert r.ok is True
+    assert r.verified is True
+
+
+async def test_a_read_result_counts_as_verified_evidence():
+    """Reading the screen and reporting what's actually there IS evidence -- unlike a bare
+    'done' with no check, this isn't an assumption."""
+    plan = {"steps": [{"do": "activate", "app": "Calculator"}, {"do": "read", "what": "the result shown"}]}
+    hands = SimHands(apps={"Calculator": [{"id": "a1", "label": "42", "role": "text"}]},
+                     world={"front_app": "Calculator", "apps": ["Calculator"], "windows": [], "tabs": [], "selected": ""})
+    p, _ = planner(hands, PlanGroq(plan, text="It says 42."))
+    r = await p.run("what does the calculator show")
+    assert r.ok is True
+    assert r.verified is True

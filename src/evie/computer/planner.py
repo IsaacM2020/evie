@@ -129,6 +129,7 @@ class Outcome:
     options: list[dict] = field(default_factory=list)  # "Which one?": the rows shown to Isaac
     pick: dict | None = None  # what Planner.choose needs to finish once he answers
     tried: str = ""  # stuck: the steps it took and what failed, so Claude Code doesn't start blind
+    verified: bool = False  # True only if an `expect` step in this run actually passed
 
 
 class _Fail(Exception):
@@ -232,7 +233,7 @@ class Planner:
     async def _run_steps(self, steps: list[dict]) -> Outcome:
         if not steps:
             raise _Fail("the plan was empty")
-        prev, did = None, False
+        prev, did, checked = None, False, False
         self._steps = steps
         for st in steps[:MAX_STEPS]:
             do = st.get("do")
@@ -249,16 +250,19 @@ class Planner:
                 say = str(st.get("say") or "")
                 if "spoken sentence" in say or "the label of" in say:  # the model copied the prompt's example
                     say = ""
-                return Outcome(True, (say or self._closing()).replace("{picked}", self._picked), pick=self._alt)
+                return Outcome(True, (say or self._closing()).replace("{picked}", self._picked),
+                               pick=self._alt, verified=checked)
             if do == "ask":
                 raise _Ask(str(st.get("say") or "What exactly should I do?"))
             said = await self._step(do, st)
             did = did or do in _DOING
+            if do in ("expect", "read") or (do == "action" and said is not None):
+                checked = True
             if said is not None:  # read / action results end the task with what she found
-                return Outcome(True, said)
+                return Outcome(True, said, verified=checked)
         if not did and not self._did:
             raise _Fail("the plan stopped before doing anything")
-        return Outcome(True, self._closing(), pick=self._alt)
+        return Outcome(True, self._closing(), pick=self._alt, verified=checked)
 
     def _closing(self) -> str:
         if self._last_say:
