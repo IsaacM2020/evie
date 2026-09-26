@@ -50,3 +50,8 @@ class Recipes:
 
     async def choose(self, pick: dict, answer: str | None, eid: str | None = None) -> Outcome:
         return await self._planner.choose(pick, answer, eid=eid)
+
+    def hands_bridge_kit(self) -> tuple:
+        """P3: delegates to the live Planner's own (hands, countdown, say) -- see
+        Planner.hands_bridge_kit's docstring."""
+        return self._planner.hands_bridge_kit()

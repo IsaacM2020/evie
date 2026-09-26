@@ -196,6 +196,13 @@ class Planner:
         self._rate_wait = 8.0  # seconds to wait when every planner model hit its per-minute limit
         self.last_steps: list[dict] = []  # what run() actually used, for evie.procedures to learn from
 
+    def hands_bridge_kit(self) -> tuple:
+        """(hands, countdown, say) -- P3: exactly what bridge.build_evie_hands_server() needs to
+        give Claude Code's stuck-task escalation the SAME hands, countdown and read-back channel
+        the live Planner itself uses (spec §25: "SAME HANDS, SAME STATE, SAME SAFETY"), never
+        fresh ones Claude Code would control independently."""
+        return self._hands, self._countdown, self._say
+
     # -- the run --------------------------------------------------------------------------------
     async def run(self, goal: str, app: str | None = None, steps: list[dict] | None = None) -> Outcome:
         """steps: a procedure remembered from an earlier success (evie.procedures), tried before

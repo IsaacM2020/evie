@@ -116,10 +116,11 @@ class FakeRunner:
     def current(self):
         return self.job
 
-    async def start(self, goal):
+    async def start(self, goal, mcp_servers=None):
         if self.busy:
             raise Busy(self.job.goal)
         self.started.append(goal)
+        self.mcp_servers = mcp_servers
         self.job = Job(goal=goal)
         return self.job
 
@@ -1012,6 +1013,27 @@ async def test_stuck_on_screen_hands_it_to_claude_code():
     await asyncio.sleep(0.05)
     assert p["runner"].started and "turn on do not disturb" in p["runner"].started[0]
     assert any("Claude Code" in line for line in p["mouth"].said)
+    assert p["runner"].mcp_servers is None  # FakeComputer has no hands_bridge_kit: no MCP server built
+
+
+async def test_stuck_on_screen_gives_claude_code_the_real_hands_via_mcp():
+    """P3, layer 3: when _computer exposes hands_bridge_kit() (the real Recipes/Planner do),
+    the stuck-task handoff builds a real evie_hands MCP server and passes it through
+    JobRunner.start -- Claude Code gets the SAME hands, not a free-text-only instruction."""
+    from evie.computer.planner import Outcome as CO
+    from evie.countdown import Countdown
+
+    class ComputerWithHands(FakeComputer):
+        def hands_bridge_kit(self):
+            return object(), Countdown(seconds=0.02), lambda t: None
+
+    b, p = brain(SkillSB("computer"))
+    b._computer = ComputerWithHands(CO(False, "I got stuck doing that on screen.", stuck=True))
+    await b.hear("evie turn on do not disturb")
+    await asyncio.sleep(0.05)
+    assert p["runner"].started
+    assert p["runner"].mcp_servers is not None
+    assert p["runner"].mcp_servers["evie_hands"]["type"] == "sdk"
 
 
 async def test_computer_question_back_waits_for_the_answer():

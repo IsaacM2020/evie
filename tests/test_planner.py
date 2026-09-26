@@ -1027,6 +1027,21 @@ async def test_act_credential_block_still_raises_ask_and_records_credential_clas
     assert any("credential" in h.lower() for h in p._history)
 
 
+async def test_hands_bridge_kit_exposes_the_real_hands_countdown_and_say():
+    """P3 wiring, layer 3: brain.py's stuck-computer-task handoff needs the SAME hands, countdown
+    and say() the live Planner uses -- not fresh ones Claude Code would control independently
+    (spec §25: SAME HANDS, SAME STATE, SAME SAFETY). hands_bridge_kit() is a thin, read-only
+    exposure of exactly those three constructor args, nothing new."""
+    hands = SimHands(world=SAFARI_FRONT)
+    said = []
+    cd = Countdown(seconds=0.02)
+    p = Planner(hands, PlanGroq(), PickJev(), cd, say=said.append)
+    h, c, s = p.hands_bridge_kit()
+    assert h is hands and c is cd
+    s("test")
+    assert said == ["test"]
+
+
 async def test_assign_workspace_uses_objective_not_its_own_duplicate_policy_call():
     """P2-D wiring: _assign_workspace used to call workspace.default_policy itself, independently
     of objective.from_goal computing the exact same thing from the exact same goal text -- two

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable
 
 from evie.calendar_store import TZ, CalendarStore
+from evie.computer.bridge import build_evie_hands_server
 from evie.computer.task import TaskRegistry
 from evie.context_packs import named_days, rails
 from evie.countdown import Countdown
@@ -842,15 +843,25 @@ class Brain:
         elif out.stuck:
             self._say("That's fiddly on screen, I'll get Claude Code to do it.")
             tried = f" What she tried: {out.tried}." if getattr(out, "tried", "") else ""
-            await self._start_job(f"{goal} (Evie tried this in the app's interface and got stuck.{tried} Do it "
-                                  "another way, like osascript or Shortcuts; a screenshot only if there's truly no "
-                                  "other way. It's a quick screen task: be fast.)")
+            # P3: give Claude Code the SAME hands/countdown/say the fast planner just used (spec
+            # §25: "SAME HANDS, SAME STATE, SAME SAFETY") instead of only telling it to reinvent
+            # this via osascript. The instruction still names osascript/Shortcuts as the fallback
+            # for whatever the evie_* tools genuinely can't reach (native dialogs, Finder, etc).
+            mcp = None
+            if self._computer is not None and hasattr(self._computer, "hands_bridge_kit"):
+                hands, countdown, say = self._computer.hands_bridge_kit()
+                mcp = {"evie_hands": build_evie_hands_server(hands, countdown, say)}
+            await self._start_job(f"{goal} (Evie tried this in the app's interface and got stuck.{tried} Prefer the "
+                                  "evie_* tools (same screen, same safety rules she uses) if they're available; "
+                                  "fall back to osascript/Shortcuts only for what they can't reach. A screenshot "
+                                  "only if there's truly no other way. It's a quick screen task: be fast.)",
+                                  mcp_servers=mcp)
         else:
             if out.ok and out.pick and out.pick.get("rows"):  # she picked by herself: keep the runners-up
                 self._last_pick = ("screen", out.pick, self._clock())
             self._say(out.said)
 
-    async def _start_job(self, text: str, long: bool = False, decision=None) -> str:
+    async def _start_job(self, text: str, long: bool = False, decision=None, mcp_servers: dict | None = None) -> str:
         """A job that takes a while: she says what she understood and starts it 3 s later, unless
         Isaac says stop. If the words were mumbled (low speech-to-text confidence), the request isn't
         complete, or it's unclear which thing he means, she asks one question instead."""
@@ -870,7 +881,7 @@ class Brain:
 
         async def go() -> None:
             try:
-                job = await self._runner.start(goal)
+                job = await self._runner.start(goal, mcp_servers=mcp_servers)
             except Busy as e:
                 self._runner.enqueue(goal)
                 self._say(f"I'm on {e}. I'll do this right after.")
