@@ -864,6 +864,25 @@ async def test_display_assignment_waits_until_after_go_to_for_a_cold_launched_ap
     assert ops.index("activate") < ops.index("state")
 
 
+async def test_vision_is_never_called_more_than_twice_per_task():
+    """spec §4 Level 3: 'max 2 cloud vision calls per task, logged.' A goal that fails to find
+    its target on every replan must not call self._groq.look() a third time."""
+    plan_stuck = {"steps": [{"do": "find", "what": "a button that never appears", "then": "press"},
+                            {"do": "done", "say": "x"}]}
+    hands = SimHands(apps={"SomeApp": []}, world={"front_app": "SomeApp", "apps": ["SomeApp"], "windows": [],
+                                                   "tabs": [], "selected": ""})
+    groq = PlanGroq(plan_stuck, plan_stuck, plan_stuck)
+    calls = []
+
+    async def fake_look(prompt, png):
+        calls.append(1)
+        return '{"n": null}'
+    groq.look = fake_look
+    p, _ = planner(hands, groq)
+    await p.run("press a button that never appears")
+    assert len(calls) <= 2
+
+
 async def test_single_display_never_calls_place_window():
     """assign_display returns None with only one display connected (single-display mode) --
     no place_window call should happen at all."""

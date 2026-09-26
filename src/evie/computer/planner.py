@@ -199,6 +199,7 @@ class Planner:
         asking a model to plan again. Everything downstream — the expect checks, the replan on a
         miss — runs exactly as it would for a fresh plan, so a stale procedure fails safely."""
         self._goal, self._picked, self._history = goal, "", []
+        self._vision_calls = 0
         self._did, self._last_say = False, ""  # something was actually done (across replans)
         self._typed = False
         self._screen: Screen | None = None
@@ -390,6 +391,9 @@ class Planner:
     async def _look_for(self, what: str) -> dict:
         """The last resort before Claude Code: a screenshot with a numbered box over every element
         the app reported, and Qwen says which number. The number maps back to a real id."""
+        if self._vision_calls >= 2:  # spec §4 Level 3: max 2 cloud-vision calls per task
+            raise _Fail(f"already looked twice this task, couldn't find {what!r}")
+        self._vision_calls += 1
         r = await self._hands.do("marked_shot", timeout=8.0, app=self._app())
         if not r.ok or not hasattr(self._groq, "look"):
             raise _Fail(f"couldn't see {what!r} ({r.detail})")
