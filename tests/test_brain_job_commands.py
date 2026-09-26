@@ -152,3 +152,39 @@ async def test_ordinary_speech_still_reaches_the_switchboard_with_background_job
     b, parts = brain(runner=runner)
     await b.hear("what time is it")
     assert len(parts["sb"].contexts) == 1
+
+
+# -- computer-task vs background-job phrasing collision (Phase 2 follow-up, Task 6) --------------
+# job_commands._HAS_JOB matches "job" OR "task", so a bare "stop that task" would otherwise be
+# parsed as a background-JOB command even when Isaac means the screen work Evie is doing right now.
+
+async def test_stop_that_task_stops_the_running_computer_task_not_a_background_job():
+    """With a computer task actually running and the utterance saying 'task' (not 'job'), the
+    computer task wins -- a background job existing at the same time must not steal this phrasing."""
+    runner = FakeRunner(background=[bg("j1", "deploy the site")])
+    b, parts = brain(runner=runner)
+    b._tasks.start("open notion and make a note")
+    out = await b.hear("stop that task")
+    assert out["action"] == "act" and out["reason"] == "computer_task_stop"
+    assert runner.cancelled == []  # the background job was never touched
+    assert b._tasks.current() is None
+
+
+async def test_stop_that_job_still_stops_the_background_job_when_no_computer_task_is_running():
+    """No computer task running: 'stop that job' (or 'task') behaves exactly as before --
+    routes to the background-job parser, unaffected by this task's change."""
+    runner = FakeRunner(background=[bg("j1", "deploy the site")])
+    b, parts = brain(runner=runner)
+    out = await b.hear("stop that job")
+    assert out["route"] == "stop" and runner.cancelled == ["j1"]
+
+
+async def test_stop_that_job_with_the_word_job_still_reaches_the_background_job_even_with_a_computer_task_running():
+    """The word 'job' (not 'task') is unambiguous -- it must still mean the background job, even
+    while a computer task happens to be running at the same time."""
+    runner = FakeRunner(background=[bg("j1", "deploy the site")])
+    b, parts = brain(runner=runner)
+    b._tasks.start("open notion and make a note")
+    out = await b.hear("stop that job")
+    assert out["route"] == "stop" and runner.cancelled == ["j1"]
+    assert b._tasks.current() is not None  # the computer task was left alone

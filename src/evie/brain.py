@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable
 
 from evie.calendar_store import TZ, CalendarStore
+from evie.computer.task import TaskRegistry
 from evie.context_packs import named_days, rails
 from evie.countdown import Countdown
 from evie.events import EventBus
@@ -152,6 +153,7 @@ class Brain:
         self._packs = packs  # context packs (evie.context_packs): the knowledge each answer needs
         self._computer = computer  # Phase 3b: operating apps on screen (evie.computer.recipes)
         self._computer_task: asyncio.Task | None = None
+        self._tasks = TaskRegistry(clock)  # P2-F: gives the running computer task an identity/id
         self._turns: deque[str] = deque(maxlen=MAX_TURNS)
         # What was said near Evie in the last RESOLVE_S (Isaac and unknown voices, her replies), so
         # "play that song" knows the song. RAM only: overheard words are never written anywhere.
@@ -211,6 +213,14 @@ class Brain:
             # Every job command is a mutation (there's no read-only kind), so unlike goals this
             # is all-or-nothing: an unknown voice never reaches _job_command at all.
             if jcmd and speaker != "unknown":
+                # job_commands._HAS_JOB matches "job" OR "task": with a computer task actually
+                # running and the word "task" (not "job") in the utterance, the running screen
+                # work wins over a same-named background Claude job -- "job" stays unambiguous.
+                current = self._tasks.current()
+                if (jcmd.kind in ("pause", "stop") and current is not None
+                        and re.search(r"\btask\b", strip_wake(text), re.I)
+                        and not re.search(r"\bjob\b", strip_wake(text), re.I)):
+                    return self._computer_task_command(text, jcmd.kind, current)
                 out = await self._job_command(text, jcmd)
                 if out is not None:
                     return out
@@ -263,11 +273,28 @@ class Brain:
                        followup_s=since if (not addressed and since is not None and since <= FOLLOWUP_S) else None,
                        named=named, answered=answered)
 
+    def _computer_task_command(self, text: str, kind: str, task) -> dict:
+        """"Stop that task"/"pause that task" against the actual running computer task (not a
+        background Claude job) -- see the collision this guards against, above."""
+        if kind == "stop":
+            if self._computer_task and not self._computer_task.done():
+                self._computer_task.cancel()
+            self._tasks.stop(task.task_id)
+            said = self._say(f"Stopped: {task.objective}.")
+        else:  # pause: a computer task is a live asyncio.Task, not resumable -- stop, not silence
+            said = self._say("I can't pause screen work, only stop it. Say stop if you want that.")
+        self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "computer_task_stop",
+                         "route": kind})
+        return {"text": text, "action": "act", "reason": "computer_task_stop", "route": kind, "said": said}
+
     def _stop(self, text: str) -> dict:
         self._mouth.stop()
         self._pending = None
         if self._computer_task and not self._computer_task.done():
             self._computer_task.cancel()
+        current = self._tasks.current()
+        if current is not None:
+            self._tasks.stop(current.task_id)
         self._bus.publish("heard", text=text)
         self._bus.publish("state", state="working" if self._runner.current else "idle")
         self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "stop", "route": None})
@@ -286,6 +313,9 @@ class Brain:
         if self._computer_task and not self._computer_task.done():
             self._computer_task.cancel()
             stopped.append("screen")
+        current = self._tasks.current()
+        if current is not None:
+            self._tasks.stop(current.task_id)
         job = self._runner.current
         if job:
             await self._runner.stop()
@@ -778,12 +808,13 @@ class Brain:
         reports when done."""
         if self._computer_task and not self._computer_task.done():
             self._computer_task.cancel()
+        task = self._tasks.start(goal)
         # No "On it": the planner says what it understood about a second from now, and the orb shows
         # she's working straight away.
-        self._computer_task = asyncio.create_task(self._run_computer(goal, skill))
+        self._computer_task = asyncio.create_task(self._run_computer(goal, skill, task.task_id))
         return None
 
-    async def _run_computer(self, goal: str, skill: str | None = None) -> None:
+    async def _run_computer(self, goal: str, skill: str | None = None, task_id: str | None = None) -> None:
         self._bus.publish("state", state="working")
         try:
             out = await self._computer.run(goal, skill=skill)
@@ -794,6 +825,8 @@ class Brain:
             self._say("Something broke doing that on screen.")
             return
         finally:
+            if task_id is not None:
+                self._tasks.mark_done(task_id)
             self._bus.publish("state", state="working" if self._runner.current else "idle")
         self._write_log({"t": time.time(), "text": goal, "action": "act", "reason": "computer", "route": "computer",
                          "said": out.said, "ok": out.ok, "stuck": out.stuck})
