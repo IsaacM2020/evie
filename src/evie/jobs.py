@@ -1,7 +1,10 @@
 """Deep work: run Claude Code in the background (via the Agent SDK) and report what it does.
 
-One job at a time. Claude Code runs in ~/IsaacOS with Isaac's CLAUDE.md, skills and memory,
-full permissions, and one guard: no rm / sudo / force-push / hard reset (deletes go to Trash).
+One job in the foreground at a time (the one Evie talks about and narrates) — unchanged from
+Phase 1. Phase 6 adds a supervisor beside it: background jobs run concurrently (bounded), with
+priority, dependencies, timeouts, retries and pause/resume (a real Claude Code session resume,
+not a restart). The one guard that must never move: no rm / sudo / force-push / hard reset
+(deletes go to Trash).
 """
 import asyncio
 import logging
@@ -130,9 +133,15 @@ async def pick_tier(jev, goal: str) -> str:
 
 
 def make_client(cwd: Path | str = Path.home() / "IsaacOS", max_turns: int = 60, model: str | None = None,
-                effort: str | None = None) -> ClaudeSDKClient:
+                effort: str | None = None, session_id: str | None = None,
+                resume: str | None = None) -> ClaudeSDKClient:
     if model and "opus" in model.lower():
         raise ValueError("Evie never runs Opus")  # Isaac, 2026-09-24
+    extra = {}
+    if resume:  # picking up a paused job: the SAME Claude Code conversation, not a fresh one
+        extra = {"resume": resume, "continue_conversation": True}
+    elif session_id:  # a fresh job, but with an id of our choosing so we can resume it later
+        extra = {"session_id": session_id}
     return ClaudeSDKClient(ClaudeAgentOptions(
         model=model,
         effort=effort,
@@ -142,6 +151,7 @@ def make_client(cwd: Path | str = Path.home() / "IsaacOS", max_turns: int = 60, 
         max_turns=max_turns,
         system_prompt={"type": "preset", "preset": "claude_code", "append": WORKER_NOTE},
         hooks={"PreToolUse": [HookMatcher(matcher="Bash", hooks=[bash_hook])]},
+        **extra,
     ))
 
 
@@ -154,12 +164,20 @@ class Job:
     goal: str
     tier: str = ""  # quick | normal | hard (Jev's pick; "" when nobody picked)
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
-    status: str = "running"  # running | done | failed | stopped
+    status: str = "running"  # running | done | failed | stopped | timeout | paused | blocked | queued
     started: float = field(default_factory=time.time)
     events: list[str] = field(default_factory=list)
     result: str = ""
     todos: list[dict] = field(default_factory=list)  # Claude Code's own TodoWrite plan
     finding: str = ""  # the last thing it said in words (what it found or did)
+    # Phase 6: the job supervisor. All default to today's single-foreground-job behaviour.
+    foreground: bool = True
+    priority: int = 0  # higher runs first when more than one is waiting for its turn
+    depends_on: tuple[str, ...] = ()  # other jobs' ids: this one waits for them to finish
+    timeout_s: float | None = None
+    max_retries: int = 0
+    retries_done: int = 0
+    session_id: str = field(default_factory=lambda: uuid.uuid4().hex)  # lets a paused job resume the same session
 
     def progress(self) -> tuple[int, int, str] | None:
         """(step it's on, steps in the plan, what it's doing) from its TodoWrite plan, or None."""
@@ -172,36 +190,59 @@ class Job:
         return min(done + 1, n), n, str(cur.get("activeForm") or cur.get("content") or "")
 
 
+@dataclass
+class _Queued:
+    goal: str
+    priority: int = 0
+
+
+TERMINAL = {"done", "failed", "stopped", "timeout"}
+MAX_BACKGROUND = 2  # a resource limit: the Mac and Groq's rate limits are shared with everything else
+
+
 class JobRunner:
     def __init__(self, on_event: Callable[[Job, str], Awaitable[None]],
                  on_done: Callable[[Job], Awaitable[None]],
                  client_factory: Callable[..., ClaudeSDKClient] = make_client,
                  on_start: Callable[[Job], Awaitable[None]] | None = None,
-                 pick_tier: Callable[[str], Awaitable[str]] | None = None):
+                 pick_tier: Callable[[str], Awaitable[str]] | None = None,
+                 max_background: int = MAX_BACKGROUND,
+                 retry_backoff_s: Callable[[int], float] = lambda n: min(5.0 * n, 30.0)):
         self._on_event, self._on_done, self._factory = on_event, on_done, client_factory
         self._pick_tier = pick_tier
         self._on_start = on_start  # a queued job starting by itself (Evie says so)
+        self._backoff = retry_backoff_s
         self._job: Job | None = None
         self._task: asyncio.Task | None = None
         self._queued: list[str] = []
-        self._backlog: list[str] = []  # whole jobs waiting their turn ("do this after")
+        self._backlog: list[_Queued] = []  # whole jobs waiting their turn ("do this after")
+        # Phase 6: the supervisor's own bookkeeping. Foreground behaviour above is untouched.
+        self._bg: dict[str, Job] = {}
+        self._bg_tasks: dict[str, asyncio.Task] = {}
+        self._sema = asyncio.Semaphore(max_background)
+        self._done_event: dict[str, asyncio.Event] = {}  # set() when a job (any kind) reaches TERMINAL
+        self._final: dict[str, str] = {}  # job id -> its terminal status, kept after it's forgotten elsewhere
 
     @property
     def queued(self) -> list[str]:
-        return list(self._backlog)
+        return [q.goal for q in sorted(self._backlog, key=lambda q: -q.priority)]
 
-    def enqueue(self, goal: str) -> int:
+    def enqueue(self, goal: str, priority: int = 0) -> int:
         """Another job while one runs: it waits its turn instead of being refused. Returns its place."""
-        self._backlog.append(goal)
+        self._backlog.append(_Queued(goal, priority))
         return len(self._backlog)
 
     def drop_next(self) -> str | None:
-        return self._backlog.pop(0) if self._backlog else None
+        if not self._backlog:
+            return None
+        self._backlog.sort(key=lambda q: -q.priority)
+        return self._backlog.pop(0).goal
 
     @property
     def current(self) -> Job | None:
         return self._job if self._job and self._job.status == "running" else None
 
+    # -- foreground: exactly Phase 1-5's behaviour --------------------------------------------
     async def start(self, goal: str) -> Job:
         if self.current:
             raise Busy(self.current.goal)
@@ -240,9 +281,10 @@ class JobRunner:
             job.status, job.result = "failed", f"Claude Code crashed: {e}"
         if job.status == "running":
             job.status = "done"
+        self._mark_terminal(job)
         await self._on_done(job)
         if self._backlog and job.status != "stopped":
-            nxt = await self.start(self._backlog.pop(0))
+            nxt = await self.start(self.drop_next())
             if self._on_start:
                 try:
                     await self._on_start(nxt)
@@ -285,7 +327,7 @@ class JobRunner:
     async def stop(self) -> list[str]:
         """Stop the running job. "Stop" means stop: anything queued is dropped too (and returned
         so Evie can say so)."""
-        dropped, self._backlog = self._backlog, []
+        dropped, self._backlog = self.queued, []
         if self._task and not self._task.done():
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)
@@ -305,3 +347,137 @@ class JobRunner:
 
     async def shutdown(self) -> None:
         await self.stop()
+        for jid in list(self._bg_tasks):
+            await self.cancel(jid)
+
+    # -- background: Phase 6's job supervisor ---------------------------------------------------
+    def _mark_terminal(self, job: Job) -> None:
+        self._final[job.id] = job.status
+        ev = self._done_event.setdefault(job.id, asyncio.Event())
+        ev.set()
+
+    def _status_of(self, job_id: str) -> str | None:
+        if job_id in self._final:
+            return self._final[job_id]
+        if self._job and self._job.id == job_id:
+            return self._job.status
+        j = self._bg.get(job_id)
+        return j.status if j else None
+
+    @property
+    def background(self) -> list[Job]:
+        """All background jobs the supervisor still knows about (any status)."""
+        return list(self._bg.values())
+
+    def all_jobs(self) -> list[Job]:
+        return ([self._job] if self._job else []) + self.background
+
+    async def start_background(self, goal: str, priority: int = 0, depends_on: tuple[str, ...] = (),
+                               timeout_s: float | None = None, max_retries: int = 0) -> Job:
+        """A job that doesn't occupy the foreground slot: it runs alongside whatever Evie is
+        talking about. Bounded by max_background; jobs beyond that just wait their turn."""
+        for dep in depends_on:
+            if self._status_of(dep) is None:
+                raise ValueError(f"unknown job id in depends_on: {dep}")
+        job = Job(goal=goal, foreground=False, priority=priority, depends_on=tuple(depends_on),
+                  timeout_s=timeout_s, max_retries=max_retries,
+                  status="blocked" if depends_on else "queued")
+        self._bg[job.id] = job
+        self._bg_tasks[job.id] = asyncio.create_task(self._run_bg(job))
+        return job
+
+    async def _wait_for_deps(self, job: Job) -> str | None:
+        """None once every dependency finished "done"; otherwise the reason it can never run."""
+        for dep in job.depends_on:
+            ev = self._done_event.setdefault(dep, asyncio.Event())
+            await ev.wait()
+            if self._status_of(dep) != "done":
+                return f"depends on {dep}, which ended {self._status_of(dep)}"
+        return None
+
+    async def _run_bg(self, job: Job, resume: bool = False) -> None:
+        try:
+            if job.depends_on and not resume:
+                blocked = await self._wait_for_deps(job)
+                if blocked:
+                    job.status, job.result = "failed", blocked
+                    self._mark_terminal(job)
+                    await self._on_done(job)
+                    return
+            if job.status != "paused":
+                job.status = "queued"
+            async with self._sema:
+                if job.status == "paused":  # pause() raced us while we waited for a free slot
+                    return
+                job.status = "running"
+                if self._pick_tier is not None and not job.tier:
+                    job.tier = await self._pick_tier(job.goal)
+                await self._run_bg_once(job, resume=resume)
+        except asyncio.CancelledError:
+            if job.status != "paused":  # pause() already set it; anything else is a real stop
+                job.status = "stopped"
+            raise
+        if job.status in ("failed", "timeout") and job.retries_done < job.max_retries:
+            job.retries_done += 1
+            job.status, job.events = "queued", job.events + [f"Retrying ({job.retries_done}/{job.max_retries})…"]
+            await asyncio.sleep(self._backoff(job.retries_done))
+            await self._run_bg(job)
+            return
+        if job.status == "paused":
+            return  # resume_job() will finish the story; don't report done or drop it yet
+        self._mark_terminal(job)
+        await self._on_done(job)
+
+    async def _run_bg_once(self, job: Job, resume: bool = False) -> None:
+        kw = dict(zip(("model", "effort"), TIERS[job.tier])) if job.tier in TIERS else {}
+        kw["resume" if resume else "session_id"] = job.session_id
+        body = self._drive(job, kw, resume)
+        try:
+            if job.timeout_s:
+                await asyncio.wait_for(body, timeout=job.timeout_s)
+            else:
+                await body
+        except asyncio.TimeoutError:
+            job.status, job.result = "timeout", f"Timed out after {job.timeout_s:.0f}s."
+
+    async def _drive(self, job: Job, kw: dict, resume: bool) -> None:
+        async with self._factory(**kw) as client:
+            await client.query("Continue where you left off; you don't need to start over." if resume else job.goal)
+            async for m in client.receive_response():
+                await self._handle(job, m)
+            if job.status == "running":
+                job.status = "done"
+
+    async def pause(self, job_id: str) -> bool:
+        """Cancel a background job's turn without ending its story: resume_job() continues the
+        same Claude Code session later. The foreground job isn't pausable (Isaac is talking to
+        it; "stop" is the only control that makes sense there)."""
+        job, task = self._bg.get(job_id), self._bg_tasks.get(job_id)
+        if job is None or task is None or job.status not in ("running", "queued", "blocked"):
+            return False
+        job.status = "paused"
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        return True
+
+    async def resume_job(self, job_id: str) -> Job | None:
+        job = self._bg.get(job_id)
+        if job is None or job.status != "paused":
+            return None
+        job.status = "queued"  # otherwise _run_bg's own paused-guard would bail out immediately
+        self._bg_tasks[job_id] = asyncio.create_task(self._run_bg(job, resume=True))
+        return job
+
+    async def cancel(self, job_id: str) -> bool:
+        """Stop a background job for good (unlike pause, it won't be resumed)."""
+        job, task = self._bg.get(job_id), self._bg_tasks.get(job_id)
+        if job is None or task is None:
+            return False
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        if job.status not in TERMINAL:
+            job.status = "stopped"
+        self._mark_terminal(job)
+        return True

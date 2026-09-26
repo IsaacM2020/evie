@@ -24,9 +24,12 @@ from evie.config import Settings, load_settings
 from evie.ears import FRAME, wav_to_pcm
 from evie.events import EventBus
 from evie.hands import Hands
+from evie.health import HealthMonitor
 from evie.jev import JevClient
 from evie.switchboard import Switchboard
 from evie.switchboard.context import Context
+from evie.world_model import WorldStore
+from evie.world_model import run as world_run
 
 log = logging.getLogger("evie.server")
 
@@ -114,6 +117,8 @@ class Deps:
     quiet: object | None = None  # evie.quiet: voice or text, from his calendar and his toggle
     engine: object | None = None  # evie.proactive.engine: when she brings things up herself
     proactive: object | None = None  # evie.proactive.sources: what she brings up
+    world: object | None = None  # evie.world_model: persistent world state, Phase 6
+    health: HealthMonitor | None = None  # evie.health: component health + stuck-job detection, Phase 6
 
 
 async def keep_warm(pings: list[Callable[[], Awaitable[None]]], interval_s: float = 20.0) -> None:
@@ -149,9 +154,12 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
             o = await d.sb.handle(Context(utterance="what time is it", speaker="isaac"))
             app.state.jev_ok = o.decision is not None
         warmer = asyncio.create_task(keep_warm(d.pings)) if d.pings else None
+        world_task = asyncio.create_task(world_run(d.bus, d.world)) if d.world else None
         yield
         if warmer:
             warmer.cancel()
+        if world_task:
+            world_task.cancel()
         if d.runner:
             await d.runner.shutdown()
         if d.open_mic:
@@ -511,6 +519,16 @@ def create_app(make_deps: Callable[[], Deps], probe: bool = True) -> FastAPI:
                             for c in cal.calendars if c["used"]],
                 "ignored": [f"{c['title']} ({c['source']})" for c in cal.calendars if not c["used"]]}
 
+    @app.get("/world")
+    async def world() -> dict:
+        """The persistent world model (Phase 6 P0): jobs, app, thread, health, commitments."""
+        return need("world").world.snapshot()
+
+    @app.get("/health")
+    async def health() -> dict:
+        """Component health + any job that's stopped making progress (Phase 6 P2)."""
+        return need("health").health.snapshot()
+
     return app
 
 
@@ -527,6 +545,9 @@ def build_deps(s: Settings) -> Deps:
     from evie.computer.recipes import Recipes
     from evie.context_packs import Packs, ProjectIndex, WebSearch
     from evie.countdown import Countdown, Countdowns
+    from evie.goals import GoalStore
+    from evie.procedures import ProcedureStore
+    from evie.computer.vision_fallback import VisionFallback
     from evie.memory import Conversation
     from evie.skills.catalog import Skills
     from evie.skills.events import EventSkills
@@ -543,6 +564,7 @@ def build_deps(s: Settings) -> Deps:
     jev = JevClient(s)
     sb = Switchboard(jev)
     bus = EventBus()
+    health = HealthMonitor()
     cal = CalendarStore()
     groq = GroqClient(s)
     talker = Talker(groq)
@@ -583,7 +605,15 @@ def build_deps(s: Settings) -> Deps:
         bus.publish("job_started", id=job.id, goal=job.goal, tier=job.tier)
         mouth.say(f"Starting the next one: {job.goal}.", kind="reply")
 
-    runner = JobRunner(narrator.on_event, narrator.on_done, on_start=next_job_started,
+    async def on_job_event(job, line) -> None:  # a live job is proof it isn't stuck
+        health.job_event(job.id)
+        await narrator.on_event(job, line)
+
+    async def on_job_done(job) -> None:
+        health.job_ended(job.id)
+        await narrator.on_done(job)
+
+    runner = JobRunner(on_job_event, on_job_done, on_start=next_job_started,
                        pick_tier=lambda goal: pick_tier(jev, goal))  # Haiku or Sonnet, never Opus
     hands = Hands(bus)
     spotify = SpotifySearch(s.spotify_id, s.spotify_secret)
@@ -600,18 +630,30 @@ def build_deps(s: Settings) -> Deps:
     todoist = Todoist(s.todoist_key)
     skills.tasks = TaskSkills(todoist, jev, skills)
     remember = Remember(talker, hands, todoist, FactStore(), cal, skills, timers=timers)
-    packs = Packs(cal, hands, todoist, projects=ProjectIndex(), web=WebSearch(groq),
+    goals = GoalStore()  # Phase 6 P1: persistent goals/initiatives
+    projects = ProjectIndex()
+    packs = Packs(cal, hands, todoist, projects=projects, web=WebSearch(groq),
                   screen=lambda: brain.scene() if brain else {})
     speak = lambda text: mouth.say(text, kind="reply")  # noqa: E731
     messages = Messages(hands, jev, sends, say=speak)
+    # No vision model is wired yet (Jev and Groq are both text-only): describe_image stays None,
+    # so this is a documented, safe no-op until a future session adds a Swift screenshot handler
+    # and a real vision call. See evie/computer/vision_fallback.py.
     planner = Planner(hands, groq, jev, sends, say=speak, show_work=lambda: ui["show_work"],
-                      progress=lambda text: text and bus.publish("step", text=text), messages=messages, talker=talker)
-    computer = Recipes(hands, jev, talker, planner, messages=messages)
+                      progress=lambda text: text and bus.publish("step", text=text), messages=messages,
+                      talker=talker, vision=VisionFallback(hands))
+    computer = Recipes(hands, jev, talker, planner, messages=messages, procedures=ProcedureStore())
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember,
-                  countdown=Countdowns(countdown, sends), conversation=conversation, packs=packs, computer=computer)
+                  countdown=Countdowns(countdown, sends), conversation=conversation, packs=packs, computer=computer,
+                  goals=goals)
     brain._job_countdown = Countdown(seconds=JOB_WINDOW_S, text_s=lambda: 5.0 if text_now() else 0.0,
                                      on_start=show_window)
     from evie.computer.messages import load_people
+    world = WorldStore(calendar_view=lambda: {"today": cal.summary(datetime.now(TZ).date())},
+                       projects_view=lambda: [projects.brief] if projects.brief else [],
+                       people_view=load_people,
+                       commitments_view=lambda: [{"fact": f} for f in remember.facts.recent(5)] +
+                       [{"goal": g.outcome, "next": g.next_action} for g in goals.list_goals("active")])
     from evie.stt import Vocab
     # Whisper is told the names he uses: people.json (Dada, Mamma) + names he's spelled out loud
     stt = Transcriber(s, backend=s.stt_backend, vocab=Vocab(people=load_people()))
@@ -634,13 +676,15 @@ def build_deps(s: Settings) -> Deps:
                     on_spoken=brain.expect_followup)
     engine.ready = lambda: cal.updated_at is not None
     engine.busy_event = lambda: quiet.busy_event() is not None
-    proactive = Sources(engine, cal, todoist, talker, hands=hands, text_mode=text_now)
+    proactive = Sources(engine, cal, todoist, talker, hands=hands, text_mode=text_now, goals=goals)
     engine.present = lambda: proactive.present
     proactive.enabled = lambda name: ui.setdefault("proactive", {}).get(name, True)
     brain.proactive, brain.engine, brain.hands = proactive, engine, hands
     narrator.defer = proactive.job_done
 
     async def proactive_tick() -> None:  # every 20 s with the keep-warm pings
+        scene = brain.scene()
+        world.scene_changed(scene.get("front_app", ""), bool(scene.get("in_call", False)))
         await proactive.collect()
         await engine.tick()
     seen_quiet: dict = {}
@@ -651,6 +695,31 @@ def build_deps(s: Settings) -> Deps:
             seen_quiet.clear()
             seen_quiet.update(now)
             bus.publish("quiet", **now)
+
+    async def watched(name: str, fn: Callable[[], Awaitable[None]]) -> None:
+        t0 = time.perf_counter()
+        try:
+            await fn()
+        except Exception as e:
+            c, event = health.record(name, False, detail=str(e)[:200])
+        else:
+            c, event = health.record(name, True, latency_ms=(time.perf_counter() - t0) * 1000)
+        if event:  # only on an actual degraded/recovered transition, never every 20 s
+            bus.publish("health", component=name, event=event, ok=c.ok, detail=c.last_detail)
+
+    stuck_flagged: set[str] = set()  # jobs already reported stuck, so it's said once, not every 20 s
+
+    async def health_tick() -> None:  # replaces the bare jev.warm/groq.warm/stt.warm pings below
+        await watched("jev", jev.warm)
+        await watched("groq", groq.warm)
+        await watched("stt", stt.warm)
+        running = {j.id for j in runner.all_jobs() if j.status == "running"}
+        stuck = set(health.stuck_jobs(list(running)))
+        for jid in stuck - stuck_flagged:
+            bus.publish("health", component=f"job:{jid}", event="degraded", ok=False,
+                        detail="no progress in a while")
+        stuck_flagged.clear()
+        stuck_flagged.update(stuck & running)  # cleared once it finishes or starts moving again
 
     async def warm() -> dict:
         t0 = time.perf_counter()
@@ -673,9 +742,9 @@ def build_deps(s: Settings) -> Deps:
 
     return Deps(sb=sb, calendar=cal, bus=bus, brain=brain, mouth=mouth, stt=stt, runner=runner,
                 warm=warm, close=close,
-                pings=[jev.warm, groq.warm, stt.warm, unload_idle, watch_quiet, proactive_tick],
+                pings=[health_tick, unload_idle, watch_quiet, proactive_tick],
                 open_mic=open_mic, voiceid=voiceid, hands=hands, mouth_link=mouth_link, ui=ui, quiet=quiet,
-                engine=engine, proactive=proactive)
+                engine=engine, proactive=proactive, world=world, health=health)
 
 
 def text_to_orb(bus: EventBus) -> Callable[[str, str], None]:

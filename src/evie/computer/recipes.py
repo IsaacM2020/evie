@@ -19,9 +19,9 @@ ARGS_Q = ('Isaac wants a message sent. Return {"contact": who to message (or nul
 
 
 class Recipes:
-    def __init__(self, hands, jev, talker, planner, messages=None):
+    def __init__(self, hands, jev, talker, planner, messages=None, procedures=None):
         self._hands, self._jev, self._talker, self._planner = hands, jev, talker, planner
-        self._messages = messages
+        self._messages, self._procedures = messages, procedures
 
     async def run(self, text: str, skill: str | None = None) -> Outcome:
         bare = re.sub(r"^\W*(hey\s+)?evie\W*", "", text, flags=re.I)
@@ -36,7 +36,17 @@ class Recipes:
             args = await self._talker.extract(ARGS_Q, text) or {}
             log.info("computer message via %s", args.get("via"))
             return await self._messages.send(text, args)
-        return await self._planner.run(text)
+        if self._procedures is None:
+            return await self._planner.run(text)
+        # Phase 6 P1: a procedure proven twice or more replaces the planning call; Planner.run()
+        # still runs its own expect checks against the live screen either way.
+        proc = self._procedures.find(text)
+        out = await self._planner.run(text, steps=proc.steps if proc else None)
+        if proc is not None:
+            (self._procedures.record_success if out.ok else self._procedures.record_failure)(proc.id)
+        elif out.ok:
+            self._procedures.learn(text, self._planner.last_steps)
+        return out
 
     async def choose(self, pick: dict, answer: str | None, eid: str | None = None) -> Outcome:
         return await self._planner.choose(pick, answer, eid=eid)

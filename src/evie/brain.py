@@ -20,6 +20,7 @@ from evie.calendar_store import TZ, CalendarStore
 from evie.context_packs import named_days, rails
 from evie.countdown import Countdown
 from evie.events import EventBus
+from evie.goals import NEW_Q, PROGRESS_Q, GoalCommand, format_goal, parse_goal_command
 from evie.jev import JevError
 from evie.jobs import Busy
 from evie.skills.catalog import RISK, allowed
@@ -137,11 +138,13 @@ class Brain:
     HARD_AT = 0.7
     def __init__(self, sb, talker, mouth, runner, narrator, calendar: CalendarStore, bus: EventBus, jev,
                  turns_log: Path | None = TURNS_LOG, clock: Callable[[], float] = time.monotonic,
-                 skills=None, remember=None, countdown=None, conversation=None, packs=None, computer=None):
+                 skills=None, remember=None, countdown=None, conversation=None, packs=None, computer=None,
+                 goals=None):
         self._sb, self._talker, self._mouth = sb, talker, mouth
         self._runner, self._narrator, self._cal = runner, narrator, calendar
         self._bus, self._jev, self._log, self._clock = bus, jev, turns_log, clock
         self._skills, self._remember = skills, remember
+        self._goals = goals  # evie.goals: persistent goals/initiatives (Phase 6 P1)
         self._countdown = countdown  # a pending "say stop to cancel" (event delete, 3b sends)
         self._job_countdown = Countdown(seconds=JOB_WINDOW_S)  # read back, then the job starts
         self._conv = conversation  # today's turns with Isaac (evie.memory), for follow-ups
@@ -196,6 +199,11 @@ class Brain:
         answered = await self._answer_pending(text, speaker)
         if answered is not None:
             return answered
+        if speaker != "other" and self._goals is not None:
+            cmd = parse_goal_command(strip_wake(text))
+            # Same rail as everywhere else: an unmatched voice can ask about goals but not change one.
+            if cmd and not (speaker == "unknown" and cmd.kind not in ("status", "list")):
+                return await self._goal_command(text, cmd)
         waiting = self._pending
         # Isaac's own voice right after she spoke is a reply to her, like saying her name (the talk
         # key never had this problem; Live ignored "pretty good" after "How's your day?").
@@ -666,6 +674,56 @@ class Brain:
             self._pending = Pending("detail", text, speaker, self._clock(), asked=r.ask)
             return self._say(r.ask)
         return self._say(r.said)
+
+    async def _goal_command(self, text: str, cmd: GoalCommand) -> dict:
+        """A goal command never reaches Jev (see evie.goals): it's matched, acted on and spoken
+        the same turn, exactly like is_stop()/is_other() above."""
+        said = await self._run_goal_command(cmd)
+        self._bus.publish("heard", text=text)
+        self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "goal", "route": cmd.kind,
+                         "said": said})
+        return {"text": text, "action": "act", "reason": "goal", "route": cmd.kind, "said": said}
+
+    async def _run_goal_command(self, cmd: GoalCommand) -> str:
+        if cmd.kind == "list":
+            active = self._goals.list_goals("active")
+            if not active:
+                return self._say("You don't have any goals tracked right now.")
+            if len(active) <= 2:
+                return self._say(" ".join(f"{g.outcome}: {g.next_action or 'no next action set yet'}."
+                                          for g in active))
+            self._bus.publish("list", say=f"You've got {len(active)} goals going.",
+                              items=[format_goal(g) for g in active])
+            return self._say(f"You've got {len(active)} goals going.")
+        if cmd.kind == "new":
+            info = await self._talker.extract(NEW_Q, cmd.text) or {}
+            outcome = str(info.get("outcome") or cmd.text).strip()
+            deadline = str(info.get("deadline") or "").strip()
+            self._goals.create(outcome, deadline)
+            when = f" by {deadline}" if deadline else ""
+            return self._say(f'Tracking it: "{outcome}"{when}.')
+        if cmd.kind == "progress":
+            info = await self._talker.extract(PROGRESS_Q, cmd.text) or {}
+            goal = self._goals.find_by_text(str(info.get("goal") or cmd.text).strip())
+            if goal is None:
+                return self._say(f"I couldn't find a goal matching \"{cmd.text}\".")
+            next_action = str(info.get("next_action") or "").strip()
+            self._goals.record_progress(goal.id, str(info.get("note") or cmd.text).strip(), next_action)
+            return self._say(f"Noted on {goal.outcome}." + (f" Next up: {next_action}." if next_action else ""))
+        goal = self._goals.find_by_text(cmd.text)
+        if goal is None:
+            return self._say(f"I couldn't find a goal matching \"{cmd.text}\".")
+        if cmd.kind == "status":
+            return self._say(format_goal(goal))
+        if cmd.kind == "pause":
+            self._goals.set_status(goal.id, "paused")
+            return self._say(f"Paused {goal.outcome}.")
+        if cmd.kind == "resume":
+            self._goals.resume(goal.id)
+            next_line = f" Next: {goal.next_action}." if goal.next_action else ""
+            return self._say(f"Resuming {goal.outcome}.{next_line}")
+        self._goals.set_status(goal.id, "done")  # cmd.kind == "done": the only case left
+        return self._say(f"Nice, marked {goal.outcome} done.")
 
     async def _quick(self, text: str, decision, speaker: str = "isaac", addressed: bool = True) -> str:
         """A fast skill if Jev is sure which one; otherwise Claude Code, the general hands."""

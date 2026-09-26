@@ -152,6 +152,17 @@ def test_fact_store_keeps_the_latest(tmp_path):
     assert FactStore(tmp_path / "f.jsonl", keep=3).recent() == ["fact 2", "fact 3", "fact 4"]
 
 
+def test_fact_store_records_provenance(tmp_path):
+    """Memory V2 (Phase 6 P2): who/what said to remember this, defaulting to Isaac himself."""
+    import json
+    path = tmp_path / "f.jsonl"
+    fs = FactStore(path)
+    fs.add("locker code is 4129")
+    fs.add("heard from proactive.overheard", source="proactive")
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert rows[0]["source"] == "isaac" and rows[1]["source"] == "proactive"
+
+
 @respx.mock
 async def test_todoist_client_uses_api_v1():
     route = respx.post("https://api.todoist.com/api/v1/tasks").mock(return_value=httpx.Response(200, json={"id": "99"}))

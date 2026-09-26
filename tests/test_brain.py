@@ -124,11 +124,11 @@ class FakeJev:
                                      "confidence": 1.0}}, 200.0, 0.00002)
 
 
-def brain(sb=None, runner=None, jev=None, calendar=None, log=None):
+def brain(sb=None, runner=None, jev=None, calendar=None, log=None, goals=None):
     parts = dict(sb=sb or FakeSwitchboard(), talker=FakeTalker(), mouth=FakeMouth(),
                  runner=runner or FakeRunner(), narrator=FakeNarrator(), bus=EventBus(), jev=jev or FakeJev())
     b = Brain(parts["sb"], parts["talker"], parts["mouth"], parts["runner"], parts["narrator"],
-              calendar or CalendarStore(), parts["bus"], parts["jev"], turns_log=log)
+              calendar or CalendarStore(), parts["bus"], parts["jev"], turns_log=log, goals=goals)
     from evie.countdown import Countdown
     b._job_countdown = Countdown(seconds=0)  # jobs start on the next loop turn (tests await briefly)
     return b, parts

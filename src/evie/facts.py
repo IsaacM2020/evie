@@ -24,8 +24,8 @@ class FactStore:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text("".join(json.dumps(f) + "\n" for f in self._facts))
 
-    def add(self, text: str) -> None:
-        self._facts = (self._facts + [{"t": time.time(), "text": text}])[-self._keep:]
+    def add(self, text: str, source: str = "isaac") -> None:
+        self._facts = (self._facts + [{"t": time.time(), "text": text, "source": source}])[-self._keep:]
         self._save()
 
     def remove_last(self) -> str | None:

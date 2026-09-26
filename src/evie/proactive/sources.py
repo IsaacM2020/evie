@@ -29,6 +29,8 @@ OVERHEARD_Q = ('Isaac said this to someone else, not to Evie. Did he mention an 
 TASK_MOMENTS = ((15, 45), (19, 30))  # after school, and the evening
 RADAR_EVERY_S = 1800.0
 RADAR_PER_DAY = 3
+GOAL_RADAR_EVERY_S = 3600.0  # goals move slowly; once an hour is plenty
+GOAL_RENUDGE_DAYS = 3.0  # a still-stale goal can come back after this long, not every check
 HEADS_UP_S = 15 * 60
 EVERYDAY = re.compile(r"^\s*school\s*$", re.I)  # no heads-up for the thing he does every day
 DEV_APPS = {"Terminal", "iTerm2", "Code", "Visual Studio Code", "Cursor", "Xcode", "Warp", "Ghostty", "Zed"}
@@ -53,11 +55,13 @@ def short_goal(goal: str) -> str:
 class Sources:
     def __init__(self, engine, calendar: CalendarStore, todoist, talker, hands=None,
                  now: Callable[[], datetime] = lambda: datetime.now(TZ), clock: Callable[[], float] = time.time,
-                 text_mode: Callable[[], bool] = lambda: False):
+                 text_mode: Callable[[], bool] = lambda: False, goals=None):
         self.engine, self._cal, self._todoist, self._talker, self._hands = engine, calendar, todoist, talker, hands
         self._now, self._clock, self._text = now, clock, text_mode
+        self._goals = goals  # evie.goals: Phase 6 P1, stale goals nudge like any other source
         self.enabled: Callable[[str], bool] = lambda name: True  # the panel's per-source switches
         self._radar_at = -1e9
+        self._goal_radar_at = -1e9
         self._asked: set[str] = set()  # task-nudge moments already looked at
         self._brief_day: date | None = None
         self._radar: dict[date, int] = {}
@@ -69,12 +73,28 @@ class Sources:
 
     # -- on every tick ---------------------------------------------------------------------------
     async def collect(self) -> None:
-        for name, fn in (("heads_up", self._heads_up), ("tasks", self._task_nudge), ("deadlines", self._deadlines)):
+        for name, fn in (("heads_up", self._heads_up), ("tasks", self._task_nudge),
+                        ("deadlines", self._deadlines), ("goals", self._goal_nudge)):
             if self.enabled(name):
                 try:
                     await fn()
                 except Exception:  # one broken source never stops the others
                     log.exception("proactive source %s failed", name)
+
+    async def _goal_nudge(self) -> None:
+        """A goal nobody has touched in a while gets the same kind of nudge a deadline does
+        (Phase 6 P1: "the proactive engine reasons from goals too, not just reminders")."""
+        if self._goals is None or self._clock() - self._goal_radar_at < GOAL_RADAR_EVERY_S:
+            return
+        self._goal_radar_at = self._clock()
+        bucket = int(self._clock() // (GOAL_RENUDGE_DAYS * 86400))  # re-eligible every few days, not every tick
+        for g in self._goals.stale():
+            line = f"You haven't touched your goal to {g.outcome} in a while."
+            if g.next_action:
+                line += f" Next up was: {g.next_action}."
+            self.engine.add(FollowUp("goals", line, f"goal_stale:{g.id}:{bucket}",
+                                     on_yes={"do": "say", "text": g.next_action or
+                                            "No next action saved yet — worth deciding one."}))
 
     async def _heads_up(self) -> None:
         now = self._now()

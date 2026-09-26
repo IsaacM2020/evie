@@ -24,6 +24,7 @@ from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
 from evie.computer.find import _BADGE, candidates, find_in_code, pick_pool
 from evie.computer.observe import Screen
 from evie.computer.safety import is_risky
+from evie.computer.vision_fallback import needs_visual_fallback
 from evie.computer.world import Target, World
 from evie.countdown import Countdown
 from evie.jev import JevError
@@ -160,15 +161,20 @@ class Planner:
 
     def __init__(self, hands, groq, jev, countdown: Countdown, say: Callable[[str], None], settle_s: float = 0.5,
                  window_s: float = 3.0, show_work: Callable[[], bool] = lambda: True,
-                 progress: Callable[[str], None] | None = None, messages=None, talker=None):
+                 progress: Callable[[str], None] | None = None, messages=None, talker=None, vision=None):
         self._hands, self._groq, self._jev, self._countdown, self._say = hands, groq, jev, countdown, say
         self._settle, self._window, self._show_work = settle_s, window_s, show_work
         self._progress = progress or (lambda _t: None)
         self._messages, self._talker = messages, talker
         self._rate_wait = 8.0  # seconds to wait when every planner model hit its per-minute limit
+        self.last_steps: list[dict] = []  # what run() actually used, for evie.procedures to learn from
+        self._vision = vision  # evie.computer.vision_fallback: only tried once structured reads are stuck
 
     # -- the run --------------------------------------------------------------------------------
-    async def run(self, goal: str, app: str | None = None) -> Outcome:
+    async def run(self, goal: str, app: str | None = None, steps: list[dict] | None = None) -> Outcome:
+        """steps: a procedure remembered from an earlier success (evie.procedures), tried before
+        asking a model to plan again. Everything downstream — the expect checks, the replan on a
+        miss — runs exactly as it would for a fresh plan, so a stale procedure fails safely."""
         self._goal, self._picked, self._history = goal, "", []
         self._did, self._last_say = False, ""  # something was actually done (across replans)
         self._typed = False
@@ -184,12 +190,14 @@ class Planner:
         self._target, self._world_now = target, world
         await self._go_to(target)
         self._understood = ""
-        steps = await self._plan(first=True)
-        if self._understood:  # what she's about to do, said as soon as she knows (a long one can be stopped)
-            long = sum(1 for st in steps if st.get("do") not in ("expect", "done")) >= LONG_STEPS
-            self._say(f"{self._understood}. Say stop if that's wrong." if long else f"{self._understood}.")
+        if steps is None:
+            steps = await self._plan(first=True)
+            if self._understood:  # said as soon as she knows (a long one can be stopped)
+                long = sum(1 for st in steps if st.get("do") not in ("expect", "done")) >= LONG_STEPS
+                self._say(f"{self._understood}. Say stop if that's wrong." if long else f"{self._understood}.")
         replans = 0
         while True:
+            self.last_steps = steps  # evie.procedures reads this after a success to learn from it
             try:
                 return await self._run_steps(steps)
             except _AskPick as a:
@@ -201,8 +209,12 @@ class Planner:
                 log.info("computer step failed (%s), replan %d", f, replans + 1)
                 if replans >= MAX_REPLANS:
                     log.info("computer goal stuck: %s | %s", goal, " / ".join(self._history[-6:]))
-                    return Outcome(False, "I got stuck doing that on screen.", stuck=True,
-                                   tried=" / ".join(self._history[-8:]))
+                    tried = " / ".join(self._history[-8:])
+                    if self._vision is not None and needs_visual_fallback(self._screen):
+                        seen = await self._vision.describe(self._app())
+                        if seen:
+                            tried += f" | screen looked like: {seen}"
+                    return Outcome(False, "I got stuck doing that on screen.", stuck=True, tried=tried)
                 replans += 1
                 await self._look()
                 steps = await self._plan(first=False)
