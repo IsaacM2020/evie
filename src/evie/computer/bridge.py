@@ -20,6 +20,7 @@ import json
 
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 
+from evie.computer.planner import MESSAGING_APPS, _SEND_KEYS
 from evie.computer.safety import classify, is_risky
 from evie.countdown import Countdown
 from evie.hands import Hands
@@ -132,6 +133,14 @@ def build_evie_hands_tools(hands: Hands, countdown: Countdown, say) -> list[SdkM
 
     @tool("evie_key", "Send a key combo (like 'cmd+t') to an app.", {"app": str, "combo": str})
     async def evie_key(args: dict) -> dict:
+        # Mirrors Planner._step's own _SEND_KEYS/MESSAGING_APPS check: a Return-shaped combo in a
+        # messaging app sends whatever was just typed -- same gate as pressing a Send button, so
+        # this tool can't be used to bypass the countdown the fast planner would apply.
+        combo = args["combo"].lower().replace(" ", "")
+        if combo in _SEND_KEYS and args["app"] in MESSAGING_APPS:
+            say(f"Sending what's typed in {args['app']}. Say stop to cancel.")
+            if not await countdown.wait():
+                return _err("Isaac said stop -- didn't do it.")
         r = await hands.do("key", combo=args["combo"], app=args["app"])
         if not r.ok:
             return _err(f"key {args['combo']} failed: {r.detail}")

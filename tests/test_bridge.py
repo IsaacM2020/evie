@@ -99,6 +99,47 @@ async def test_press_an_id_not_on_the_last_observed_snapshot_is_refused():
     assert not any(op == "press" for op, _ in hands.calls)
 
 
+async def test_key_send_combo_in_a_messaging_app_is_gated_like_a_press():
+    """2026-09-26 completion pass: evie_key passed every combo straight through with zero risk
+    gating -- Claude Code could press cmd+return in WhatsApp via this tool and silently SEND a
+    message with no read-back or countdown, exactly the class of bug is_risky/_SEND_KEYS exists to
+    prevent in the fast planner (planner.py's own _step: 'combo in _SEND_KEYS and app in
+    MESSAGING_APPS' triggers the same say-stop countdown as a Send button). Mirrors that logic
+    here rather than letting a send-shaped key combo bypass the safety gate entirely."""
+    hands = SimHands(apps={"WhatsApp": []}, world={"front_app": "WhatsApp", "apps": ["WhatsApp"], "windows": [],
+                                                    "tabs": [], "selected": ""})
+    said = []
+    server = _server(hands, say=said.append)
+    out = await _tool(server, "evie_key").handler({"app": "WhatsApp", "combo": "cmd+return"})
+    assert not out.get("is_error")
+    assert any("stop" in s.lower() for s in said)
+    assert ("key", {"combo": "cmd+return", "app": "WhatsApp"}) in hands.calls
+
+
+async def test_key_send_combo_can_be_stopped():
+    import asyncio
+    hands = SimHands(apps={"WhatsApp": []}, world={"front_app": "WhatsApp", "apps": ["WhatsApp"], "windows": [],
+                                                    "tabs": [], "selected": ""})
+    cd = Countdown(seconds=1.0)
+    server = _server(hands, countdown=cd)
+    task = asyncio.ensure_future(_tool(server, "evie_key").handler({"app": "WhatsApp", "combo": "cmd+return"}))
+    await asyncio.sleep(0.05)
+    assert cd.cancel()
+    out = await task
+    assert out.get("is_error")
+    assert not any(op == "key" for op, _ in hands.calls)
+
+
+async def test_key_ordinary_combo_in_a_non_messaging_app_is_unaffected():
+    hands = SimHands(pages={"https://example.com/": []}, world={"front_app": "Safari", "apps": ["Safari"],
+                                                                 "windows": [], "tabs": [], "selected": ""})
+    said = []
+    server = _server(hands, say=said.append)
+    out = await _tool(server, "evie_key").handler({"app": "Safari", "combo": "cmd+t"})
+    assert not out.get("is_error")
+    assert said == []
+
+
 async def test_open_url_and_key_pass_straight_through():
     hands = SimHands(pages={"https://example.com/": []}, world={"front_app": "Safari", "apps": ["Safari"],
                                                                  "windows": [], "tabs": [], "selected": ""})
