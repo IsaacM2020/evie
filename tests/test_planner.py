@@ -113,6 +113,28 @@ async def test_jev_can_never_pick_something_that_is_not_on_screen():
     assert not any(op == "press" for op, _ in hands.calls)
 
 
+NETFLIX_WRONG_PROFILE_SCREEN = [
+    {"id": "w1", "role": "link", "label": "Isaac", "href": "https://www.netflix.com/browse?profile=isaac"},
+    {"id": "w2", "role": "link", "label": "Dangal", "href": "https://www.netflix.com/browse?profile=dangal"},
+    {"id": "w3", "role": "link", "label": "Kids", "href": "https://www.netflix.com/browse?profile=kids"},
+]
+NETFLIX_PLAN = {"steps": [{"do": "open_url", "url": "https://www.netflix.com/"},
+                          {"do": "find", "what": "Daryl", "role": "link", "then": "press"},
+                          {"do": "done", "say": "Daryl's profile opened."}]}
+
+
+async def test_jev_choose_refuses_when_nothing_is_a_plausible_match():
+    """2026-09-25 core.log: Evie pressed 'Dangal' when asked for the Netflix profile 'Daryl'.
+    After the fix: none of Isaac, Dangal or Kids score above NO_MATCH_FLOOR against "Daryl", so
+    _jev_choose offers "none" and PickJev(choose=lambda opts: "none") simulates Jev correctly
+    recognizing that. The task fails gracefully (replan, then stuck) -- nothing gets pressed."""
+    hands = SimHands(pages={"https://www.netflix.com/": NETFLIX_WRONG_PROFILE_SCREEN}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(NETFLIX_PLAN, NETFLIX_PLAN, NETFLIX_PLAN), PickJev(choose=lambda opts: "none"))
+    r = await p.run("open netflix and click the profile daryl")
+    assert not r.ok and r.stuck
+    assert not any(op == "press" for op, _ in hands.calls)
+
+
 async def test_this_news_thing_uses_his_front_tab_even_when_safari_is_behind():
     news = "https://www.bbc.com/news"
     world = {"front_app": "Notes", "apps": ["Notes", "Safari"], "windows": [],

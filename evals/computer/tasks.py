@@ -49,6 +49,10 @@ NETFLIX = "https://www.netflix.com"
 # He said "Darrell"; the profile is spelled "Darryl" (2026-09-24 18:23)
 NF_PROFILES = [{"id": f"w{i}", "role": "link", "label": name, "href": f"{NETFLIX}/browse?profile={name.lower()}",
                 "region": "main"} for i, name in enumerate(["Isaac", "Darryl", "Kids"], 1)]
+# 2026-09-25 P0 #1: Evie pressed "Dangal" for the profile "Daryl" -- neither exists here.
+NF_PROFILES_NO_DARYL = [{"id": f"w{i}", "role": "link", "label": name,
+                        "href": f"{NETFLIX}/browse?profile={name.lower()}", "region": "main"}
+                       for i, name in enumerate(["Isaac", "Dangal", "Kids"], 1)]
 
 BBC = "https://www.bbc.com/news"
 BBC_HOME = [{"id": "w1", "role": "link", "label": "News", "href": BBC, "region": "nav"},
@@ -193,4 +197,6 @@ TASKS = [
          pages={f"{YT}/@Parrot/videos": PARROT_VIDEOS, f"{YT}/watch?v=p2": WATCH}, answer="the talking one"),
     task("netflix1", "go to netflix and open darrell's profile", SAFARI_FRONT, {"url": "profile=darryl"},
          pages={NETFLIX: NF_PROFILES, "https://netflix.com": NF_PROFILES, f"{NETFLIX}/browse?profile=darryl": []}),
+    task("netflix2", "go to netflix and open darryl's profile", SAFARI_FRONT, {"asked_or_stuck": True, "no_press": True},
+         pages={NETFLIX: NF_PROFILES_NO_DARYL, "https://netflix.com": NF_PROFILES_NO_DARYL}),
 ]

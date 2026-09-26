@@ -13,6 +13,8 @@ from evie.computer.observe import Screen
 
 CLEAR_WIN = 0.9  # a winner this good ...
 CLEAR_GAP = 0.2  # ... and this far ahead of the next is used without asking Jev
+NO_MATCH_FLOOR = 0.35  # below this, no candidate is a plausible match at all (2026-09-26 P0:
+# "Dangal" pressed for the profile "Daryl" — nothing on screen was even a misheard spelling of it)
 _FILLER = {"the", "a", "an", "button", "link", "tab", "box", "field", "on", "in", "of", "to", "my", "this", "that",
            "click", "press", "open", "go", "page"}
 
@@ -47,6 +49,12 @@ def score(el: dict, what: str) -> float:
     # is a near-spelling of a word he said. Only for names (longer than 3 letters), never commands.
     near = 0.9 if lw and len(lw) <= 2 and not named and all(len(w) > 3 and any(_near(w, x) for x in want) for w in lw) else 0.0
     return round(max(exact, named, near, 0.65 * overlap + 0.35 * close), 3)
+
+
+def best_score(cands: list[dict], what: str) -> float:
+    """The top candidate's score, or 0.0 for an empty list. Used to decide whether to offer
+    Jev a "none of these" escape instead of forcing a choice among implausible options."""
+    return max((score(c, what) for c in cands), default=0.0)
 
 
 def _near(a: str, b: str) -> bool:

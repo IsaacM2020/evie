@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
-from evie.computer.find import _BADGE, candidates, find_in_code, pick_pool
+from evie.computer.find import _BADGE, NO_MATCH_FLOOR, best_score, candidates, find_in_code, pick_pool
 from evie.computer.observe import Screen
 from evie.computer.safety import is_risky
 from evie.computer.vision_fallback import needs_visual_fallback
@@ -353,7 +353,7 @@ class Planner:
         if not cands:
             raise _Fail(f"nothing on screen looks like {what!r}")
         try:
-            return await self._jev_choose(f"Which of these on-screen items is: {what}?", cands, f"find {what!r}")
+            return await self._jev_choose(f"Which of these on-screen items is: {what}?", cands, f"find {what!r}", what)
         except _Fail:
             if self._web():
                 raise
@@ -382,9 +382,10 @@ class Planner:
         pool = pick_pool(self._screen, str(st.get("among") or ""))
         if not pool:
             raise _Fail(f"no {st.get('among')} on this page")
+        want = str(st.get("want") or "")
         el = await self._jev_choose(
-            f"Isaac asked: \"{self._goal}\". Which one is {st.get('want')}? They're listed in page order "
-            "(first = top of the page). Pick the best match.", pool[:12], f"pick {st.get('want')!r}")
+            f"Isaac asked: \"{self._goal}\". Which one is {want}? They're listed in page order "
+            "(first = top of the page). Pick the best match.", pool[:12], f"pick {want!r}", want)
         self._picked = el.get("label", "")
         others = [{k: r[k] for k in ("id", "label", "meta", "href") if r.get(k)} for r in pool[:4] if r["id"] != el["id"]]
         self._alt = self._pick_state({**st, "then": "press"}, others[:3]) if others else None
@@ -467,9 +468,13 @@ class Planner:
             out.append((row, el))
         return out
 
-    async def _jev_choose(self, instructions: str, cands: list[dict], what: str) -> dict:
+    async def _jev_choose(self, instructions: str, cands: list[dict], what: str, target: str | None = None) -> dict:
         criteria = {c["id"]: (f"#{i + 1} " + (c.get("label") or "") + (f" ({c['meta']})" if c.get("meta") else ""))[:160]
                     for i, c in enumerate(cands)}
+        # target=None: Isaac is disambiguating something he was already shown (choose()'s "the
+        # talking one"), not naming an absent target -- no plausible-match floor makes sense there.
+        if target is not None and best_score(cands, target) < NO_MATCH_FLOOR:
+            criteria["none"] = "None of these are a plausible match; the target isn't on screen"
         try:
             res = await self._jev.ask(f"Goal: {self._goal}", {"el": {"type": "choice", "instructions": instructions,
                                                                      "criteria": criteria}})
@@ -477,6 +482,8 @@ class Planner:
         except (JevError, KeyError, TypeError) as e:
             raise _Fail(f"couldn't choose for {what}: {e}")
         cid = a.get("choice")
+        if cid == "none":
+            raise _Fail(f"none of these are {what!r}")
         if cid not in criteria or cid not in self._screen.ids:  # never anything that isn't on screen
             raise _Fail(f"{what}: the choice {cid!r} isn't on screen")
         if float(a.get("confidence", 0)) < 0.3:
