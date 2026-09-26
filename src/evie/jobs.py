@@ -177,7 +177,10 @@ class Job:
     timeout_s: float | None = None
     max_retries: int = 0
     retries_done: int = 0
-    session_id: str = field(default_factory=lambda: uuid.uuid4().hex)  # lets a paused job resume the same session
+    # Lets a paused job resume the same session. The Claude CLI validates this as a real UUID
+    # (dashes and all) and rejects a bare .hex string -- caught only by a real-SDK run, since
+    # FakeClient in the offline tests never parses this value (Isaac, 2026-09-26 Phase 6 close-out).
+    session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def progress(self) -> tuple[int, int, str] | None:
         """(step it's on, steps in the plan, what it's doing) from its TodoWrite plan, or None."""

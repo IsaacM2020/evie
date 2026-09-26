@@ -62,11 +62,44 @@ class FakeMouth:
 
 
 class FakeRunner:
-    def __init__(self, running=None, busy=False):
+    def __init__(self, running=None, busy=False, background=None):
         self.job = Job(goal=running) if running else None
         self.busy = busy
         self.started, self.stopped, self.instructions = [], 0, []
         self.queue = []
+        self.bg = list(background or [])
+        self.paused, self.resumed, self.cancelled = [], [], []
+
+    @property
+    def background(self):
+        return list(self.bg)
+
+    def all_jobs(self):
+        return ([self.job] if self.job else []) + self.bg
+
+    async def pause(self, job_id):
+        job = next((j for j in self.bg if j.id == job_id), None)
+        if job is None or job.status not in ("running", "queued", "blocked"):
+            return False
+        job.status = "paused"
+        self.paused.append(job_id)
+        return True
+
+    async def resume_job(self, job_id):
+        job = next((j for j in self.bg if j.id == job_id), None)
+        if job is None or job.status != "paused":
+            return None
+        job.status = "queued"
+        self.resumed.append(job_id)
+        return job
+
+    async def cancel(self, job_id):
+        job = next((j for j in self.bg if j.id == job_id), None)
+        if job is None:
+            return False
+        job.status = "stopped"
+        self.cancelled.append(job_id)
+        return True
 
     @property
     def queued(self):

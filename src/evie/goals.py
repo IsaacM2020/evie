@@ -193,11 +193,15 @@ _LIST = re.compile(r"^(?:evie[,:]?\s+)?(?:what are my goals|list my goals|show m
 _VERB = {"resume": r"(?:resume|pick up|unpause|restart)",
          "pause": r"pause",
          "done": r"(?:mark|finish|complete|close)",
-         "status": r"(?:how'?s|what'?s the status (?:on|of)|status (?:on|of)|what'?s next on)"}
-_HAS_GOAL = re.compile(r"\bgoal\b", re.I)
+         # "how's" only matches the contraction (2026-09-26: Isaac's own "how IS my goal on X
+         # going" fell through to a plain answer instead, missing the goal entirely -- caught by
+         # real-Mac testing, not the offline suite, since its own fixture always said "how's").
+         "status": r"(?:how'?s|how is|how are|how're|what'?s the status (?:on|of)|status (?:on|of)|"
+                   r"what'?s next on)"}
+_HAS_GOAL = re.compile(r"\bgoals?\b", re.I)
 _LEAD_MY_THE = re.compile(r"^(?:my|the)\s+", re.I)
-_LEAD_GOAL = re.compile(r"^goal\b\s*(?:on|of|for)?\s*", re.I)
-_TRAIL_GOAL = re.compile(r"\s+goal$", re.I)
+_LEAD_GOAL = re.compile(r"^goals?\b\s*(?:on|of|for)?\s*", re.I)
+_TRAIL_GOAL = re.compile(r"\s+goals?$", re.I)
 _TRAIL_DONE = re.compile(r"\s+(?:as\s+done|done)$", re.I)
 _TRAIL_Q = re.compile(r"\?+$")
 

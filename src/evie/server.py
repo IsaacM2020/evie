@@ -539,7 +539,7 @@ def build_deps(s: Settings) -> Deps:
     from evie.jobs import JobRunner, pick_tier
     from evie.facts import FactStore
     from evie.narrator import Narrator
-    from evie.remember import Remember, Todoist
+    from evie.remember import Remember, Todoist, TodoistCache
     from evie.computer.messages import Messages
     from evie.computer.planner import Planner
     from evie.computer.recipes import Recipes
@@ -628,6 +628,7 @@ def build_deps(s: Settings) -> Deps:
     conversation = Conversation()
     skills.events = EventSkills(hands, talker, jev, cal, skills, countdown, conversation=conversation)
     todoist = Todoist(s.todoist_key)
+    todoist_cache = TodoistCache(todoist)  # Phase 6 P0 gap-fill: world.tasks needs a sync view
     skills.tasks = TaskSkills(todoist, jev, skills)
     remember = Remember(talker, hands, todoist, FactStore(), cal, skills, timers=timers)
     goals = GoalStore()  # Phase 6 P1: persistent goals/initiatives
@@ -650,6 +651,7 @@ def build_deps(s: Settings) -> Deps:
                                      on_start=show_window)
     from evie.computer.messages import load_people
     world = WorldStore(calendar_view=lambda: {"today": cal.summary(datetime.now(TZ).date())},
+                       tasks_view=todoist_cache.view,
                        projects_view=lambda: [projects.brief] if projects.brief else [],
                        people_view=load_people,
                        commitments_view=lambda: [{"fact": f} for f in remember.facts.recent(5)] +
@@ -713,6 +715,7 @@ def build_deps(s: Settings) -> Deps:
         await watched("jev", jev.warm)
         await watched("groq", groq.warm)
         await watched("stt", stt.warm)
+        await watched("todoist", todoist_cache.refresh)
         running = {j.id for j in runner.all_jobs() if j.status == "running"}
         stuck = set(health.stuck_jobs(list(running)))
         for jid in stuck - stuck_flagged:

@@ -8,7 +8,7 @@ import respx
 from evie.calendar_store import TZ, CalendarStore, CalEvent
 from evie.facts import FactStore
 from evie.hands import HandsResult
-from evie.remember import Remember, Todoist
+from evie.remember import Remember, Todoist, TodoistCache
 
 NOW = datetime(2026, 9, 23, 17, 0, tzinfo=TZ)  # a Wednesday
 
@@ -310,3 +310,93 @@ async def test_todoist_lists_today_and_overdue_and_closes():
     tasks = await t.list("today | overdue")
     assert [(x.id, x.content, x.due) for x in tasks] == [("1", "Email bio teacher", "tomorrow"), ("2", "Maths practice", None)]
     assert await t.close("1") is True and close.called
+
+
+# -- TodoistCache: world.tasks needs a sync view; Todoist.list() is async (Phase 6 P0 gap-fill) --
+
+class Clock:
+    def __init__(self, t=1_000_000.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+@respx.mock
+async def test_todoist_cache_populated():
+    respx.get("https://api.todoist.com/api/v1/tasks/filter").respond(200, json={"results": [
+        {"id": "1", "content": "Email bio teacher", "due": {"date": "2026-09-24", "string": "tomorrow"}}]})
+    cache = TodoistCache(Todoist("k"), clock=Clock())
+    await cache.refresh()
+    view = cache.view()
+    assert view["available"] is True and view["stale"] is False
+    assert view["items"] == [{"id": "1", "content": "Email bio teacher", "due": "tomorrow"}]
+
+
+@respx.mock
+async def test_todoist_cache_empty_is_not_the_same_as_unavailable():
+    respx.get("https://api.todoist.com/api/v1/tasks/filter").respond(200, json={"results": []})
+    cache = TodoistCache(Todoist("k"), clock=Clock())
+    await cache.refresh()
+    view = cache.view()
+    assert view["items"] == [] and view["available"] is True and view["stale"] is False
+
+
+async def test_todoist_cache_unavailable_when_not_configured():
+    """Not configured is a deliberate choice (Todoist is optional, see config.py), not a fault:
+    world.tasks correctly shows it unavailable, but it must never raise into health_tick's
+    watched() -- that would flag a permanently "degraded" component for a feature nobody turned on."""
+    cache = TodoistCache(Todoist(""), clock=Clock())
+    await cache.refresh()  # must not raise
+    view = cache.view()
+    assert view["available"] is False and view["items"] == [] and view["stale"] is True
+
+
+@respx.mock
+async def test_todoist_cache_unavailable_on_network_failure_keeps_last_good_items():
+    route = respx.get("https://api.todoist.com/api/v1/tasks/filter")
+    route.mock(return_value=httpx.Response(200, json={"results": [{"id": "1", "content": "x", "due": None}]}))
+    clock = Clock()
+    cache = TodoistCache(Todoist("k"), clock=clock)
+    await cache.refresh()
+    assert cache.view()["available"] is True
+    route.mock(return_value=httpx.Response(500))
+    clock.t += 5.0  # a genuine failure, but only 5s later: not stale yet, just unavailable right now
+    with pytest.raises(RuntimeError):  # a real failure DOES raise, so health_tick's watched() sees it
+        await cache.refresh()
+    view = cache.view()
+    assert view["available"] is False
+    assert view["items"] == [{"id": "1", "content": "x", "due": None}]  # last good list, not wiped
+    assert view["stale"] is False
+
+
+@respx.mock
+async def test_todoist_cache_goes_stale_after_a_long_silence():
+    respx.get("https://api.todoist.com/api/v1/tasks/filter").respond(200, json={"results": []})
+    clock = Clock()
+    cache = TodoistCache(Todoist("k"), clock=clock)
+    await cache.refresh()
+    assert cache.view()["stale"] is False
+    clock.t += 1000.0  # past STALE_AFTER_S (900s) with no further refresh at all
+    assert cache.view()["stale"] is True
+
+
+async def test_todoist_cache_before_any_refresh_is_stale_with_no_items():
+    view = TodoistCache(Todoist("k")).view()
+    assert view["items"] == [] and view["stale"] is True
+
+
+@respx.mock
+async def test_todoist_cache_recovers_after_a_failure_without_raising():
+    """The health_tick round trip Isaac asked to verify on the real Mac: a real outage raises (so
+    watched() flags "todoist" degraded), and the very next successful refresh raises nothing (so
+    watched() flags it recovered) -- exactly how jev/groq/stt already behave."""
+    route = respx.get("https://api.todoist.com/api/v1/tasks/filter")
+    route.mock(return_value=httpx.Response(500))
+    cache = TodoistCache(Todoist("k"), clock=Clock())
+    with pytest.raises(RuntimeError):
+        await cache.refresh()
+    assert cache.view()["available"] is False
+    route.mock(return_value=httpx.Response(200, json={"results": []}))
+    await cache.refresh()  # recovered: must not raise this time
+    assert cache.view()["available"] is True

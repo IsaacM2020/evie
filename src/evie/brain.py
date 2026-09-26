@@ -22,6 +22,7 @@ from evie.countdown import Countdown
 from evie.events import EventBus
 from evie.goals import NEW_Q, PROGRESS_Q, GoalCommand, format_goal, parse_goal_command
 from evie.jev import JevError
+from evie.job_commands import PAUSABLE, RESUMABLE, STOPPABLE, JobCommand, extract_ordinal, parse_job_command
 from evie.jobs import Busy
 from evie.skills.catalog import RISK, allowed
 from evie.switchboard.context import Context
@@ -163,6 +164,7 @@ class Brain:
         # After she picked something by herself: ("music", runner-up songs, when) or ("screen", the
         # runner-up rows, when). "No, the other one" takes the next without asking anyone.
         self._last_pick: tuple[str, object, float] | None = None
+        self._last_job_ref: str | None = None  # last background job a voice command resolved to
         # Phase 4 proactive (evie.proactive): what she brings up herself, and when
         self.proactive = None  # Sources: overheard plans go here
         self.engine = None  # Engine: his answers to her offers go here
@@ -204,6 +206,14 @@ class Brain:
             # Same rail as everywhere else: an unmatched voice can ask about goals but not change one.
             if cmd and not (speaker == "unknown" and cmd.kind not in ("status", "list")):
                 return await self._goal_command(text, cmd)
+        if speaker != "other":
+            jcmd = parse_job_command(strip_wake(text))
+            # Every job command is a mutation (there's no read-only kind), so unlike goals this
+            # is all-or-nothing: an unknown voice never reaches _job_command at all.
+            if jcmd and speaker != "unknown":
+                out = await self._job_command(text, jcmd)
+                if out is not None:
+                    return out
         waiting = self._pending
         # Isaac's own voice right after she spoke is a reply to her, like saying her name (the talk
         # key never had this problem; Live ignored "pretty good" after "How's your day?").
@@ -297,6 +307,8 @@ class Brain:
             return await self._answer_pick(p, text, speaker)
         if p.kind == "offer":
             return await self._answer_offer(p, text, speaker)
+        if p.kind == "job_pick":
+            return await self._answer_job_pick(p, text, speaker)
         if self._clock() - p.at > PENDING_S or _WAKE.match(text):
             self._pending = None
             return None
@@ -355,6 +367,27 @@ class Brain:
             await self.engine.answer(p.data["id"], action)
         self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "follow-up", "route": action})
         return {"text": text, "action": "act", "reason": "follow-up", "route": action, "said": None}
+
+    async def _answer_job_pick(self, p: Pending, text: str, speaker: str) -> dict | None:
+        """"Which one — job two, or job three?" Re-resolves against whatever's actually running
+        now rather than the candidates offered a moment ago, same as everywhere else here waits
+        are bounded by PENDING_S: state may have moved on while Evie waited for the answer."""
+        if speaker == "other" or self._clock() - p.at > PENDING_S:
+            self._pending = None
+            return None
+        n = extract_ordinal(text)
+        if n is None:
+            return None  # not an answer to this at all: keep waiting, same as "detail"
+        self._pending = None
+        bg = self._runner.background
+        if not (1 <= n <= len(bg)):
+            said = self._say(f"I don't have a job number {n}.")
+        else:
+            said = await self._apply_job_command(p.data["kind"], bg[n - 1])
+        self._bus.publish("heard", text=text)
+        self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "job_command",
+                         "route": p.data["kind"]})
+        return {"text": text, "action": "act", "reason": "job_command", "route": p.data["kind"], "said": said}
 
     async def do_followup(self, it) -> None:
         """He said yes to something she brought up."""
@@ -842,6 +875,72 @@ class Brain:
             await self._runner.add_instruction(strip_wake(text))
             return self._say("Got it, passing that on.")
         return self._say(self._runner.status_line())
+
+    def _job_ordinal(self, job) -> int | None:
+        """"Job two": 1-indexed by when each background job started, the order self._runner.background
+        already returns them in. Purely a voice convenience — nothing else in Evie numbers jobs."""
+        for i, j in enumerate(self._runner.background, start=1):
+            if j.id == job.id:
+                return i
+        return None
+
+    async def _apply_job_command(self, kind: str, job) -> str:
+        self._last_job_ref = job.id
+        if kind == "pause":
+            ok = await self._runner.pause(job.id)
+            return self._say(f"Paused {job.goal}." if ok else f"{job.goal} isn't running, so there's nothing to pause.")
+        if kind == "resume":
+            resumed = await self._runner.resume_job(job.id)
+            return self._say(f"Resuming {resumed.goal}." if resumed else f"{job.goal} isn't paused.")
+        ok = await self._runner.cancel(job.id)
+        return self._say(f"Stopped {job.goal}." if ok else "Couldn't stop that.")
+
+    async def _run_job_command(self, cmd: JobCommand) -> str | None:
+        """None means "not confidently a job command after all" — hear() lets the utterance fall
+        through to its normal handling (Jev, music, whatever it actually was) exactly as if this
+        parser had never matched. Phase 6 P1 gap-fill: see evie.job_commands."""
+        bg = self._runner.background
+        states = {"pause": PAUSABLE, "resume": RESUMABLE, "stop": STOPPABLE}[cmd.kind]
+        candidates = [j for j in bg if j.status in states]
+
+        if cmd.ordinal is not None:
+            if not (1 <= cmd.ordinal <= len(bg)):
+                return self._say(f"I don't have a job number {cmd.ordinal}.")
+            target = bg[cmd.ordinal - 1]
+            if target.status not in states:
+                return self._say(f"Job {cmd.ordinal} — {target.goal} — is {target.status}, not something I can "
+                                 f"{cmd.kind}.")
+            return await self._apply_job_command(cmd.kind, target)
+
+        if cmd.bare:  # resume/continue only (see parse_job_command): never guess, only confirm
+            target = next((j for j in candidates if j.id == self._last_job_ref), None)
+            if target is None and len(candidates) == 1:
+                target = candidates[0]
+            return await self._apply_job_command(cmd.kind, target) if target else None
+
+        # A generic "stop that job" (no ordinal, no "background") while she's mid-conversation on
+        # the foreground job is ambiguous with its own existing voice surface (_job_control, JOB_OP_Q):
+        # defer to that unchanged path instead of guessing which "job" he means.
+        if cmd.kind == "stop" and "background" not in cmd.text.lower() and self._runner.current:
+            return None
+        if not candidates:
+            if cmd.kind == "pause" and self._runner.current:
+                return self._say("I can't pause what you're talking to — say stop instead.")
+            return self._say(f"You don't have a job to {cmd.kind} right now.")
+        if len(candidates) == 1:
+            return await self._apply_job_command(cmd.kind, candidates[0])
+        self._pending = Pending("job_pick", cmd.text, "isaac", self._clock(),
+                                asked=f"Which one — {', or '.join(f'job {self._job_ordinal(j)}' for j in candidates)}?",
+                                data={"kind": cmd.kind})
+        return self._say(self._pending.asked)
+
+    async def _job_command(self, text: str, cmd: JobCommand) -> dict | None:
+        said = await self._run_job_command(cmd)
+        if said is None:
+            return None
+        self._bus.publish("heard", text=text)
+        self._write_log({"t": time.time(), "text": text, "action": "act", "reason": "job_command", "route": cmd.kind})
+        return {"text": text, "action": "act", "reason": "job_command", "route": cmd.kind, "said": said}
 
     async def _sum_up(self) -> None:
         try:

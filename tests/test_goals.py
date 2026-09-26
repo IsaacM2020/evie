@@ -157,6 +157,14 @@ def test_parse_status():
         "status", "cricket predictor")
 
 
+def test_parse_status_accepts_the_uncontracted_phrasing():
+    """Real-Mac testing (2026-09-26): Isaac's own "how IS my goal on X going" fell through to a
+    plain answer, missing the goal entirely, because how'?s only ever matched the contraction."""
+    assert parse_goal_command("how is my goal on phase six going") == GoalCommand("status", "phase six going")
+    assert parse_goal_command("how are my goals on NOI going") == GoalCommand("status", "NOI going")
+    assert parse_goal_command("how is the weather today") is None
+
+
 def test_parse_list():
     assert parse_goal_command("what are my goals") == GoalCommand("list")
     assert parse_goal_command("list my goals") == GoalCommand("list")

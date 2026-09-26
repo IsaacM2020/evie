@@ -13,6 +13,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from time import time as _now
 from typing import Callable
 
 import httpx
@@ -68,6 +69,9 @@ class Todoist:
     def __init__(self, key: str, http: httpx.AsyncClient | None = None):
         self._key = key
         self._http = http or httpx.AsyncClient(timeout=5.0)
+        # Phase 6 P0 gap-fill: set by list() on every call, None on success. Nobody but
+        # TodoistCache reads this, so every existing caller's behaviour is unchanged.
+        self.last_error: str | None = None
 
     @property
     def _auth(self) -> dict:
@@ -95,6 +99,7 @@ class Todoist:
 
     async def list(self, query: str = "today | overdue") -> list[Task]:
         if not self._key:
+            self.last_error = "not configured"
             return []
         try:
             r = await self._http.get(f"{TODOIST_URL}/filter", params={"query": query}, headers=self._auth)
@@ -102,7 +107,9 @@ class Todoist:
             rows = r.json().get("results", [])
         except (httpx.HTTPError, ValueError) as e:
             log.warning("todoist list failed: %s", type(e).__name__)
+            self.last_error = "unreachable"
             return []
+        self.last_error = None
         return [Task(str(t["id"]), t.get("content", ""), (t.get("due") or {}).get("string"),
                      ((t.get("due") or {}).get("date") or "")[:10] or None) for t in rows if "id" in t]
 
@@ -129,6 +136,44 @@ class Todoist:
 
     async def aclose(self) -> None:
         await self._http.aclose()
+
+
+STALE_AFTER_S = 900.0  # 15 min of failed refreshes (ticks run every 20s) is a real outage, not a blip
+
+
+class TodoistCache:
+    """Phase 6 P0 gap-fill: evie.world_model's snapshot() is synchronous (it backs a FastAPI route
+    and gets called from plain code), but Todoist.list() is a network call. Todoist stays the only
+    source of truth — this just remembers its last successful answer so world.tasks has something
+    to read without ever awaiting or blocking the event loop. Refreshed on the existing 20s
+    keep-warm tick (see health_tick in server.py) via the same watched() wrapper everything else
+    on that tick uses, so a Todoist outage shows up as component health like any other.
+    """
+    def __init__(self, todoist: Todoist, query: str = "today | overdue", clock: Callable[[], float] = _now):
+        self._todoist, self._query, self._clock = todoist, query, clock
+        self._tasks: list[Task] = []
+        self._updated_at = 0.0
+        self._available = True  # optimistic until the first refresh proves otherwise
+
+    async def refresh(self) -> None:
+        tasks = await self._todoist.list(self._query)
+        err = self._todoist.last_error
+        self._available = err is None
+        if self._available:  # a failed refresh keeps serving the last good list, just marks it stale
+            self._tasks, self._updated_at = tasks, self._clock()
+        elif err == "unreachable":
+            # "not configured" is a deliberate choice (Todoist is optional), not a fault -- only a
+            # real failure should ever mark the "todoist" component degraded (2026-09-26 close-out:
+            # this used to never raise at all, so health_tick's watched() could never see either).
+            raise RuntimeError("todoist unreachable")
+
+    def view(self) -> dict:
+        """The plain sync callable evie.world_model.WorldStore's tasks_view wants: never awaits,
+        never touches the network, just hands back whatever refresh() last found."""
+        age = self._clock() - self._updated_at if self._updated_at else None
+        return {"items": [{"id": t.id, "content": t.content, "due": t.due} for t in self._tasks],
+                "updated_at": self._updated_at, "available": self._available,
+                "stale": age is None or age > STALE_AFTER_S}
 
 
 def spoken_day(d: date, today: date) -> str:
