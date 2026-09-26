@@ -275,6 +275,7 @@ final class Eyes {
                                               newTab: a["new_tab"]?.bool ?? true, window: a["window"]?.int)
         case "use_tab": return await useTab(window: a["window"]?.int ?? 0, index: a["index"]?.int ?? 1, front: a["front"]?.bool ?? false)
         case "world": return await world()
+        case "state": return await state()
         case "marked_shot": return await markedShot()
         // Only the core's fixed card templates arrive here (evie/computer/cards.py), every value quoted.
         case "applescript":
@@ -555,6 +556,52 @@ final class Eyes {
                                    "tabs": tabs, "selected": selected]
         let json = (try? JSONSerialization.data(withJSONObject: body)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         return HandsOutcome(ok: true, detail: "\(windows.count) windows, \(tabs.count) tabs", data: ["world": json])
+    }
+
+    /// One versioned read of both displays and every on-screen window's geometry, for
+    /// ComputerState.from_data() (src/evie/computer/state.py). Reuses world()'s window
+    /// enumeration pattern and markedShot()'s per-window bounds extraction -- no new approach.
+    private func state() async -> HandsOutcome {
+        var displays: [[String: Any]] = []
+        for screen in NSScreen.screens {
+            let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? 0
+            let f = screen.frame
+            displays.append(["id": "display-\(num)", "builtin": CGDisplayIsBuiltin(num) != 0,
+                             "frame": [Int(f.origin.x), Int(f.origin.y), Int(f.width), Int(f.height)]])
+        }
+        let list = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]]) ?? []
+        var windows: [[String: Any]] = []
+        let front = NSWorkspace.shared.frontmostApplication
+        for w in list where (w[kCGWindowLayer as String] as? Int) == 0 {
+            guard let owner = w[kCGWindowOwnerName as String] as? String, owner != "Evie", owner != "EvieBar",
+                  let bd = w[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: bd) else { continue }
+            // Which display owns most of this window's area (a window can straddle two displays).
+            let ownerDisplay = NSScreen.screens.max(by: { a, b in
+                a.frame.intersection(bounds).width * a.frame.intersection(bounds).height <
+                b.frame.intersection(bounds).width * b.frame.intersection(bounds).height
+            })
+            let dispId = ownerDisplay.map { s -> String in
+                let n = s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? 0
+                return "display-\(n)"
+            } ?? ""
+            let pid = w[kCGWindowOwnerPID as String] as? pid_t
+            let isFront = pid != nil && pid == front?.processIdentifier
+            let title = w[kCGWindowName as String] as? String ?? ""
+            windows.append(["app": owner, "title": title,
+                            "frame": [Int(bounds.origin.x), Int(bounds.origin.y), Int(bounds.width), Int(bounds.height)],
+                            "display": dispId, "focused": isFront])
+            if windows.count >= 20 { break }
+        }
+        let payload: [String: Any] = ["version": Int(Date().timeIntervalSince1970 * 1000) % 1_000_000,
+                                      "ts": Date().timeIntervalSince1970, "displays": displays, "windows": windows,
+                                      "front_app": front?.localizedName ?? "", "front_element": NSNull()]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else {
+            return HandsOutcome(ok: false, detail: "couldn't build state JSON")
+        }
+        return HandsOutcome(ok: true, detail: "ok", data: ["state": json])
     }
 
     private static func bundle(for name: String) -> String {
