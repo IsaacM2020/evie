@@ -26,6 +26,7 @@ from evie.computer.find import _BADGE, NO_MATCH_FLOOR, best_score, candidates, f
 from evie.computer.observe import Screen
 from evie.computer.objective import Objective, from_goal as objective_from_goal
 from evie.computer.perception import PerceptionSource, choose_source
+from evie.computer.recovery import FailureClass, RecoveryStrategy, classify_failure, strategy_for
 from evie.computer.safety import is_risky
 from evie.computer.state import ComputerState
 from evie.computer.verifier import check_app_front, check_element, check_file_exists, check_url_contains
@@ -224,7 +225,7 @@ class Planner:
             if self._understood:  # said as soon as she knows (a long one can be stopped)
                 long = sum(1 for st in steps if st.get("do") not in ("expect", "done")) >= LONG_STEPS
                 self._say(f"{self._understood}. Say stop if that's wrong." if long else f"{self._understood}.")
-        replans = 0
+        replans, waits = 0, 0
         while True:
             self.last_steps = steps  # evie.procedures reads this after a success to learn from it
             try:
@@ -235,7 +236,19 @@ class Planner:
                 return Outcome(False, a.say, ask=True)
             except _Fail as f:
                 self._history.append(f"FAILED: {f}")
-                log.info("computer step failed (%s), replan %d", f, replans + 1)
+                cls = classify_failure(str(f))
+                log.info("computer step failed (%s) [%s], replan %d", f, cls.value, replans + 1)
+                # UNREACHABLE (hands.py: the Evie app itself isn't responding) and TIMEOUT (the app
+                # IS reachable, a step just ran out of time) both get WAIT_AND_VERIFY: no plan can
+                # fix either by reasoning about it, so retry the SAME steps after a short wait
+                # instead of spending one of the two precious replans on a model call that can't
+                # help (recovery.py's own docstring: "no plan can fix a disconnected app"). Bounded
+                # separately from replans -- an app that never comes back must still reach stuck.
+                if strategy_for(cls) == RecoveryStrategy.WAIT_AND_VERIFY and \
+                        cls in (FailureClass.UNREACHABLE, FailureClass.TIMEOUT) and waits < MAX_REPLANS:
+                    waits += 1
+                    await asyncio.sleep(1.0)
+                    continue
                 if replans >= MAX_REPLANS:
                     log.info("computer goal stuck: %s | %s", goal, " / ".join(self._history[-6:]))
                     tried = " / ".join(self._history[-8:])

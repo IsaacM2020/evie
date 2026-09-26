@@ -953,6 +953,52 @@ async def test_expect_file_exists_fails_when_the_file_isnt_there(tmp_path):
     assert not r.ok and r.stuck
 
 
+async def test_unreachable_hands_error_waits_and_retries_without_burning_a_replan():
+    """P2-E wiring (recovery.py): hands.UNREACHABLE ("is the Evie app running?") means the app
+    itself isn't responding right now -- no plan can fix that, so spending one of MAX_REPLANS's
+    two attempts on a fresh model call is pure waste (and the spec's own recovery.py docstring
+    says so directly). classify_failure(msg) -> FailureClass.UNREACHABLE -> WAIT_AND_VERIFY: the
+    SAME steps run again after a short wait, with no extra PlanGroq call consumed. This test
+    supplies only ONE plan in the queue; if the fix instead treated this like any other _Fail and
+    called _plan(first=False) to replan, PlanGroq would raise (queue exhausted) and the task
+    would end up stuck instead of succeeding on the retried attempt."""
+    from evie.hands import UNREACHABLE
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Notion", "apps": ["Notion"], "windows": [], "tabs": [], "selected": ""})
+    plan = {"steps": [{"do": "find", "what": "New", "then": "press"}, {"do": "done", "say": "Done."}]}
+    p, _ = planner(hands, PlanGroq(plan))  # only ONE plan queued: a replan call would fail
+    orig_do = hands.do
+    calls = {"n": 0}
+
+    async def flaky_do(op, **kw):
+        if op == "press" and calls["n"] == 0:
+            calls["n"] += 1
+            return HandsResult(False, UNREACHABLE)
+        return await orig_do(op, **kw)
+    hands.do = flaky_do
+    r = await p.run("press new")
+    assert r.ok and not r.stuck
+    assert ("press", {"id": "a1", "snapshot": "s1"}) in hands.calls
+
+
+async def test_unreachable_hands_error_still_gives_up_eventually():
+    """The wait-and-retry for UNREACHABLE is bounded separately from replans -- an app that never
+    comes back must still reach a stuck Outcome rather than looping forever."""
+    from evie.hands import UNREACHABLE
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Notion", "apps": ["Notion"], "windows": [], "tabs": [], "selected": ""})
+    plan = {"steps": [{"do": "find", "what": "New", "then": "press"}, {"do": "done", "say": "Done."}]}
+    p, _ = planner(hands, PlanGroq(plan))
+
+    async def always_unreachable(op, **kw):
+        if op == "press":
+            return HandsResult(False, UNREACHABLE)
+        return await SimHands.do(hands, op, **kw)
+    hands.do = always_unreachable
+    r = await p.run("press new")
+    assert not r.ok and r.stuck
+
+
 async def test_assign_workspace_uses_objective_not_its_own_duplicate_policy_call():
     """P2-D wiring: _assign_workspace used to call workspace.default_policy itself, independently
     of objective.from_goal computing the exact same thing from the exact same goal text -- two
