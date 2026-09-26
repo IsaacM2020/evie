@@ -66,8 +66,27 @@ def guard_bash(command: str) -> str | None:
     return None
 
 
+def guard_model(model: str | None) -> str | None:
+    """Return why a Task/Agent sub-agent's model is blocked, or None if it's fine. A sub-agent
+    call carries no 'command', so guard_bash never sees it -- this is the separate check the
+    Bash|Task|Agent hook matcher (Task 5) actually needs for the non-Bash branch (2026-09-26,
+    code review: the matcher alone was a no-op for Task/Agent calls)."""
+    if not model or model in ("inherit", "default"):
+        return None
+    if model in ALLOWED_MODELS:
+        return None
+    aliases = {"haiku", "sonnet", "fable"}  # the CLI's own short model aliases, not full ids
+    if model in aliases:
+        return None
+    return f"Evie never runs {model!r} for a sub-agent — only {sorted(ALLOWED_MODELS)} or the aliases {sorted(aliases)}."
+
+
 async def bash_hook(input_data: dict, tool_use_id: str | None, context) -> dict:
-    reason = guard_bash(input_data.get("tool_input", {}).get("command", ""))
+    tool_input = input_data.get("tool_input", {})
+    if input_data.get("tool_name") in ("Task", "Agent"):
+        reason = guard_model(tool_input.get("model"))
+    else:
+        reason = guard_bash(tool_input.get("command", ""))
     if reason is None:
         return {}
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",

@@ -135,6 +135,19 @@ async def test_jev_choose_refuses_when_nothing_is_a_plausible_match():
     assert not any(op == "press" for op, _ in hands.calls)
 
 
+async def test_pick_never_offers_none_for_a_subjective_want():
+    """Code review I3: _pick's 'want' is a description ('a video', 'the newest one'), not a named
+    target that might be absent -- NO_MATCH_FLOOR wrongly fired on nearly every pick (a plain "a
+    video" scored 0.1 against every real title). Among real candidates there's always a best
+    match, so pick must never be offered a "none" escape."""
+    hands = SimHands(pages={CH: CHANNEL_PAGE, "https://www.youtube.com/watch?v=n1": WATCH}, world=SAFARI_FRONT)
+    jev = PickJev()
+    p, _ = planner(hands, PlanGroq(NEWEST), jev)
+    r = await p.run("play the newest networkchuck video")
+    assert r.ok
+    assert "none" not in jev.asked[0][1]  # the criteria dict never contained a "none" key
+
+
 async def test_this_news_thing_uses_his_front_tab_even_when_safari_is_behind():
     news = "https://www.bbc.com/news"
     world = {"front_app": "Notes", "apps": ["Notes", "Safari"], "windows": [],
@@ -665,6 +678,24 @@ async def test_never_types_into_a_password_field():
     assert not any(op == "set_text" for op, _ in hands.calls)  # never actually typed
 
 
+async def test_never_types_into_an_email_field_on_a_login_screen():
+    """Code review I2: the P0 #2 log case was typing daryl@example.com into an EMAIL field ("Email
+    or mobile number", Netflix's real login label) -- its own label/role never contains any of
+    _CREDENTIAL_WORDS, so the field-only check always missed this half. A screen is a login form
+    if ANY element on it is a real password field (web inputs report role "input:password"), and
+    then no field on that screen may be typed into, whatever its own label says."""
+    plan = {"steps": [{"do": "open_url", "url": "https://example.com/login"},
+                      {"do": "find", "what": "Email or mobile number", "typeable": True, "then": "set_text",
+                       "text": "daryl@example.com"}, {"do": "done", "say": "Logged in."}]}
+    login_page = [{"id": "e1", "role": "input:text", "label": "Email or mobile number", "typeable": True},
+                  {"id": "e2", "role": "input:password", "label": "Password", "typeable": True}]
+    hands = SimHands(pages={"https://example.com/login": login_page}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("log into example.com")
+    assert not r.ok and r.ask
+    assert not any(op == "set_text" for op, _ in hands.calls)
+
+
 async def test_replan_still_hits_the_credential_ban():
     """The ban lives in _act, which every set_text step funnels through regardless of whether
     the plan came from the first _plan() call or a replan (planner.py:220 calls _plan(first=False)
@@ -705,6 +736,23 @@ async def test_done_after_a_passed_expect_is_verified():
     r = await p.run("open settings and check bluetooth is there")
     assert r.ok is True
     assert r.verified is True
+
+
+async def test_an_unchecked_action_after_a_passed_expect_is_not_marked_verified():
+    """Code review I4: 'checked' never reset once True, so an expect early in the plan kept
+    verified=True forever, even for a later action (a press) whose actual result was never
+    re-checked. A plan of open_url -> expect(ok) -> find+press -> done wrongly reported the FINAL
+    press as verified when nothing confirmed the press actually worked."""
+    plan = {"steps": [{"do": "open_url", "url": "https://example.com/settings"},
+                      {"do": "expect", "element": "Bluetooth"},
+                      {"do": "find", "what": "Bluetooth", "then": "press"},
+                      {"do": "done", "say": "Turned it on."}]}
+    page = [{"id": "e1", "label": "Bluetooth", "role": "button"}]
+    hands = SimHands(pages={"https://example.com/settings": page}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(plan))
+    r = await p.run("open settings and turn on bluetooth")
+    assert r.ok is True
+    assert r.verified is False  # the press after the expect was never itself re-checked
 
 
 async def test_a_read_result_counts_as_verified_evidence():

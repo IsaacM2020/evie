@@ -76,11 +76,22 @@ _CREDENTIAL_WORDS = re.compile(r"\b(password|passcode|passphrase|pin code|securi
                                r"log ?in|sign ?in|username|user ?name)\b", re.I)
 
 
-def _is_credential_field(el: dict) -> bool:
+def _is_login_screen(screen: Screen | None) -> bool:
+    """True if any element on this screen is a real password field (web inputs report this as
+    role "input:password" -- Eyes.swift's JS: role = 'input:' + el.type). A screen with a
+    password field anywhere on it is a login form, and Evie must not type into ANY field on it --
+    2026-09-26 code review I2: the P0 #2 case (typing daryl@example.com) was an EMAIL field next
+    to a password field, whose label ("Email or mobile number", "Email or phone") contains none
+    of _CREDENTIAL_WORDS. Checking the field's own text alone always misses this half."""
+    return screen is not None and any("password" in (e.get("role") or "").lower() for e in screen.elements)
+
+
+def _is_credential_field(el: dict, screen: Screen | None = None) -> bool:
     """A field Evie must never type into, full stop -- no countdown, no confirmation. Checked by
-    label/role text, not by which app it's in: any app can have a login form."""
+    label/role text on the field itself, or by the field simply being on a login screen (any
+    screen with a real password field on it) -- any app can have a login form."""
     hay = " ".join(str(el.get(k, "")) for k in ("label", "role", "meta"))
-    return bool(_CREDENTIAL_WORDS.search(hay))
+    return bool(_CREDENTIAL_WORDS.search(hay)) or _is_login_screen(screen)
 
 # "a mrbeast video", "a video by networkchuck", "a bbc article": a creator or site but not WHICH one. She opens the
 # list and asks (Isaac, 2026-09-24). Any hint ("newest", "about solar", "that explains...") means she picks instead.
@@ -252,6 +263,11 @@ class Planner:
             did = did or do in _DOING
             if do in ("expect", "read") or (do == "action" and said is not None):
                 checked = True
+            elif do in _DOING:
+                # 2026-09-26 code review I4: any doing-step invalidates a PRIOR check -- an
+                # expect early in the plan must not keep verified=True forever; only the state
+                # actually re-checked (or read/answered) since the LAST doing-step counts.
+                checked = False
             if said is not None:  # read / action results end the task with what she found
                 return Outcome(True, said, verified=checked)
         if not did and not self._did:
@@ -391,9 +407,14 @@ class Planner:
         if not pool:
             raise _Fail(f"no {st.get('among')} on this page")
         want = str(st.get("want") or "")
+        # want is a subjective description ("the newest video", "the most interesting one"), not
+        # a named target that might not exist -- among real candidates there's always a best
+        # match, so no plausible-match floor / "none" option belongs here (2026-09-26 code review
+        # I3: "a video" scored 0.1 against every real title, well under the floor, offering a
+        # false "none" on nearly every pick).
         el = await self._jev_choose(
             f"Isaac asked: \"{self._goal}\". Which one is {want}? They're listed in page order "
-            "(first = top of the page). Pick the best match.", pool[:12], f"pick {want!r}", want)
+            "(first = top of the page). Pick the best match.", pool[:12], f"pick {want!r}")
         self._picked = el.get("label", "")
         others = [{k: r[k] for k in ("id", "label", "meta", "href") if r.get(k)} for r in pool[:4] if r["id"] != el["id"]]
         self._alt = self._pick_state({**st, "then": "press"}, others[:3]) if others else None
@@ -505,7 +526,7 @@ class Planner:
         then = st.get("then", "press")
         text = str(st.get("text") or "")
         op = "set_text" if then == "set_text" else "press"
-        if op == "set_text" and _is_credential_field(el):
+        if op == "set_text" and _is_credential_field(el, self._screen):
             raise _Ask("I don't type into password or login fields. You'll need to do that part yourself.")
         known = self._app() in CARDS
         if is_risky(op, el, text, flagged=bool(st.get("risky"))):

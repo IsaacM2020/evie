@@ -97,6 +97,42 @@ def test_unknown_id_operations_are_a_no_op(tmp_path):
     assert s.get("nope") is None
 
 
+def test_different_named_channels_are_never_treated_as_the_same_procedure(tmp_path):
+    """Code review finding C2: 'play a video by mrbeast' and 'play a video by networkchuck'
+    both had empty _entities() (no on/off word, no digit), so they matched on SequenceMatcher
+    similarity alone and merged into ONE record -- learn() then overwrote mrbeast's steps with
+    networkchuck's, so 'play a video by mrbeast' would silently run NetworkChuck's steps."""
+    s = ProcedureStore(path=tmp_path / "p.json")
+    s.learn("play a video by mrbeast", [{"do": "mrbeast_steps"}])
+    s.learn("play a video by networkchuck", [{"do": "networkchuck_steps"}])
+    assert len(s.list_procedures()) == 2
+    found = s.find_any("play a video by mrbeast")
+    assert found is not None and found.steps == [{"do": "mrbeast_steps"}]
+
+
+def test_different_profile_names_are_never_treated_as_the_same_procedure(tmp_path):
+    """The exact P0 #1 target ('Daryl') and a different real profile ('Isaac') must never share
+    a procedure record just because the surrounding words match."""
+    s = ProcedureStore(path=tmp_path / "p.json")
+    s.learn("open netflix and click the profile daryl", [{"do": "x"}])
+    assert s.find_any("open netflix and click the profile isaac") is None
+
+
+def test_opposite_verbs_without_on_off_are_never_treated_as_the_same_procedure(tmp_path):
+    """_entities() only special-cased the literal words 'on'/'off' -- 'enable'/'disable',
+    'mute'/'unmute', 'lock'/'unlock', 'show'/'hide', 'open'/'close' all produced the SAME (empty)
+    entity set and were indistinguishable by that gate alone."""
+    s = ProcedureStore(path=tmp_path / "p.json")
+    s.learn("enable dark mode", [{"do": "enable_steps"}])
+    assert s.find_any("disable dark mode") is None
+
+
+def test_spelled_out_numbers_are_never_treated_as_the_same_procedure(tmp_path):
+    s = ProcedureStore(path=tmp_path / "p.json")
+    s.learn("set volume to five", [{"do": "x"}])
+    assert s.find_any("set volume to ten") is None
+
+
 def test_on_and_off_are_never_treated_as_the_same_procedure(tmp_path):
     """P0 #4 (core.log): 'wifi on' matched a learned 'wifi off' procedure at 0.88 similarity.
     On/off (and other opposite-entity pairs) must never fuzzy-match each other, however similar

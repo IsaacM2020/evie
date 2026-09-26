@@ -26,18 +26,27 @@ REUSE_AFTER = 2  # successes needed before a procedure is trusted enough to repl
 RETIRE_AFTER = 2  # consecutive failures since its last success before it's retired
 MAX_PROCEDURES = 200  # a growth cap (Phase 6 P2 memory policy): least-recently-used drop first
 
-_ON_OFF = re.compile(r"\b(on|off)\b")
-_NUMBER = re.compile(r"\b\d+(?:\.\d+)?\b")
+_WORD = re.compile(r"[a-z0-9]+")
+_FILLER = {"a", "an", "the", "please", "hey", "evie", "to", "my", "on", "at", "for"}
 
 
-def _entities(goal: str) -> frozenset[str]:
-    """The parts of a goal that must match EXACTLY for a procedure to be reused: on/off state and
-    numbers. Word-shape similarity alone conflates 'wifi on' with 'wifi off' (0.88 by
-    SequenceMatcher) -- this catches that class of mismatch regardless of overall phrasing
-    similarity, without needing capitalization (goals arrive lowercased from speech-to-text, so a
-    proper-noun heuristic keyed on capital letters would never fire on real input)."""
-    g = goal.lower()
-    return frozenset(_ON_OFF.findall(g)) | frozenset(_NUMBER.findall(g))
+def _entities(goal: str) -> tuple[str, ...]:
+    """The content words of a goal, lowercased, punctuation stripped, small fillers dropped, in
+    order. Two goals must produce the EXACT SAME sequence to be considered the same procedure.
+
+    2026-09-26 code review (C2): an earlier version of this only special-cased the literal words
+    "on"/"off" and digit numbers, so opposite verbs without those words (enable/disable, mute/
+    unmute, lock/unlock), spelled-out numbers ("five" vs "ten"), and -- most importantly --
+    different names ("mrbeast" vs "networkchuck", "daryl" vs "isaac") all produced the SAME empty
+    entity set and were fuzzy-matched as the same procedure by SequenceMatcher alone. That let one
+    channel's/profile's/contact's learned steps silently overwrite another's record and get
+    replayed for the wrong target. Word-shape similarity is exactly the wrong tool for telling
+    "play a video by mrbeast" apart from "play a video by networkchuck" -- they're almost
+    identical strings. Only exact content-word equality is safe; the near-identical-phrasing case
+    this must still allow ("mrbeast" vs "MrBeast", different case only) is handled by lowercasing
+    before comparing, not by fuzzy matching."""
+    words = [w for w in _WORD.findall(goal.lower()) if w not in _FILLER]
+    return tuple(words)
 
 
 @dataclass

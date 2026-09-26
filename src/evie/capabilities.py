@@ -18,6 +18,8 @@ CAN = [
     "background and keep talking while it runs",
 ]
 CANT_YET = [
+    "describe or explain what's in an image, photo or diagram (she can only find a numbered "
+    "screen element by looking, never describe visual content)",
     "pay for things or log in to accounts",
 ]
 

@@ -45,6 +45,35 @@ async def test_bash_hook_allows_safe_commands():
     assert await bash_hook({"tool_name": "Bash", "tool_input": {"command": "ls"}}, "t1", None) == {}
 
 
+async def test_bash_hook_denies_a_task_call_that_requests_opus():
+    """Review finding C1: the Bash|Task|Agent matcher (Task 5) is useless without the hook itself
+    checking a non-Bash tool's input -- an Agent/Task call carries no 'command' key, so guard_bash
+    was always a no-op for it. A sub-agent spawned with model: 'opus' must be denied here, not
+    silently allowed because bash_hook only ever looked at tool_input['command']."""
+    out = await bash_hook({"tool_name": "Task", "tool_input": {"subagent_type": "general-purpose",
+                                                                "model": "opus", "prompt": "do x"}}, "t1", None)
+    hso = out["hookSpecificOutput"]
+    assert hso["permissionDecision"] == "deny" and "opus" in hso["permissionDecisionReason"].lower()
+
+
+async def test_bash_hook_denies_an_agent_call_with_a_full_opus_model_id():
+    out = await bash_hook({"tool_name": "Agent", "tool_input": {"model": "claude-opus-5-5"}}, "t1", None)
+    hso = out["hookSpecificOutput"]
+    assert hso["permissionDecision"] == "deny"
+
+
+async def test_bash_hook_allows_a_task_call_with_an_allowed_model():
+    out = await bash_hook({"tool_name": "Task", "tool_input": {"subagent_type": "general-purpose",
+                                                                "model": "sonnet", "prompt": "do x"}}, "t1", None)
+    assert out == {}
+
+
+async def test_bash_hook_allows_a_task_call_with_no_model_specified():
+    out = await bash_hook({"tool_name": "Task", "tool_input": {"subagent_type": "general-purpose",
+                                                                "prompt": "do x"}}, "t1", None)
+    assert out == {}
+
+
 @pytest.mark.parametrize("block,line", [
     (ToolUseBlock("1", "Read", {"file_path": "/Users/isaac/x/model.py"}), "Read model.py"),
     (ToolUseBlock("1", "Edit", {"file_path": "/a/chase.py"}), "Edited chase.py"),
