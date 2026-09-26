@@ -647,3 +647,37 @@ async def test_his_answer_is_matched_against_titles_not_the_thumbnail_badges():
     state, opts = jev.asked[0]
     assert opts == ["w4", "w6"]  # the title links, never the badges
     assert r2.ok and hands.url.endswith("watch?v=p2")
+
+
+async def test_never_types_into_a_password_field():
+    """P0 #2 (core.log 2026-09-25 17:54): a replan once planned typing daryl@example.com and a
+    password into a login form. This must be a hard code-level ban, not a confirmable risky
+    action -- is_risky's 3s countdown is the wrong gate here (a missed 'stop' would type a real
+    credential)."""
+    plan = {"steps": [{"do": "open_url", "url": "https://example.com/login"},
+                      {"do": "find", "what": "Password", "typeable": True, "then": "set_text", "text": "hunter2"},
+                      {"do": "done", "say": "Logged in."}]}
+    login_page = [{"id": "e1", "role": "textfield", "label": "Password", "typeable": True}]
+    hands = SimHands(pages={"https://example.com/login": login_page}, world=SAFARI_FRONT)
+    p, said = planner(hands, PlanGroq(plan))
+    r = await p.run("log into example.com")
+    assert not r.ok and r.ask
+    assert not any(op == "set_text" for op, _ in hands.calls)  # never actually typed
+
+
+async def test_replan_still_hits_the_credential_ban():
+    """The ban lives in _act, which every set_text step funnels through regardless of whether
+    the plan came from the first _plan() call or a replan (planner.py:220 calls _plan(first=False)
+    with a fresh model call) -- this pins that a REPLANNED step targeting a credential field is
+    caught exactly the same way as a first-attempt one, not just on the happy path."""
+    wrong = {"steps": [{"do": "open_url", "url": "https://example.com/login"},
+                       {"do": "expect", "element": "Sign in"}, {"do": "done", "say": "x"}]}  # fails: no "Sign in" on screen
+    fixed = {"steps": [{"do": "find", "what": "Email or username", "typeable": True,
+                        "then": "set_text", "text": "daryl@example.com"},
+                       {"do": "done", "say": "Logged in."}]}
+    login_page = [{"id": "e9", "role": "textfield", "label": "Email or username", "typeable": True}]
+    hands = SimHands(pages={"https://example.com/login": login_page}, world=SAFARI_FRONT)
+    p, _ = planner(hands, PlanGroq(wrong, fixed))
+    r = await p.run("log into example.com")
+    assert not r.ok and r.ask
+    assert not any(op == "set_text" for op, _ in hands.calls)

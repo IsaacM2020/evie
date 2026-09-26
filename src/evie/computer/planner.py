@@ -73,6 +73,16 @@ _SEND_KEYS = {"return", "enter", "cmd+return", "cmd+enter", "shift+cmd+d", "cmd+
 MESSAGING_APPS = {"WhatsApp", "Messages", "Mail", "Slack", "Discord", "Telegram", "Microsoft Teams", "Signal"}
 _DOING = {"open_url", "find", "pick", "key", "menu", "action", "message", "activate"}
 
+_CREDENTIAL_WORDS = re.compile(r"\b(password|passcode|passphrase|pin code|security code|"
+                               r"log ?in|sign ?in|username|user ?name)\b", re.I)
+
+
+def _is_credential_field(el: dict) -> bool:
+    """A field Evie must never type into, full stop -- no countdown, no confirmation. Checked by
+    label/role text, not by which app it's in: any app can have a login form."""
+    hay = " ".join(str(el.get(k, "")) for k in ("label", "role", "meta"))
+    return bool(_CREDENTIAL_WORDS.search(hay))
+
 # "a mrbeast video", "a video by networkchuck", "a bbc article": a creator or site but not WHICH one. She opens the
 # list and asks (Isaac, 2026-09-24). Any hint ("newest", "about solar", "that explains...") means she picks instead.
 _VAGUE_ITEM = re.compile(r"\b(a|an|any|some)\s+(\S+\s+){0,2}(videos?|vids?|articles?|stor(y|ies)|episodes?|posts?)\b",
@@ -497,6 +507,8 @@ class Planner:
         then = st.get("then", "press")
         text = str(st.get("text") or "")
         op = "set_text" if then == "set_text" else "press"
+        if op == "set_text" and _is_credential_field(el):
+            raise _Ask("I don't type into password or login fields. You'll need to do that part yourself.")
         known = self._app() in CARDS
         if is_risky(op, el, text, flagged=bool(st.get("risky"))):
             if not known:
