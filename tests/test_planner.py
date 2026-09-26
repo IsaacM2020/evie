@@ -896,3 +896,28 @@ async def test_single_display_never_calls_place_window():
     p, _ = planner(hands, PlanGroq(plan))
     await p.run("open notion and make a note")
     assert [a for op, a in hands.calls if op == "place_window"] == []
+
+
+async def test_assign_workspace_uses_objective_not_its_own_duplicate_policy_call():
+    """P2-D wiring: _assign_workspace used to call workspace.default_policy itself, independently
+    of objective.from_goal computing the exact same thing from the exact same goal text -- two
+    copies of one decision that could silently drift (the same class of risk this plan's own
+    Review Focus flagged for perception.choose_source). Now there is exactly one place this is
+    decided: Objective.preferred_workspace, computed once in run() and passed through. Patching
+    objective.from_goal and asserting it was actually called (with this goal) proves _assign_workspace
+    no longer derives the policy on its own."""
+    from unittest.mock import patch
+    from evie.computer.objective import Objective
+    from evie.computer.workspace import DisplayPolicy
+    hands = SimHands(apps={"Notion": [{"id": "a1", "role": "button", "label": "New"}]},
+                     world={"front_app": "Finder", "apps": ["Notion"], "windows": [{"app": "Notion", "title": ""}],
+                           "tabs": [], "selected": ""})
+    hands.state_response = TWO_DISPLAYS_STATE
+    plan = {"steps": [{"do": "done", "say": "Opened Notion."}]}
+    p, _ = planner(hands, PlanGroq(plan))
+    fake = Objective(desired_outcome="open notion and make a note", preferred_workspace=DisplayPolicy.EVIE_PRIVATE)
+    with patch("evie.computer.planner.objective_from_goal", return_value=fake) as mock:
+        await p.run("open notion and make a note")
+        assert mock.called and mock.call_args.args[0] == "open notion and make a note"
+    place_calls = [a for op, a in hands.calls if op == "place_window"]
+    assert place_calls == [{"app": "Notion", "display_id": "display-1"}]

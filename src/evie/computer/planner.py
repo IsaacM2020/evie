@@ -23,11 +23,11 @@ from typing import Callable
 from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
 from evie.computer.find import _BADGE, NO_MATCH_FLOOR, best_score, candidates, find_in_code, pick_pool
 from evie.computer.observe import Screen
-from evie.computer.objective import _SHOW_ME
+from evie.computer.objective import Objective, from_goal as objective_from_goal
 from evie.computer.perception import PerceptionSource, choose_source
 from evie.computer.safety import is_risky
 from evie.computer.state import ComputerState
-from evie.computer.workspace import DisplayPolicy, assign_display, default_policy
+from evie.computer.workspace import DisplayPolicy, assign_display
 from evie.computer.world import Target, World
 from evie.countdown import Countdown
 from evie.jev import JevError
@@ -212,9 +212,10 @@ class Planner:
         if target.kind == "choose":
             target = await self._choose_tab(goal, target)
         self._target, self._world_now = target, world
+        self._objective = objective_from_goal(goal, target)
         await self._go_to(target)
         if target.kind == "app" and target.app:
-            await self._assign_workspace(target.app, goal)
+            await self._assign_workspace(target.app, self._objective)
         self._understood = ""
         if steps is None:
             steps = await self._plan(first=True)
@@ -616,13 +617,16 @@ class Planner:
         except ValueError:
             return ComputerState.from_data({})
 
-    async def _assign_workspace(self, app: str, goal: str) -> None:
+    async def _assign_workspace(self, app: str, objective: Objective) -> None:
         """spec §6-7: ordinary autonomous work belongs on Evie's own display, not wherever a
         window happened to open; 'show me'/observe move it to Isaac's. Single-display (or no
-        second display connected) is a no-op -- assign_display returns None."""
+        second display connected) is a no-op -- assign_display returns None.
+
+        objective.preferred_workspace is computed once in run() (Objective.from_goal) -- this used
+        to call workspace.default_policy itself, an independent copy of the exact same decision
+        from the exact same goal text. One source of truth now (2026-09-26 P2-D wiring)."""
         state = await self._state()
-        policy = default_policy(explicit_show_me=bool(_SHOW_ME.search(goal)), explicit_observe=False)
-        display_id = assign_display(policy, state.displays)
+        display_id = assign_display(objective.preferred_workspace, state.displays)
         if display_id is None:
             return
         current = next((w.display for w in state.windows if w.app == app), None)
