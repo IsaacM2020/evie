@@ -405,6 +405,93 @@ def test_allowed_models_set_matches_the_three_named_in_the_spec():
     assert ALLOWED_MODELS == frozenset({"claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-fable-5-1"})
 
 
+def test_make_client_passes_mcp_servers_through_when_given():
+    """P3 wiring: make_client(mcp_servers=...) reaches ClaudeAgentOptions.mcp_servers -- this is
+    how brain.py's stuck-computer-task handoff will give Claude Code bridge.build_evie_hands_server()
+    so it drives Evie's own hands instead of reinventing osascript."""
+    fake_server = {"type": "sdk", "name": "evie_hands", "instance": object()}
+    client = make_client(mcp_servers={"evie_hands": fake_server})
+    assert client.options.mcp_servers == {"evie_hands": fake_server}
+
+
+def test_make_client_omits_mcp_servers_when_not_given():
+    """Every ordinary coding/research job must NOT get Evie's hands tools -- only an explicit
+    mcp_servers= call site (the computer-use stuck handoff) does."""
+    client = make_client()
+    assert not client.options.mcp_servers
+
+
+async def test_job_runner_start_threads_mcp_servers_into_the_factory_call():
+    """JobRunner.start(goal, mcp_servers=...) must reach self._factory(**kw) with mcp_servers in
+    kw, not silently drop it -- this is the plumbing brain.py's stuck-task handoff depends on."""
+    calls = []
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            pass
+
+        async def query(self, prompt):
+            pass
+
+        async def receive_response(self):
+            return
+            yield  # pragma: no cover - makes this an async generator
+
+    def factory(**kw):
+        calls.append(kw)
+        return _FakeClient()
+
+    async def _noop_event(job, line):
+        pass
+
+    async def _noop_done(job):
+        pass
+
+    fake_server = {"type": "sdk", "name": "evie_hands"}
+    runner = JobRunner(on_event=_noop_event, on_done=_noop_done, client_factory=factory)
+    await runner.start("do something on screen", mcp_servers={"evie_hands": fake_server})
+    await runner.wait()
+    assert calls == [{"mcp_servers": {"evie_hands": fake_server}}]
+
+
+async def test_job_runner_start_omits_mcp_servers_kwarg_when_not_given():
+    """The common case (no mcp_servers passed) must call the factory with the SAME shape as
+    before this wiring existed -- no empty mcp_servers key added when nothing was asked for."""
+    calls = []
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            pass
+
+        async def query(self, prompt):
+            pass
+
+        async def receive_response(self):
+            return
+            yield  # pragma: no cover
+
+    def factory(**kw):
+        calls.append(kw)
+        return _FakeClient()
+
+    async def _noop_event(job, line):
+        pass
+
+    async def _noop_done(job):
+        pass
+
+    runner = JobRunner(on_event=_noop_event, on_done=_noop_done, client_factory=factory)
+    await runner.start("write some code")
+    await runner.wait()
+    assert calls == [{}]
+
+
 def test_job_runner_calls_the_factory_with_no_model_kwarg_when_tier_is_unset():
     """job.tier == "" (pick_tier wasn't wired, or Jev was down) must still reach make_client's
     own model=None -> TIERS['normal'] resolution -- not skip model validation by never calling

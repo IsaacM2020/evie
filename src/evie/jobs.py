@@ -158,7 +158,7 @@ async def pick_tier(jev, goal: str) -> str:
 
 def make_client(cwd: Path | str = Path.home() / "IsaacOS", max_turns: int = 60, model: str | None = None,
                 effort: str | None = None, session_id: str | None = None,
-                resume: str | None = None) -> ClaudeSDKClient:
+                resume: str | None = None, mcp_servers: dict | None = None) -> ClaudeSDKClient:
     model = model or TIERS["normal"][0]  # never let Claude Code's own settings pick a model unvetted
     if model not in ALLOWED_MODELS:
         raise ValueError(f"Evie never runs {model!r} — only {sorted(ALLOWED_MODELS)}")  # Isaac, 2026-09-24/26
@@ -167,6 +167,8 @@ def make_client(cwd: Path | str = Path.home() / "IsaacOS", max_turns: int = 60, 
         extra = {"resume": resume, "continue_conversation": True}
     elif session_id:  # a fresh job, but with an id of our choosing so we can resume it later
         extra = {"session_id": session_id}
+    if mcp_servers:  # P3: e.g. bridge.build_evie_hands_server() for a stuck computer-use handoff
+        extra["mcp_servers"] = mcp_servers
     return ClaudeSDKClient(ClaudeAgentOptions(
         model=model,
         effort=effort,
@@ -271,7 +273,11 @@ class JobRunner:
         return self._job if self._job and self._job.status == "running" else None
 
     # -- foreground: exactly Phase 1-5's behaviour --------------------------------------------
-    async def start(self, goal: str) -> Job:
+    async def start(self, goal: str, mcp_servers: dict | None = None) -> Job:
+        """mcp_servers: P3 -- passed straight to make_client's ClaudeAgentOptions when set (e.g.
+        brain.py's stuck-computer-task handoff wires in bridge.build_evie_hands_server() so Claude
+        Code drives Evie's own hands instead of reinventing osascript). None for every other job:
+        plain coding/research work never gets Evie's hands tools."""
         if self.current:
             raise Busy(self.current.goal)
         self._job = Job(goal=goal)
@@ -279,12 +285,14 @@ class JobRunner:
             self._job.tier = await self._pick_tier(goal)
             log.info("job %s tier %s (%s)", self._job.id, self._job.tier, TIERS[self._job.tier][0])
         self._queued = []
-        self._task = asyncio.create_task(self._run(self._job))
+        self._task = asyncio.create_task(self._run(self._job, mcp_servers))
         return self._job
 
-    async def _run(self, job: Job) -> None:
+    async def _run(self, job: Job, mcp_servers: dict | None = None) -> None:
         try:
             kw = dict(zip(("model", "effort"), TIERS[job.tier])) if job.tier in TIERS else {}
+            if mcp_servers:
+                kw["mcp_servers"] = mcp_servers
             async with self._factory(**kw) as client:
                 await client.query(job.goal)
                 while True:
