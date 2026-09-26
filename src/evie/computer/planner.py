@@ -24,6 +24,7 @@ from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
 from evie.computer.find import _BADGE, NO_MATCH_FLOOR, best_score, candidates, find_in_code, pick_pool
 from evie.computer.observe import Screen
 from evie.computer.safety import is_risky
+from evie.computer.state import ComputerState
 from evie.computer.world import Target, World
 from evie.countdown import Countdown
 from evie.jev import JevError
@@ -600,6 +601,13 @@ class Planner:
             return World.from_data(json.loads(r.data.get("world") or "{}") if r.ok else {})
         except ValueError:
             return World.from_data({})
+
+    async def _state(self) -> ComputerState:
+        r = await self._hands.do("state", timeout=6.0)
+        try:
+            return ComputerState.from_data(json.loads(r.data.get("state") or "{}") if r.ok else {})
+        except ValueError:
+            return ComputerState.from_data({})
 
     async def _choose_tab(self, goal: str, target: Target) -> Target:
         crit = {f"t{i}": f"{t.title} ({t.host})" for i, t in enumerate(target.choices)}

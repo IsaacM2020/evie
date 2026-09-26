@@ -765,3 +765,27 @@ async def test_a_read_result_counts_as_verified_evidence():
     r = await p.run("what does the calculator show")
     assert r.ok is True
     assert r.verified is True
+
+
+async def test_state_reads_and_parses_the_new_state_op():
+    """P1-A wiring: Planner._state() calls the new 'state' hands op and parses it with
+    ComputerState.from_data() -- mirrors _world()'s existing pattern exactly."""
+    from evie.computer.state import ComputerState
+    raw = {"version": 5, "ts": 100.0, "displays": [{"id": "d1", "builtin": True, "frame": [0, 0, 100, 100]}],
+           "windows": [], "front_app": "Safari", "front_element": None, "tabs": []}
+    hands = SimHands(world=SAFARI_FRONT)
+    hands.state_response = json.dumps(raw)
+    p, _ = planner(hands, PlanGroq())
+    s = await p._state()
+    assert isinstance(s, ComputerState) and s.version == 5 and s.front_app == "Safari"
+
+
+async def test_state_falls_back_to_empty_on_a_failed_op():
+    """Same fallback-on-failure pattern as _world(): a failed state op never crashes the
+    planner, it just returns an empty ComputerState."""
+    from evie.computer.state import ComputerState
+    hands = SimHands(world=SAFARI_FRONT)
+    hands.state_ok = False
+    p, _ = planner(hands, PlanGroq())
+    s = await p._state()
+    assert isinstance(s, ComputerState) and s.version == 0

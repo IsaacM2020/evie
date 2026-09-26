@@ -17,6 +17,8 @@ class SimHands:
         self.focus = "web"  # "web" or an app name: what observe reads
         self.calls: list[tuple[str, dict]] = []
         self.snap = 0
+        self.state_response = "{}"
+        self.state_ok = True
         for t in self.world.get("tabs", []):
             if t.get("current") and t.get("order") == 1:
                 self.url = t["url"]
@@ -50,6 +52,8 @@ class SimHands:
         self.calls.append((op, a))
         if op == "world":
             return HandsResult(True, "ok", {"world": json.dumps(self.world)})
+        if op == "state":
+            return HandsResult(self.state_ok, "ok", {"state": self.state_response})
         if op == "observe":
             app = a.get("app")
             if app and app != "Safari":
