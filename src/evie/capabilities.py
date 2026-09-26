@@ -13,11 +13,11 @@ CAN = [
     "undo the last thing she did",
     "operate apps and web pages on the Mac: play a YouTube video, open tabs, search, click and type in apps "
     "(Safari first), and send WhatsApp or iMessage messages after reading them back",
+    "look at a screenshot when the screen has too little to read structurally, to find something on it",
     "hand bigger work (coding, research, files, anything multi-step on the Mac) to Claude Code in the "
     "background and keep talking while it runs",
 ]
 CANT_YET = [
-    "look at screenshots or images (she reads screens as text)",
     "pay for things or log in to accounts",
 ]
 

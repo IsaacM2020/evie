@@ -24,7 +24,6 @@ from evie.computer.cards import ACTIONS, CARDS, card_for, render_action
 from evie.computer.find import _BADGE, NO_MATCH_FLOOR, best_score, candidates, find_in_code, pick_pool
 from evie.computer.observe import Screen
 from evie.computer.safety import is_risky
-from evie.computer.vision_fallback import needs_visual_fallback
 from evie.computer.world import Target, World
 from evie.countdown import Countdown
 from evie.jev import JevError
@@ -172,14 +171,13 @@ class Planner:
 
     def __init__(self, hands, groq, jev, countdown: Countdown, say: Callable[[str], None], settle_s: float = 0.5,
                  window_s: float = 3.0, show_work: Callable[[], bool] = lambda: True,
-                 progress: Callable[[str], None] | None = None, messages=None, talker=None, vision=None):
+                 progress: Callable[[str], None] | None = None, messages=None, talker=None):
         self._hands, self._groq, self._jev, self._countdown, self._say = hands, groq, jev, countdown, say
         self._settle, self._window, self._show_work = settle_s, window_s, show_work
         self._progress = progress or (lambda _t: None)
         self._messages, self._talker = messages, talker
         self._rate_wait = 8.0  # seconds to wait when every planner model hit its per-minute limit
         self.last_steps: list[dict] = []  # what run() actually used, for evie.procedures to learn from
-        self._vision = vision  # evie.computer.vision_fallback: only tried once structured reads are stuck
 
     # -- the run --------------------------------------------------------------------------------
     async def run(self, goal: str, app: str | None = None, steps: list[dict] | None = None) -> Outcome:
@@ -221,10 +219,6 @@ class Planner:
                 if replans >= MAX_REPLANS:
                     log.info("computer goal stuck: %s | %s", goal, " / ".join(self._history[-6:]))
                     tried = " / ".join(self._history[-8:])
-                    if self._vision is not None and needs_visual_fallback(self._screen):
-                        seen = await self._vision.describe(self._app())
-                        if seen:
-                            tried += f" | screen looked like: {seen}"
                     return Outcome(False, "I got stuck doing that on screen.", stuck=True, tried=tried)
                 replans += 1
                 await self._look()

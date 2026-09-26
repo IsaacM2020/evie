@@ -547,7 +547,6 @@ def build_deps(s: Settings) -> Deps:
     from evie.countdown import Countdown, Countdowns
     from evie.goals import GoalStore
     from evie.procedures import ProcedureStore
-    from evie.computer.vision_fallback import VisionFallback
     from evie.memory import Conversation
     from evie.skills.catalog import Skills
     from evie.skills.events import EventSkills
@@ -637,12 +636,9 @@ def build_deps(s: Settings) -> Deps:
                   screen=lambda: brain.scene() if brain else {})
     speak = lambda text: mouth.say(text, kind="reply")  # noqa: E731
     messages = Messages(hands, jev, sends, say=speak)
-    # No vision model is wired yet (Jev and Groq are both text-only): describe_image stays None,
-    # so this is a documented, safe no-op until a future session adds a Swift screenshot handler
-    # and a real vision call. See evie/computer/vision_fallback.py.
     planner = Planner(hands, groq, jev, sends, say=speak, show_work=lambda: ui["show_work"],
                       progress=lambda text: text and bus.publish("step", text=text), messages=messages,
-                      talker=talker, vision=VisionFallback(hands))
+                      talker=talker)
     computer = Recipes(hands, jev, talker, planner, messages=messages, procedures=ProcedureStore())
     brain = Brain(sb, talker, mouth, runner, narrator, cal, bus, jev, skills=skills, remember=remember,
                   countdown=Countdowns(countdown, sends), conversation=conversation, packs=packs, computer=computer,
