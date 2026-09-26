@@ -283,6 +283,7 @@ final class Eyes {
             return HandsOutcome(ok: r.ok, detail: r.ok ? "done" : r.out, data: ["out": r.out])
         case "menu": return menu(a["path"]?.string ?? "", app: a["app"]?.string)
         case "activate": return await activate(a["app"]?.string ?? "")
+        case "place_window": return placeWindow(app: a["app"]?.string ?? "", displayId: a["display_id"]?.string ?? "")
         case "screen_info": return await screenInfo(withPage: a["page"]?.bool ?? false)
         case "wait_page": return await waitPage(from: a["from_url"]?.string ?? "", seconds: 8)
         default: return HandsOutcome(ok: false, detail: "I don't know how to \(op) yet")
@@ -602,6 +603,33 @@ final class Eyes {
             return HandsOutcome(ok: false, detail: "couldn't build state JSON")
         }
         return HandsOutcome(ok: true, detail: "ok", data: ["state": json])
+    }
+
+    /// Moves/resizes the named app's frontmost window onto the named display (workspace.py's
+    /// assign_display() answer, made real). Fills 90% of the target display's frame, centered.
+    /// Some apps refuse programmatic moves (kAXErrorAttributeUnsupported) -- fails gracefully.
+    private func placeWindow(app name: String, displayId: String) -> HandsOutcome {
+        guard let target = app(named: name) else { return HandsOutcome(ok: false, detail: "\(name) isn't open") }
+        guard let screen = NSScreen.screens.first(where: { s -> Bool in
+            let n = s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? 0
+            return "display-\(n)" == displayId
+        }) else { return HandsOutcome(ok: false, detail: "no display \(displayId)") }
+        let axApp = AXUIElementCreateApplication(target.processIdentifier)
+        guard let windows: [AXUIElement] = Self.attr(axApp, kAXWindowsAttribute), let w = windows.first else {
+            return HandsOutcome(ok: false, detail: "\(name) has no window to move")
+        }
+        let target_frame = screen.frame.insetBy(dx: screen.frame.width * 0.05, dy: screen.frame.height * 0.05)
+        var pos = CGPoint(x: target_frame.origin.x, y: target_frame.origin.y)
+        var size = CGSize(width: target_frame.width, height: target_frame.height)
+        guard let posValue = AXValueCreate(.cgPoint, &pos), let sizeValue = AXValueCreate(.cgSize, &size) else {
+            return HandsOutcome(ok: false, detail: "couldn't build the move")
+        }
+        let posResult = AXUIElementSetAttributeValue(w, kAXPositionAttribute as CFString, posValue)
+        let sizeResult = AXUIElementSetAttributeValue(w, kAXSizeAttribute as CFString, sizeValue)
+        guard posResult == .success, sizeResult == .success else {
+            return HandsOutcome(ok: false, detail: "\(name) refused the move (error \(posResult.rawValue)/\(sizeResult.rawValue))")
+        }
+        return HandsOutcome(ok: true, detail: "moved \(name) to \(displayId)")
     }
 
     private static func bundle(for name: String) -> String {
