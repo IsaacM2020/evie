@@ -1,5 +1,7 @@
 # Evie
 
+> **⚠️ Beta, vibe-coded, use at your own risk.** This is a personal project built fast and mostly by prompting Claude — not production software. Numbers below are from my own eval runs, not independent audits. Expect bugs, half-finished phases, and rough edges. Don't trust it with anything you can't afford to have go wrong.
+
 A voice assistant that lives on my Mac, hears everything, and only acts when it's actually me talking to it.
 
 Most "AI assistants" are a chat box with a mic button bolted on. Evie isn't that. She runs an always-on open mic, tells my voice apart from everyone else's in the room, decides in ~400ms whether a sentence was even meant for her, and — if it was — either answers instantly, runs a real background job through Claude Code, or takes control of my Mac (Safari, Spotify, Calendar, any app) to get it done. She never fakes confidence: if she's not sure, she asks one question, not five.
